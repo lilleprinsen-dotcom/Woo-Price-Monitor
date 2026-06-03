@@ -68,6 +68,16 @@ The Competitors tab has two layers:
 
 `src/Admin/AdminNoticeStore.php` stores one-time user-specific notices across redirects. `src/Admin/Notices.php` renders dependency notices, including WooCommerce inactive state.
 
+`src/Admin/AdminAjaxController.php` provides the lightweight admin-only async layer for the dashboard UX. It uses WordPress AJAX actions with a dedicated nonce and the same `manage_woocommerce` / `manage_options` capability boundary. AJAX responses are JSON only and remain bounded:
+
+- product search still uses `ProductSearchService` and returns at most 20 products.
+- adding products writes only selected monitor rows.
+- drawer detail loads use one monitored product ID and limited recent competitors, observations, suggestions, and logs.
+- competitor link save/test/suggestion actions reuse existing repository, `PriceCheckService`, and `SuggestionService` paths.
+- approval actions can only record dry-run approval or rejection; AJAX does not run real WooCommerce price updates.
+
+The admin JS in `assets/admin.js` progressively enhances the existing forms with debounced async product search, a lazy-loaded monitored product side drawer, drawer competitor actions, pricing inbox suggestion details, and async dry-run approve/reject. Existing forms and paginated pages remain the non-JavaScript fallback.
+
 `src/Admin/CsvImportService.php` provides bounded CSV import preview and commit behavior. It accepts CSV files up to 512 KB and previews up to 500 non-empty rows. Product matching uses `product_id` first, then `sku`; no title search, full catalog scan, or broad WooCommerce query is used during import.
 
 `src/Assets/AdminAssets.php` loads `assets/admin.css` and `assets/admin.js` only on the plugin admin page.

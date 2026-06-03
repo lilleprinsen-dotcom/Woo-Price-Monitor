@@ -104,4 +104,27 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		</section>
 	</div>
+
+	<div class="lpm-drawer-backdrop" data-lpm-drawer-close hidden></div>
+	<aside class="lpm-drawer" aria-hidden="true" aria-label="<?php esc_attr_e( 'Product details', 'lilleprinsen-price-monitor' ); ?>">
+		<header class="lpm-drawer-header">
+			<div>
+				<p class="lpm-drawer-kicker"><?php esc_html_e( 'Monitored product', 'lilleprinsen-price-monitor' ); ?></p>
+				<h2 data-lpm-drawer-title><?php esc_html_e( 'Product details', 'lilleprinsen-price-monitor' ); ?></h2>
+			</div>
+			<button type="button" class="button-link lpm-drawer-close" data-lpm-drawer-close aria-label="<?php esc_attr_e( 'Close product details', 'lilleprinsen-price-monitor' ); ?>">×</button>
+		</header>
+		<nav class="lpm-drawer-tabs" aria-label="<?php esc_attr_e( 'Product detail sections', 'lilleprinsen-price-monitor' ); ?>">
+			<button type="button" class="is-active" data-lpm-drawer-tab="summary"><?php esc_html_e( 'Summary', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="button" data-lpm-drawer-tab="competitors"><?php esc_html_e( 'Competitors', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="button" data-lpm-drawer-tab="rules"><?php esc_html_e( 'Rules', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="button" data-lpm-drawer-tab="history"><?php esc_html_e( 'History', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="button" data-lpm-drawer-tab="suggestions"><?php esc_html_e( 'Suggestions', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="button" data-lpm-drawer-tab="logs"><?php esc_html_e( 'Logs', 'lilleprinsen-price-monitor' ); ?></button>
+		</nav>
+		<div class="lpm-drawer-body" data-lpm-drawer-body>
+			<p class="lpm-empty"><?php esc_html_e( 'Select a monitored product to load details.', 'lilleprinsen-price-monitor' ); ?></p>
+		</div>
+	</aside>
+	<div class="lpm-toast-region" aria-live="polite" aria-atomic="true"></div>
 </div>

@@ -37,5 +37,22 @@ final class AdminAssets {
 			LPM_VERSION,
 			true
 		);
+
+		wp_localize_script(
+			'lpm-admin',
+			'LPM_ADMIN',
+			array(
+				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+				'nonce'   => wp_create_nonce( 'lpm_admin_ajax' ),
+				'i18n'    => array(
+					'searching'      => __( 'Searching...', 'lilleprinsen-price-monitor' ),
+					'noProducts'     => __( 'No products found.', 'lilleprinsen-price-monitor' ),
+					'loading'        => __( 'Loading...', 'lilleprinsen-price-monitor' ),
+					'error'          => __( 'Something went wrong.', 'lilleprinsen-price-monitor' ),
+					'confirmReject'  => __( 'Reject this suggestion?', 'lilleprinsen-price-monitor' ),
+					'confirmApprove' => __( 'Record dry-run approval? WooCommerce price will not be changed.', 'lilleprinsen-price-monitor' ),
+				),
+			)
+		);
 	}
 }
