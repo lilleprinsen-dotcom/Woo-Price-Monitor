@@ -9,7 +9,6 @@ namespace Lilleprinsen\PriceMonitor\Admin;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
-use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
@@ -21,6 +20,9 @@ use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
 use Lilleprinsen\PriceMonitor\Service\RetentionService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
+use Lilleprinsen\PriceMonitor\Admin\Tabs\DashboardTab;
+use Lilleprinsen\PriceMonitor\Admin\Tabs\LogsTab;
+use Lilleprinsen\PriceMonitor\Admin\Tabs\SettingsTab;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -59,6 +61,14 @@ final class AdminPage {
 
 	private RetentionService $retention_service;
 
+	private AdminActionHandler $action_handler;
+
+	private DashboardTab $dashboard_tab;
+
+	private SettingsTab $settings_tab;
+
+	private LogsTab $logs_tab;
+
 	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null, ?RetentionService $retention_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
@@ -72,104 +82,14 @@ final class AdminPage {
 		$this->notice_store           = $notice_store ?? new AdminNoticeStore();
 		$this->csv_import_service     = $csv_import_service ?? new CsvImportService( $repository );
 		$this->retention_service      = $retention_service ?? new RetentionService( $repository, $settings );
+		$this->action_handler         = new AdminActionHandler( $this );
+		$this->dashboard_tab          = new DashboardTab();
+		$this->settings_tab           = new SettingsTab();
+		$this->logs_tab               = new LogsTab( $repository, $settings );
 	}
 
 	public function handle_actions(): void {
-		if ( empty( $_POST['lpm_action'] ) ) {
-			return;
-		}
-
-		if ( ! Plugin::can_manage() ) {
-			wp_die( esc_html__( 'You do not have permission to manage Lilleprinsen Price Monitor.', 'lilleprinsen-price-monitor' ) );
-		}
-
-		check_admin_referer( 'lpm_admin_action', 'lpm_nonce' );
-
-		$action = sanitize_key( wp_unslash( $_POST['lpm_action'] ) );
-
-		switch ( $action ) {
-			case 'add_monitored_product':
-				$this->handle_add_monitored_product();
-				break;
-			case 'enable_monitored':
-			case 'disable_monitored':
-			case 'remove_monitored':
-				$this->handle_monitored_status_action( $action );
-				break;
-			case 'update_monitored_rules':
-				$this->handle_update_monitored_rules();
-				break;
-			case 'bulk_monitored_products':
-				$this->handle_bulk_monitored_products();
-				break;
-			case 'add_competitor_link':
-			case 'update_competitor_link':
-				$this->handle_save_competitor_link( $action );
-				break;
-			case 'enable_competitor_link':
-			case 'disable_competitor_link':
-			case 'delete_competitor_link':
-				$this->handle_competitor_link_action( $action );
-				break;
-			case 'bulk_competitor_links':
-				$this->handle_bulk_competitor_links();
-				break;
-			case 'add_competitor_profile':
-			case 'update_competitor_profile':
-				$this->handle_save_competitor_profile( $action );
-				break;
-			case 'enable_competitor_profile':
-			case 'disable_competitor_profile':
-				$this->handle_competitor_profile_status_action( $action );
-				break;
-			case 'test_competitor_profile_url':
-				$this->handle_test_competitor_profile_url();
-				break;
-			case 'test_competitor_check':
-				$this->handle_test_competitor_check();
-				break;
-			case 'preview_csv_import':
-				$this->handle_preview_csv_import();
-				break;
-			case 'confirm_csv_import':
-				$this->handle_confirm_csv_import();
-				break;
-			case 'download_csv_template':
-				$this->handle_download_csv_template();
-				break;
-			case 'export_csv':
-				$this->handle_export_csv();
-				break;
-			case 'create_price_suggestion':
-				$this->handle_create_price_suggestion();
-				break;
-			case 'approve_suggestion_dry_run':
-				$this->handle_approve_suggestion_dry_run();
-				break;
-			case 'reject_suggestion':
-				$this->handle_reject_suggestion();
-				break;
-			case 'update_suggested_price':
-				$this->handle_update_suggested_price();
-				break;
-			case 'run_small_check_batch_now':
-				$this->handle_run_small_check_batch_now();
-				break;
-			case 'send_test_notification':
-				$this->handle_send_test_notification();
-				break;
-			case 'send_test_webhook':
-				$this->handle_send_test_webhook();
-				break;
-			case 'run_retention_cleanup':
-				$this->handle_run_retention_cleanup();
-				break;
-			case 'approve_and_update_price':
-				$this->handle_approve_and_update_price();
-				break;
-			default:
-				$this->redirect_to_tab( 'dashboard', 'unknown_action' );
-		}
+		$this->action_handler->handle();
 	}
 
 	public function render(): void {
@@ -292,102 +212,7 @@ final class AdminPage {
 	 * @param array<string, mixed> $table_status Schema status.
 	 */
 	public function render_dashboard( array $counts, array $settings, array $table_status, bool $woocommerce_active ): void {
-		$lock_status     = CheckCompetitorLinkJob::get_lock_status();
-		$health_warnings = $this->get_health_warnings( $counts, $settings, $woocommerce_active, $lock_status );
-		?>
-		<div class="lpm-grid lpm-grid-summary">
-			<?php
-			$this->render_summary_card( __( 'Monitored products', 'lilleprinsen-price-monitor' ), $counts['monitored_products'], __( 'Selected products only', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Active competitor links', 'lilleprinsen-price-monitor' ), $counts['active_competitor_links'], __( 'Stored direct URLs', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), $counts['pending_suggestions'], __( 'Awaiting review', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), $counts['blocked_suggestions'], __( 'Need manual attention', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Recovery suggestions', 'lilleprinsen-price-monitor' ), $counts['recovery_suggestions'], __( 'Price-up or restore plans', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['checks_last_24h'], __( 'Observation rows', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Failed checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['failed_checks_last_24h'], __( 'Observation failures', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Recent failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Last 7 days', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Active price match sessions', 'lilleprinsen-price-monitor' ), $counts['active_price_match_sessions'], __( 'Dry-run recovery state', 'lilleprinsen-price-monitor' ) );
-			?>
-		</div>
-
-		<div class="lpm-grid lpm-grid-summary">
-			<?php
-			$this->render_health_card( __( 'Last check time', 'lilleprinsen-price-monitor' ), $this->format_datetime( $counts['last_successful_check_time'] ?? null ), __( 'Latest successful observation', 'lilleprinsen-price-monitor' ), '' !== (string) ( $counts['last_successful_check_time'] ?? '' ) ? 'ok' : 'muted' );
-			$this->render_health_card( __( 'Batch lock', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? __( 'Locked', 'lilleprinsen-price-monitor' ) : __( 'Free', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['source'] ) ? sprintf( __( 'Source: %s', 'lilleprinsen-price-monitor' ), (string) $lock_status['source'] ) : __( 'Transient lock status', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? 'warning' : 'ok' );
-			$this->render_health_card( __( 'Scheduled checks', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Opt-in background work', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' );
-			$this->render_health_card( __( 'Real updates', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? __( 'Possible', 'lilleprinsen-price-monitor' ) : __( 'Impossible', 'lilleprinsen-price-monitor' ), __( 'Requires all guardrails', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' );
-			$this->render_health_card( __( 'Webhook notifications', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Make/Zapier channel', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' );
-			$this->render_health_card( __( 'Rate limiting', 'lilleprinsen-price-monitor' ), __( 'Profile delay', 'lilleprinsen-price-monitor' ), __( 'Respected during batch selection', 'lilleprinsen-price-monitor' ), 'ok' );
-			$this->render_health_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['pending_suggestions'] ), __( 'Pricing inbox', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] > 0 ? 'warning' : 'ok' );
-			$this->render_health_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['blocked_suggestions'] ), __( 'Safety review', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] > 0 ? 'danger' : 'ok' );
-			?>
-		</div>
-
-		<div class="lpm-grid lpm-grid-two">
-			<section class="lpm-card">
-				<div class="lpm-card-header">
-					<h2><?php esc_html_e( 'System status', 'lilleprinsen-price-monitor' ); ?></h2>
-				</div>
-				<table class="lpm-status-table">
-					<tbody>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'WooCommerce', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( $woocommerce_active ? __( 'Active', 'lilleprinsen-price-monitor' ) : __( 'Inactive', 'lilleprinsen-price-monitor' ), $woocommerce_active ? 'ok' : 'warning' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Plugin version', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( LPM_VERSION ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'DB schema version', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( (string) $table_status['schema_version'] ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Dry-run mode', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Scheduled checks', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Emergency update disable', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['disable_all_price_updates'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['disable_all_price_updates'] ) ? 'ok' : 'danger' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Active price match sessions', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( number_format_i18n( (int) $counts['active_price_match_sessions'] ) ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Last successful check', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( $this->format_datetime( $counts['last_successful_check_time'] ?? null ) ); ?></td>
-						</tr>
-					</tbody>
-				</table>
-			</section>
-
-			<section class="lpm-card">
-				<div class="lpm-card-header">
-					<h2><?php esc_html_e( 'Needs attention', 'lilleprinsen-price-monitor' ); ?></h2>
-					<span class="lpm-pill lpm-pill-muted"><?php esc_html_e( 'Dry-run', 'lilleprinsen-price-monitor' ); ?></span>
-				</div>
-				<p><?php esc_html_e( 'Manual checks and dry-run suggestions surface here before any real price update workflow exists.', 'lilleprinsen-price-monitor' ); ?></p>
-				<ul class="lpm-check-list">
-					<?php if ( empty( $health_warnings ) ) : ?>
-						<li><?php esc_html_e( 'No operational warnings detected from the current dashboard counts.', 'lilleprinsen-price-monitor' ); ?></li>
-					<?php else : ?>
-						<?php foreach ( $health_warnings as $warning ) : ?>
-							<li><?php echo esc_html( $warning ); ?></li>
-						<?php endforeach; ?>
-					<?php endif; ?>
-				</ul>
-				<form method="post" class="lpm-form-actions">
-					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
-					<input type="hidden" name="lpm_action" value="run_small_check_batch_now" />
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'Run one small check batch now', 'lilleprinsen-price-monitor' ); ?></button>
-				</form>
-			</section>
-		</div>
-		<?php
+		$this->dashboard_tab->render( $counts, $settings, $table_status, $woocommerce_active );
 	}
 
 	public function render_products(): void {
@@ -584,296 +409,11 @@ final class AdminPage {
 	 * @param array<string, mixed> $settings Current settings.
 	 */
 	public function render_settings( array $settings ): void {
-		?>
-		<form method="post" class="lpm-settings-form">
-			<?php wp_nonce_field( 'lpm_save_settings', 'lpm_settings_nonce' ); ?>
-			<input type="hidden" name="lpm_settings_action" value="save" />
-
-			<div class="lpm-grid lpm-grid-two">
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'General', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_checkbox_field( 'plugin_enabled', __( 'Plugin enabled', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'dry_run_mode', __( 'Dry-run mode', 'lilleprinsen-price-monitor' ), $settings, __( 'Keep this enabled while the plugin records data and suggestions only. Dry-run mode does not update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
-					$this->render_text_field( 'default_currency', __( 'Default currency', 'lilleprinsen-price-monitor' ), $settings, 'NOK' );
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Monitoring', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_number_field( 'default_check_frequency_hours', __( 'Default check frequency (hours)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_checkbox_field( 'scheduled_checks_enabled', __( 'Scheduled checks enabled', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Requires Action Scheduler; otherwise no background job is registered.', 'lilleprinsen-price-monitor' ) );
-					$this->render_number_field( 'max_urls_per_batch', __( 'Max URLs per batch', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_number_field( 'check_batch_lock_minutes', __( 'Batch lock minutes', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_checkbox_field( 'create_suggestions_from_scheduled_checks', __( 'Create suggestions from scheduled checks', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Scheduled checks never update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
-					$this->render_number_field( 'request_timeout_seconds', __( 'Request timeout (seconds)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_checkbox_field( 'retry_failed_checks', __( 'Retry failed checks', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_number_field( 'observation_retention_days', __( 'Successful observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_number_field( 'failed_observation_retention_days', __( 'Failed observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					?>
-					<p class="lpm-field-description"><?php esc_html_e( 'Batch checks use a transient lock and retry backoff. Cleanup remains manual and admin-only.', 'lilleprinsen-price-monitor' ); ?></p>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Pricing strategy', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_select_field( 'default_pricing_strategy', __( 'Default pricing strategy', 'lilleprinsen-price-monitor' ), $settings, $this->get_pricing_strategy_options() );
-					$this->render_decimal_field( 'beat_competitor_amount', __( 'Beat competitor amount', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_decimal_field( 'stay_above_competitor_amount', __( 'Stay above competitor amount', 'lilleprinsen-price-monitor' ), $settings );
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Rounding', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php $this->render_select_field( 'rounding_mode', __( 'Rounding mode', 'lilleprinsen-price-monitor' ), $settings, $this->get_rounding_mode_options() ); ?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Margin and cost', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_select_field(
-						'cost_source',
-						__( 'Cost source', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'none'            => __( 'None', 'lilleprinsen-price-monitor' ),
-							'custom_meta_key' => __( 'Custom meta key', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_text_field( 'cost_meta_key', __( 'Cost meta key', 'lilleprinsen-price-monitor' ), $settings, '_cost' );
-					$this->render_checkbox_field( 'block_if_cost_missing', __( 'Block if cost is missing', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_decimal_field( 'minimum_profit_amount', __( 'Minimum profit amount', 'lilleprinsen-price-monitor' ), $settings, __( 'Optional. Leave empty to skip fixed profit checks.', 'lilleprinsen-price-monitor' ) );
-					$this->render_decimal_field( 'default_min_margin_percent', __( 'Default minimum margin percent', 'lilleprinsen-price-monitor' ), $settings, __( 'Product-level minimum margin overrides this when set.', 'lilleprinsen-price-monitor' ) );
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'VAT', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_select_field(
-						'price_comparison_vat_mode',
-						__( 'Price comparison VAT mode', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'consumer_prices_include_vat' => __( 'Consumer prices include VAT', 'lilleprinsen-price-monitor' ),
-							'prices_exclude_vat'          => __( 'Prices exclude VAT', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_decimal_field( 'vat_rate_percent', __( 'VAT rate percent', 'lilleprinsen-price-monitor' ), $settings );
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Safety', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php
-					$this->render_decimal_field( 'min_price_difference_to_suggest', __( 'Minimum price difference to suggest', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_decimal_field( 'max_allowed_price_drop_percent', __( 'Max allowed price drop percent', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_decimal_field( 'max_allowed_price_increase_percent', __( 'Max allowed price increase percent', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'block_suggestions_for_sale_products', __( 'Block suggestions for sale products', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'block_suggestions_for_out_of_stock_products', __( 'Block suggestions for out-of-stock products', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'require_manual_approval', __( 'Require manual approval', 'lilleprinsen-price-monitor' ), $settings, __( 'Approval is stored as workflow state only unless every real-update guardrail is explicitly enabled.', 'lilleprinsen-price-monitor' ) );
-					$this->render_checkbox_field( 'disable_all_price_updates', __( 'Emergency disable all price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default on. Real updates cannot run while this is enabled.', 'lilleprinsen-price-monitor' ) );
-					$this->render_checkbox_field( 'allow_real_price_updates', __( 'Allow real price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default off. Also requires dry-run mode off and explicit confirmation.', 'lilleprinsen-price-monitor' ) );
-					$this->render_checkbox_field( 'require_confirmation_for_real_updates', __( 'Require confirmation for real updates', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_group_field(
-						'real_update_allowed_suggestion_types',
-						__( 'Allowed real update suggestion types', 'lilleprinsen-price-monitor' ),
-						$settings,
-						$this->get_real_update_type_options()
-					);
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Price recovery', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( __( 'Suggestion rules', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
-					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'These settings decide what the plugin should suggest when competitor prices go up again after a price match. Real updates still require the separate pricing safety switches and explicit confirmation.', 'lilleprinsen-price-monitor' ); ?></p>
-					<?php
-					$this->render_select_field(
-						'recovery_when_competitor_increases',
-						__( 'When competitor price increases', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'do_nothing'                           => __( 'Do nothing', 'lilleprinsen-price-monitor' ),
-							'suggest_only'                          => __( 'Suggest only', 'lilleprinsen-price-monitor' ),
-							'suggest_match_competitor'              => __( 'Suggest matching competitor', 'lilleprinsen-price-monitor' ),
-							'suggest_restore_previous_active_price' => __( 'Suggest restore previous active price', 'lilleprinsen-price-monitor' ),
-							'suggest_restore_previous_regular_price' => __( 'Suggest restore previous regular price', 'lilleprinsen-price-monitor' ),
-							'suggest_restore_previous_sale_price'   => __( 'Suggest restore previous sale price', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_select_field(
-						'recovery_if_competitor_still_below_previous_sale_price',
-						__( 'If competitor stays below previous sale price', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'keep_current_price'             => __( 'Keep current price', 'lilleprinsen-price-monitor' ),
-							'suggest_match_competitor'       => __( 'Suggest matching competitor', 'lilleprinsen-price-monitor' ),
-							'suggest_restore_previous_sale_price' => __( 'Suggest restore previous sale price', 'lilleprinsen-price-monitor' ),
-							'suggest_only'                   => __( 'Suggest only', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_select_field(
-						'recovery_if_competitor_above_previous_regular_price',
-						__( 'If competitor rises above previous regular price', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'keep_current_price'                => __( 'Keep current price', 'lilleprinsen-price-monitor' ),
-							'suggest_restore_previous_regular_price' => __( 'Suggest restore previous regular price', 'lilleprinsen-price-monitor' ),
-							'suggest_match_competitor'          => __( 'Suggest matching competitor', 'lilleprinsen-price-monitor' ),
-							'suggest_only'                      => __( 'Suggest only', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_select_field(
-						'multiple_competitor_recovery_basis',
-						__( 'Multiple competitor recovery basis', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'lowest_valid_competitor'      => __( 'Lowest valid competitor', 'lilleprinsen-price-monitor' ),
-							'primary_competitor'           => __( 'Primary competitor', 'lilleprinsen-price-monitor' ),
-							'all_competitors_must_increase' => __( 'All competitors must increase', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_select_field(
-						'price_match_write_mode',
-						__( 'Future price match write mode', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'regular_price'        => __( 'Regular price', 'lilleprinsen-price-monitor' ),
-							'sale_price'           => __( 'Sale price', 'lilleprinsen-price-monitor' ),
-							'temporary_sale_price' => __( 'Temporary sale price', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'UI', 'lilleprinsen-price-monitor' ); ?></h2>
-					</div>
-					<?php $this->render_number_field( 'rows_per_page', __( 'Rows per page', 'lilleprinsen-price-monitor' ), $settings, 1 ); ?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Retention cleanup', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( __( 'Manual only', 'lilleprinsen-price-monitor' ), 'muted' ); ?>
-					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'Cleanup deletes old debug and operational logs plus old observation rows. Approval and price-update audit logs are preserved.', 'lilleprinsen-price-monitor' ); ?></p>
-					<?php
-					$this->render_number_field( 'log_retention_days', __( 'Operational log retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_number_field( 'debug_log_retention_days', __( 'Debug log retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					$this->render_checkbox_field( 'keep_audit_logs_forever', __( 'Keep audit logs forever', 'lilleprinsen-price-monitor' ), $settings, __( 'Recommended. Approval and real-update audit logs are not deleted by cleanup.', 'lilleprinsen-price-monitor' ) );
-					?>
-				</section>
-
-				<section class="lpm-card">
-					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Webhook enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' ); ?>
-					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'Direct WhatsApp is not implemented. Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
-					<?php
-					$this->render_checkbox_field( 'notifications_enabled', __( 'Notifications enabled', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'notify_on_new_suggestion', __( 'Notify on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'notify_on_blocked_suggestion', __( 'Notify on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'notify_on_failed_check', __( 'Notify on failed check', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_text_field( 'notification_phone_number', __( 'Notification phone number', 'lilleprinsen-price-monitor' ), $settings, '+47 ...' );
-					$this->render_select_field(
-						'whatsapp_provider',
-						__( 'WhatsApp provider placeholder', 'lilleprinsen-price-monitor' ),
-						$settings,
-						array(
-							'none'           => __( 'None', 'lilleprinsen-price-monitor' ),
-							'meta_cloud_api' => __( 'Meta Cloud API', 'lilleprinsen-price-monitor' ),
-							'twilio'         => __( 'Twilio', 'lilleprinsen-price-monitor' ),
-							'make_webhook'   => __( 'Make webhook', 'lilleprinsen-price-monitor' ),
-							'zapier_webhook' => __( 'Zapier webhook', 'lilleprinsen-price-monitor' ),
-						)
-					);
-					$this->render_checkbox_field( 'webhook_notifications_enabled', __( 'Enable webhook notifications', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. When enabled, selected events are posted as JSON to the webhook URL.', 'lilleprinsen-price-monitor' ) );
-					$this->render_text_field( 'webhook_url', __( 'Webhook URL', 'lilleprinsen-price-monitor' ), $settings, 'https://hook.make.com/...' );
-					$this->render_text_field( 'webhook_secret', __( 'Webhook secret', 'lilleprinsen-price-monitor' ), $settings, __( 'Optional HMAC secret', 'lilleprinsen-price-monitor' ) );
-					$this->render_checkbox_field( 'webhook_send_on_new_suggestion', __( 'Webhook on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'webhook_send_on_blocked_suggestion', __( 'Webhook on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'webhook_send_on_failed_check', __( 'Webhook on failed check', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'webhook_send_on_recovery_suggestion', __( 'Webhook on recovery suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'Stored for future work only. Token approval links are not implemented in this version.', 'lilleprinsen-price-monitor' ) );
-					$this->render_number_field( 'token_link_expiry_hours', __( 'Token link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
-					?>
-				</section>
-			</div>
-
-			<div class="lpm-form-actions">
-				<button type="submit" class="button button-primary"><?php esc_html_e( 'Save settings', 'lilleprinsen-price-monitor' ); ?></button>
-			</div>
-		</form>
-		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
-			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
-			<input type="hidden" name="lpm_action" value="send_test_notification" />
-			<button type="submit" class="button"><?php esc_html_e( 'Send test notification', 'lilleprinsen-price-monitor' ); ?></button>
-			<span class="lpm-field-description"><?php esc_html_e( 'This writes a log notification entry only.', 'lilleprinsen-price-monitor' ); ?></span>
-		</form>
-		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
-			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
-			<input type="hidden" name="lpm_action" value="send_test_webhook" />
-			<button type="submit" class="button"><?php esc_html_e( 'Test webhook', 'lilleprinsen-price-monitor' ); ?></button>
-			<span class="lpm-field-description"><?php esc_html_e( 'Sends one JSON test payload to the saved webhook URL. No WooCommerce price update link is included.', 'lilleprinsen-price-monitor' ); ?></span>
-		</form>
-		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
-			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
-			<input type="hidden" name="lpm_action" value="run_retention_cleanup" />
-			<button type="submit" class="button"><?php esc_html_e( 'Run cleanup now', 'lilleprinsen-price-monitor' ); ?></button>
-			<span class="lpm-field-description"><?php esc_html_e( 'Admin-only cleanup for old operational logs and price observations. It does not change products or suggestions.', 'lilleprinsen-price-monitor' ); ?></span>
-		</form>
-		<?php
+		$this->settings_tab->render( $settings );
 	}
 
-	/**
-	 * @param array<string, mixed> $table_status Schema status.
-	 */
 	public function render_logs( array $table_status ): void {
-		$filters  = $this->get_log_filters();
-		$page     = $this->get_positive_query_arg( 'lpm_logs_page', 1 );
-		$per_page = (int) $this->settings->get( 'rows_per_page', 25 );
-		$logs     = $this->repository->get_logs( $filters, $page, $per_page );
-		$total    = $this->repository->count_logs( $filters );
-		?>
-		<section class="lpm-card">
-			<div class="lpm-card-header">
-				<h2><?php esc_html_e( 'Logs', 'lilleprinsen-price-monitor' ); ?></h2>
-				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
-			</div>
-			<?php $this->render_log_filters( $filters ); ?>
-			<?php $this->render_logs_table( $logs ); ?>
-			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_logs_page', array_merge( array( 'tab' => 'logs' ), $filters ) ); ?>
-		</section>
-
-		<section class="lpm-card lpm-card-spaced">
-			<div class="lpm-card-header">
-				<h2><?php esc_html_e( 'Schema status', 'lilleprinsen-price-monitor' ); ?></h2>
-				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( Schema::VERSION ); ?></span>
-			</div>
-			<?php $this->render_schema_status_table( $table_status ); ?>
-		</section>
-		<?php
+		$this->logs_tab->render( $table_status );
 	}
 
 	public function render_history(): void {
@@ -1100,7 +640,7 @@ final class AdminPage {
 		<?php
 	}
 
-	private function handle_add_monitored_product(): void {
+	public function handle_add_monitored_product(): void {
 		$product_id = isset( $_POST['product_id'] ) ? absint( wp_unslash( $_POST['product_id'] ) ) : 0;
 		$product    = $this->get_product( $product_id );
 
@@ -1124,7 +664,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'products', 'monitoring_add_failed', array( 'lpm_notice_type' => 'error' ) );
 	}
 
-	private function handle_monitored_status_action( string $action ): void {
+	public function handle_monitored_status_action( string $action ): void {
 		$monitored_product_id = isset( $_POST['monitored_product_id'] ) ? absint( wp_unslash( $_POST['monitored_product_id'] ) ) : 0;
 		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
 
@@ -1150,7 +690,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'products', 'monitoring_status_failed', array( 'lpm_notice_type' => 'error' ) );
 	}
 
-	private function handle_update_monitored_rules(): void {
+	public function handle_update_monitored_rules(): void {
 		$monitored_product_id = isset( $_POST['monitored_product_id'] ) ? absint( wp_unslash( $_POST['monitored_product_id'] ) ) : 0;
 		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
 
@@ -1193,7 +733,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'products', 'monitored_rules_update_failed', array( 'lpm_notice_type' => 'error', 'edit_rules_id' => $monitored_product_id ) );
 	}
 
-	private function handle_bulk_monitored_products(): void {
+	public function handle_bulk_monitored_products(): void {
 		$ids = $this->get_selected_ids_from_post( 'monitored_product_ids' );
 
 		if ( empty( $ids ) ) {
@@ -1256,7 +796,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'products', 'bulk_action_completed' );
 	}
 
-	private function handle_bulk_competitor_links(): void {
+	public function handle_bulk_competitor_links(): void {
 		$ids = $this->get_selected_ids_from_post( 'competitor_link_ids' );
 
 		if ( empty( $ids ) ) {
@@ -1326,7 +866,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'competitors', 'bulk_action_completed' );
 	}
 
-	private function handle_save_competitor_profile( string $action ): void {
+	public function handle_save_competitor_profile( string $action ): void {
 		$data = $this->get_competitor_profile_data_from_post();
 
 		if ( '' === $data['name'] ) {
@@ -1361,7 +901,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'competitors', 'competitor_profile_add_failed', array( 'lpm_notice_type' => 'error' ) );
 	}
 
-	private function handle_competitor_profile_status_action( string $action ): void {
+	public function handle_competitor_profile_status_action( string $action ): void {
 		$profile_id = isset( $_POST['competitor_profile_id'] ) ? absint( wp_unslash( $_POST['competitor_profile_id'] ) ) : 0;
 		$profile    = $this->repository->get_competitor( $profile_id );
 
@@ -1380,7 +920,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'competitors', 'competitor_profile_status_failed', array( 'lpm_notice_type' => 'error' ) );
 	}
 
-	private function handle_test_competitor_profile_url(): void {
+	public function handle_test_competitor_profile_url(): void {
 		$profile_id = isset( $_POST['competitor_profile_id'] ) ? absint( wp_unslash( $_POST['competitor_profile_id'] ) ) : 0;
 		$profile    = $this->repository->get_competitor( $profile_id );
 		$url        = isset( $_POST['test_url'] ) ? esc_url_raw( wp_unslash( $_POST['test_url'] ) ) : '';
@@ -1440,7 +980,7 @@ final class AdminPage {
 		);
 	}
 
-	private function handle_preview_csv_import(): void {
+	public function handle_preview_csv_import(): void {
 		$file    = isset( $_FILES['lpm_csv_file'] ) && is_array( $_FILES['lpm_csv_file'] ) ? $_FILES['lpm_csv_file'] : array();
 		$preview = $this->csv_import_service->preview_upload( $file );
 
@@ -1455,7 +995,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'import_export', 'csv_import_preview_ready', array( 'import_token' => $token ) );
 	}
 
-	private function handle_confirm_csv_import(): void {
+	public function handle_confirm_csv_import(): void {
 		$token   = isset( $_POST['import_token'] ) ? sanitize_key( wp_unslash( $_POST['import_token'] ) ) : '';
 		$preview = $this->get_import_preview( $token );
 
@@ -1478,7 +1018,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'import_export', 'csv_import_confirmed' );
 	}
 
-	private function handle_download_csv_template(): void {
+	public function handle_download_csv_template(): void {
 		$this->stream_csv(
 			'lpm-import-template.csv',
 			$this->get_import_csv_headers(),
@@ -1501,7 +1041,7 @@ final class AdminPage {
 		);
 	}
 
-	private function handle_export_csv(): void {
+	public function handle_export_csv(): void {
 		$export_type = isset( $_POST['export_type'] ) ? sanitize_key( wp_unslash( $_POST['export_type'] ) ) : '';
 
 		switch ( $export_type ) {
@@ -1522,7 +1062,7 @@ final class AdminPage {
 		}
 	}
 
-	private function handle_save_competitor_link( string $action ): void {
+	public function handle_save_competitor_link( string $action ): void {
 		$monitored_product_id = isset( $_POST['monitored_product_id'] ) ? absint( wp_unslash( $_POST['monitored_product_id'] ) ) : 0;
 		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
 
@@ -1590,7 +1130,7 @@ final class AdminPage {
 		$this->redirect_to_competitors( $monitored_product_id, 'competitor_link_add_failed', 'error' );
 	}
 
-	private function handle_competitor_link_action( string $action ): void {
+	public function handle_competitor_link_action( string $action ): void {
 		$link_id = isset( $_POST['competitor_link_id'] ) ? absint( wp_unslash( $_POST['competitor_link_id'] ) ) : 0;
 		$link    = $this->repository->get_competitor_link( $link_id );
 
@@ -1624,7 +1164,7 @@ final class AdminPage {
 		$this->redirect_to_competitors( $monitored_product_id, 'competitor_link_status_failed', 'error' );
 	}
 
-	private function handle_test_competitor_check(): void {
+	public function handle_test_competitor_check(): void {
 		$link_id = isset( $_POST['competitor_link_id'] ) ? absint( wp_unslash( $_POST['competitor_link_id'] ) ) : 0;
 		$link    = $this->repository->get_competitor_link( $link_id );
 
@@ -1716,7 +1256,7 @@ final class AdminPage {
 		$this->redirect_to_competitors( $monitored_product_id, 'competitor_check_failed', 'error' );
 	}
 
-	private function handle_create_price_suggestion(): void {
+	public function handle_create_price_suggestion(): void {
 		$link_id = isset( $_POST['competitor_link_id'] ) ? absint( wp_unslash( $_POST['competitor_link_id'] ) ) : 0;
 		$link    = $this->repository->get_competitor_link( $link_id );
 
@@ -1793,7 +1333,7 @@ final class AdminPage {
 		$this->redirect_to_competitors( $monitored_product_id, 'price_suggestion_created', 'blocked' === $status ? 'warning' : 'success' );
 	}
 
-	private function handle_approve_suggestion_dry_run(): void {
+	public function handle_approve_suggestion_dry_run(): void {
 		$suggestion = $this->get_submitted_suggestion();
 		$user_id    = get_current_user_id();
 
@@ -1863,7 +1403,7 @@ final class AdminPage {
 		$this->redirect_to_approvals( 'suggestion_approved_dry_run', 'success', 'approved_dry_run' );
 	}
 
-	private function handle_reject_suggestion(): void {
+	public function handle_reject_suggestion(): void {
 		$suggestion = $this->get_submitted_suggestion();
 
 		if ( ! $suggestion ) {
@@ -1886,7 +1426,7 @@ final class AdminPage {
 		$this->redirect_to_approvals( 'suggestion_rejected', 'success', 'rejected' );
 	}
 
-	private function handle_update_suggested_price(): void {
+	public function handle_update_suggested_price(): void {
 		$suggestion = $this->get_submitted_suggestion();
 
 		if ( ! $suggestion ) {
@@ -1920,7 +1460,7 @@ final class AdminPage {
 		$this->redirect_to_approvals( 'suggested_price_updated', 'success', $this->get_submitted_approval_view() );
 	}
 
-	private function handle_run_small_check_batch_now(): void {
+	public function handle_run_small_check_batch_now(): void {
 		$result = $this->job_scheduler->run_one_small_batch_now();
 
 		if ( ! empty( $result['locked'] ) ) {
@@ -1941,7 +1481,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'dashboard', 'small_batch_completed' );
 	}
 
-	private function handle_send_test_notification(): void {
+	public function handle_send_test_notification(): void {
 		$settings = $this->settings->get_all();
 		$this->notification_service->send(
 			'test',
@@ -1957,7 +1497,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'settings', 'test_notification_sent' );
 	}
 
-	private function handle_send_test_webhook(): void {
+	public function handle_send_test_webhook(): void {
 		$settings = $this->settings->get_all();
 		$channel  = new WebhookNotificationChannel( $this->repository );
 		$sent     = $channel->send(
@@ -1976,7 +1516,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'settings', $sent ? 'test_webhook_sent' : 'test_webhook_failed', array( 'lpm_notice_type' => $sent ? 'success' : 'error' ) );
 	}
 
-	private function handle_run_retention_cleanup(): void {
+	public function handle_run_retention_cleanup(): void {
 		$summary = $this->retention_service->run_cleanup();
 
 		$this->set_admin_notice(
@@ -1990,7 +1530,7 @@ final class AdminPage {
 		$this->redirect_to_tab( 'settings', 'retention_cleanup_completed' );
 	}
 
-	private function handle_approve_and_update_price(): void {
+	public function handle_approve_and_update_price(): void {
 		$suggestion = $this->get_submitted_suggestion();
 
 		if ( ! $suggestion ) {
@@ -4087,7 +3627,7 @@ final class AdminPage {
 		);
 	}
 
-	private function redirect_to_tab( string $tab, string $notice, array $extra_args = array() ): void {
+	public function redirect_to_tab( string $tab, string $notice, array $extra_args = array() ): void {
 		$args = array_merge(
 			array(
 				'page'       => self::SLUG,
