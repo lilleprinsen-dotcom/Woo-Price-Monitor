@@ -11,6 +11,8 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
 - [ ] Confirm dry-run mode is visible on the Dashboard and enabled by default.
+- [ ] Confirm Dashboard health cards show last check time, checks last 24 hours, failed checks last 24 hours, batch lock status, scheduled checks, pending/blocked suggestions, active price match sessions, real-update possibility, and webhook notification state.
+- [ ] Confirm Dashboard warnings appear when WooCommerce is inactive, dry-run mode is disabled, emergency update disable is off, scheduled checks use a large batch size, or many checks have failed.
 - [ ] Confirm notifications and webhook notifications are disabled by default.
 - [ ] Add a staging Make/Zapier/webhook URL, optional secret, and enable webhook notifications.
 - [ ] Click Test webhook and confirm the provider receives a JSON payload with `event`, `site_url`, `plugin_version`, `message_text`, `review_url`, and no real price-update action link.
@@ -74,7 +76,18 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Export monitored products/links and confirm CSV includes product/rule/link fields without exceeding the safe row cap.
 - [ ] Export pending suggestions, recent failed checks, and price observations.
 - [ ] Confirm scheduled checks are disabled by default in Settings.
+- [ ] Confirm `check_batch_lock_minutes` defaults to `10` and can be saved.
 - [ ] Click Run one small check batch now only on staging and confirm it respects `max_urls_per_batch`.
+- [ ] Set a temporary `lpm_check_batch_lock` transient in staging and confirm Run one small check batch now is skipped with a clear warning and log entry.
+- [ ] Force a failed competitor check and confirm the competitor link increments `consecutive_failures` and sets `next_check_after`.
+- [ ] Force a successful competitor check and confirm `consecutive_failures` resets to `0` and `next_check_after` clears.
+- [ ] Confirm batch selection skips links where `next_check_after` is in the future.
+- [ ] Confirm competitor profile `request_delay_seconds` prevents checking two links from the same profile too close together in a batch.
+- [ ] Save retention settings for operational logs, debug logs, successful observations, failed observations, and audit logs.
+- [ ] Click Run cleanup now in Settings and confirm old operational/debug logs and old observations are deleted while approval/update audit logs remain.
+- [ ] Run `wp lpm status` on staging and confirm it prints plugin enabled, dry-run, scheduled checks, pending suggestions, failed checks last 24h, active sessions, emergency update disable, real-update possibility, WooCommerce state, and lock state.
+- [ ] Run `wp lpm check-batch --limit=1` on staging and confirm it respects the lock and does not update WooCommerce prices.
+- [ ] Run `wp lpm cleanup` on staging and confirm it logs the cleanup summary.
 - [ ] Send test notification and confirm it writes a log entry only.
 - [ ] Confirm no WhatsApp, webhook, SMS, or email provider call is made.
 

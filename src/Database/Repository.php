@@ -768,6 +768,7 @@ final class Repository {
 						cl.last_checked_at IS NULL
 						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
 					)
+					AND (cl.next_check_after IS NULL OR cl.next_check_after <= %s)
 					AND (
 						cl.competitor_id IS NULL
 						OR c.request_delay_seconds = 0
@@ -785,6 +786,7 @@ final class Repository {
 				1,
 				$now,
 				$now,
+				$now,
 				$limit
 			);
 		} else {
@@ -798,10 +800,12 @@ final class Repository {
 						cl.last_checked_at IS NULL
 						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
 					)
+					AND (cl.next_check_after IS NULL OR cl.next_check_after <= %s)
 				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
 				LIMIT %d",
 				1,
 				1,
+				$now,
 				$now,
 				$limit
 			);
@@ -818,13 +822,28 @@ final class Repository {
 			return false;
 		}
 
-		$data = array(
-			'last_checked_at' => current_time( 'mysql' ),
+		$is_failure = null !== $error && '' !== $error;
+		$now        = current_time( 'mysql' );
+		$data       = array(
+			'last_checked_at' => $now,
 			'last_error'      => null === $error || '' === $error ? null : sanitize_textarea_field( $error ),
-			'updated_at'      => current_time( 'mysql' ),
+			'updated_at'      => $now,
 		);
 
 		$formats = array( '%s', '%s', '%s' );
+
+		if ( $is_failure ) {
+			$consecutive_failures        = $this->get_next_consecutive_failure_count( $competitor_link_id );
+			$data['consecutive_failures'] = $consecutive_failures;
+			$data['next_check_after']     = $this->get_next_check_after_for_failures( $consecutive_failures );
+			$formats[]                    = '%d';
+			$formats[]                    = '%s';
+		} else {
+			$data['consecutive_failures'] = 0;
+			$data['next_check_after']     = null;
+			$formats[]                    = '%d';
+			$formats[]                    = '%s';
+		}
 
 		if ( null !== $price ) {
 			$data['last_price']    = $this->nullable_decimal( $price );
@@ -847,6 +866,49 @@ final class Repository {
 		);
 
 		return false !== $updated;
+	}
+
+	public function delete_old_non_audit_logs( string $log_cutoff, string $debug_cutoff ): int {
+		$table = $this->tables['logs'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$events       = $this->get_cleanup_log_events();
+		$placeholders = implode( ',', array_fill( 0, count( $events ), '%s' ) );
+		$sql          = $this->wpdb->prepare(
+			"DELETE FROM {$table}
+			WHERE (level = %s AND created_at < %s)
+				OR (event IN ({$placeholders}) AND created_at < %s)",
+			array_merge( array( 'debug', $debug_cutoff ), $events, array( $log_cutoff ) )
+		);
+
+		$deleted = $this->wpdb->query( $sql );
+
+		return false === $deleted ? 0 : (int) $deleted;
+	}
+
+	public function delete_old_price_observations( string $success_cutoff, string $failed_cutoff ): int {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$deleted = $this->wpdb->query(
+			$this->wpdb->prepare(
+				"DELETE FROM {$table}
+				WHERE (success = %d AND checked_at < %s)
+					OR (success = %d AND checked_at < %s)",
+				1,
+				$success_cutoff,
+				0,
+				$failed_cutoff
+			)
+		);
+
+		return false === $deleted ? 0 : (int) $deleted;
 	}
 
 	/**
@@ -1318,6 +1380,58 @@ final class Repository {
 
 	private function count_price_suggestions_by_view( string $view ): int {
 		return $this->count_price_suggestions( array( 'view' => $view ) );
+	}
+
+	private function get_next_consecutive_failure_count( int $competitor_link_id ): int {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 1;
+		}
+
+		$current = (int) $this->wpdb->get_var(
+			$this->wpdb->prepare(
+				"SELECT consecutive_failures FROM {$table} WHERE id = %d LIMIT 1",
+				absint( $competitor_link_id )
+			)
+		);
+
+		return max( 1, $current + 1 );
+	}
+
+	private function get_next_check_after_for_failures( int $consecutive_failures ): string {
+		if ( 1 === $consecutive_failures ) {
+			$delay = HOUR_IN_SECONDS;
+		} elseif ( 2 === $consecutive_failures ) {
+			$delay = 6 * HOUR_IN_SECONDS;
+		} else {
+			$delay = DAY_IN_SECONDS;
+		}
+
+		return gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) + $delay );
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	private function get_cleanup_log_events(): array {
+		return array(
+			'check_batch_started',
+			'check_batch_completed',
+			'check_batch_skipped',
+			'check_batch_link_skipped_for_delay',
+			'competitor_check_failed',
+			'scheduled_suggestion_skipped',
+			'scheduled_checks_not_registered',
+			'notification_test',
+			'notification_sent',
+			'notification_skipped',
+			'webhook_notification_sent',
+			'webhook_notification_failed',
+			'webhook_notification_skipped',
+			'webhook_test',
+			'retention_cleanup_completed',
+		);
 	}
 
 	private function set_suggestion_review_status( int $suggestion_id, string $status, string $date_column, string $user_column, int $user_id ): bool {

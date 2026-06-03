@@ -21,6 +21,9 @@ Implemented foundation:
 - Approval inbox with dry-run approve, reject, suggested-price adjustment, product links, and competitor links.
 - Price recovery service that suggests safe recovery actions from price match session data.
 - Background job skeleton using Action Scheduler when available, disabled by default.
+- Shared batch lock, retry/backoff, and profile request-delay handling for bounded check batches.
+- Admin-only manual retention cleanup for old operational logs and price observations.
+- Bounded WP-CLI commands for check batches, cleanup, and operational status.
 - Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 
@@ -32,6 +35,7 @@ Implemented foundation:
 - Custom tables instead of storing monitor state in `wp_postmeta`.
 - Paginated and indexed admin queries.
 - Bounded batch sizes for any background or manual batch work.
+- Shared locks, retry backoff, and explicit limits for production operations.
 - WooCommerce CRUD APIs for any real product price updates.
 - Dry-run mode remains central and visible.
 
@@ -41,7 +45,7 @@ The plugin creates these custom tables with the active WordPress table prefix:
 
 - `lpm_monitored_products`: selected WooCommerce product IDs, SKU snapshots, enabled state, strategy, priority, check cadence, and timestamps.
 - `lpm_competitors`: global competitor profiles, domains, request delay/timeout settings, extraction rules, selector settings, stock text, JavaScript requirement, and notes.
-- `lpm_competitor_links`: direct competitor URLs attached to monitored products, optional `competitor_id`, last detected price/stock data, check timestamps, and errors.
+- `lpm_competitor_links`: direct competitor URLs attached to monitored products, optional `competitor_id`, last detected price/stock data, check timestamps, errors, consecutive failure count, and next eligible check time.
 - `lpm_price_observations`: historical check rows for trust, debugging, recovery behavior, and future reports.
 - `lpm_price_suggestions`: dry-run and real-update workflow suggestions, suggestion type, status, reason, rule details, warnings, margin snapshot, reviewer, and timestamps.
 - `lpm_price_match_sessions`: original price state and recovery context for price-match sessions, including dry-run sessions.

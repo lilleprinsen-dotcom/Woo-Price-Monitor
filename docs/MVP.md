@@ -129,7 +129,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add a profile-only Test URL action that does not save product/link/observation data.
 - Keep all scraping respectful, bounded, admin-only, and dependency-free.
 
-## Current Milestone: Webhook Notifications
+### Milestone 15: Webhook Notifications
 
 - Add `WebhookNotificationChannel` for Make, Zapier, and similar webhook providers.
 - Keep notifications and webhook delivery disabled by default.
@@ -141,6 +141,16 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Keep real WooCommerce price updates behind logged-in admin confirmation only.
 - Store token approval link settings for future work but do not implement token actions yet.
 
+## Current Milestone: Production Safety Controls
+
+- Add a shared transient batch lock for manual, scheduled, and WP-CLI check batches.
+- Add retry/backoff fields on competitor links with 1-hour, 6-hour, and 24-hour retry windows.
+- Skip future-backoff links in due-link batch selection.
+- Add manual admin-only retention cleanup for operational logs and price observations.
+- Add bounded WP-CLI commands: `wp lpm check-batch --limit=10`, `wp lpm cleanup`, and `wp lpm status`.
+- Add dashboard health cards for lock status, scheduled checks, failed checks, real-update possibility, webhook state, and active sessions.
+- Keep all production operations bounded, opt-in, and dry-run by default.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
@@ -149,8 +159,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add focused tests for `PricingRuleService` rounding, min price, cost, and margin outcomes once a lightweight WordPress test harness exists.
 - Add more structured logging around parser extraction methods.
 - Add table migration tests where possible.
-- Add an explicit admin-only cleanup action for old observations, logs, and historical suggestions.
-- Review Action Scheduler locking and duplicate job protection before enabling scheduled checks in production.
+- Add focused tests for batch locking, retry/backoff, and retention cleanup once a lightweight WordPress test harness exists.
 - Consider soft-delete semantics for competitor links if historical link auditability becomes important.
 
 ## Later, Explicitly Opt-In Work

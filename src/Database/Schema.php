@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.6.0';
+	public const VERSION = '1.7.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -115,6 +115,8 @@ final class Schema {
 			last_stock_status varchar(50) DEFAULT NULL,
 			last_checked_at datetime DEFAULT NULL,
 			last_error text NULL,
+			consecutive_failures int(10) unsigned NOT NULL DEFAULT 0,
+			next_check_after datetime DEFAULT NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
@@ -123,6 +125,7 @@ final class Schema {
 			KEY competitor_name (competitor_name),
 			KEY enabled (enabled),
 			KEY enabled_last_checked_at (enabled, last_checked_at),
+			KEY next_check_after (next_check_after),
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
 

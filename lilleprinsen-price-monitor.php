@@ -66,7 +66,7 @@ register_deactivation_hook(
 	}
 );
 
-if ( ( function_exists( 'is_admin' ) && is_admin() ) || ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) ) {
+if ( ( function_exists( 'is_admin' ) && is_admin() ) || ( function_exists( 'wp_doing_cron' ) && wp_doing_cron() ) || ( defined( 'WP_CLI' ) && WP_CLI ) ) {
 	add_action(
 		'plugins_loaded',
 		static function (): void {
