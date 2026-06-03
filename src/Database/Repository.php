@@ -1879,6 +1879,21 @@ final class Repository {
 				break;
 		}
 
+		if ( ! empty( $filters['product_id'] ) ) {
+			$where[] = 'ps.product_id = %d';
+			$args[]  = absint( $filters['product_id'] );
+		}
+
+		if ( ! empty( $filters['monitored_product_id'] ) ) {
+			$where[] = 'ps.monitored_product_id = %d';
+			$args[]  = absint( $filters['monitored_product_id'] );
+		}
+
+		if ( ! empty( $filters['competitor_link_id'] ) ) {
+			$where[] = 'ps.competitor_link_id = %d';
+			$args[]  = absint( $filters['competitor_link_id'] );
+		}
+
 		return array(
 			'sql'  => ! empty( $where ) ? 'WHERE ' . implode( ' AND ', $where ) : '',
 			'args' => $args,

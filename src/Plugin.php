@@ -8,6 +8,7 @@
 namespace Lilleprinsen\PriceMonitor;
 
 use Lilleprinsen\PriceMonitor\Admin\AdminMenu;
+use Lilleprinsen\PriceMonitor\Admin\AdminAjaxController;
 use Lilleprinsen\PriceMonitor\Admin\AdminNoticeStore;
 use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\CsvImportService;
@@ -78,6 +79,7 @@ final class Plugin {
 		$csv_import           = new CsvImportService( $repository );
 		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service );
 		$token_handler        = new TokenActionHandler( $repository, $settings, $approval_tokens );
+		$ajax_controller      = new AdminAjaxController( $repository, $settings, $product_search, $price_check, $suggestion_service, $notification_service );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
 
@@ -89,6 +91,7 @@ final class Plugin {
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );
 		add_action( 'admin_post_lpm_token_action', array( $token_handler, 'handle' ) );
 		add_action( 'admin_post_nopriv_lpm_token_action', array( $token_handler, 'handle' ) );
+		$ajax_controller->register();
 		$job_scheduler->register();
 		$this->register_cli( $settings, $repository, $check_job, $retention_service );
 	}

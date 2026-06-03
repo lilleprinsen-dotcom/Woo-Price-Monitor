@@ -29,10 +29,16 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] If a webhook secret is set, confirm the request includes an `X-LPM-Signature` header.
 - [ ] Break the webhook URL temporarily and confirm the admin flow continues while a webhook failure is logged.
 - [ ] On Products, confirm the pre-search message says to search by name, SKU, or ID.
+- [ ] With JavaScript enabled, type fewer than 3 non-numeric characters and confirm async search does not run.
+- [ ] With JavaScript enabled, type a numeric product ID and confirm async search runs immediately without page reload.
+- [ ] With JavaScript enabled, type 3+ SKU/name characters and confirm debounced async search returns at most 20 products.
 - [ ] Search by product ID and confirm at most 20 results.
 - [ ] Search by SKU and confirm the expected product appears.
 - [ ] Search by product title and confirm the query is bounded and does not load a full dropdown.
-- [ ] Add a product to monitoring and confirm it appears in Existing monitored products.
+- [ ] Add a product to monitoring from the async search results and confirm a toast appears and no WooCommerce price changes.
+- [ ] Disable JavaScript, submit the classic search form, and confirm the fallback search/add workflow still works.
+- [ ] Click a monitored product row or Details button and confirm the side drawer lazy-loads Summary, Competitors, Rules, History, Suggestions, and Logs.
+- [ ] Confirm drawer detail loads only the selected product, limited recent observations, limited suggestions, and limited logs.
 - [ ] Click Edit rules for the monitored product and update priority, strategy, min margin, min price, check frequency, and enabled state.
 - [ ] Confirm the rule changes are saved and logged.
 - [ ] Select monitored products on the current Products page and apply bulk enable/disable.
@@ -46,6 +52,10 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Mark the profile as requiring JavaScript and confirm profile testing returns the clear internal-checker warning without trying browser automation.
 - [ ] Confirm profile-only Test URL does not create a product observation row or update a competitor link.
 - [ ] Click Manage competitors for the monitored product.
+- [ ] In the side drawer Competitors tab, add a competitor link with URL, profile, match type, enabled state, and primary state without page reload.
+- [ ] In the side drawer, edit a competitor link and confirm the list refreshes without page reload.
+- [ ] In the side drawer, click Test check and confirm detected price/method or error is shown without page reload.
+- [ ] In the side drawer, create a dry-run suggestion from a checked competitor link and confirm suggestions refresh without page reload.
 - [ ] Add a competitor link with a valid http/https URL and attach the competitor profile.
 - [ ] Add a competitor link with "No profile / custom name" and confirm custom-name links still work.
 - [ ] Mark one competitor link as primary and confirm any previous primary link for the same monitored product is cleared.
@@ -79,6 +89,11 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Set `recovery_max_competitor_price_age_hours` low on staging and confirm stale primary/exact/similar competitor data forces manual review.
 - [ ] Confirm recovery suggestions show original regular, original sale, original active, current WooCommerce, new competitor, and suggested recovery prices.
 - [ ] Open Approvals and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
+- [ ] Use the Needs review, Blocked, Recovery, and Failed quick filters and confirm they map to bounded server-side suggestion queries.
+- [ ] Open an approval URL with `lpm_suggestion_id` and confirm the row is highlighted and the details panel loads.
+- [ ] Click a suggestion row or Details button and confirm the details panel shows product image, current price, competitor price, suggested price, margin, warnings/rules, and recovery/session state when available.
+- [ ] Select a pending suggestion and press `a`; confirm dry-run approval is recorded only after confirmation and WooCommerce price is unchanged.
+- [ ] Select a pending or blocked suggestion and press `r`; confirm rejection is recorded only after confirmation.
 - [ ] Edit a suggested price and confirm the old/new price is logged.
 - [ ] Approve a pending suggestion as dry-run and confirm WooCommerce product price is unchanged.
 - [ ] Reject a suggestion and confirm status and logs update.

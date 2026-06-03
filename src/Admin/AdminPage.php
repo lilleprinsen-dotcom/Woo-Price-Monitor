@@ -234,17 +234,20 @@ final class AdminPage {
 
 				<p><?php esc_html_e( 'Search for a product by name, SKU or ID.', 'lilleprinsen-price-monitor' ); ?></p>
 
-				<form method="get" class="lpm-inline-form">
+				<form method="get" class="lpm-inline-form" data-lpm-product-search-form>
 					<input type="hidden" name="page" value="<?php echo esc_attr( self::SLUG ); ?>" />
 					<input type="hidden" name="tab" value="products" />
 					<label class="screen-reader-text" for="lpm-product-search"><?php esc_html_e( 'Search products', 'lilleprinsen-price-monitor' ); ?></label>
-					<input id="lpm-product-search" type="search" name="lpm_product_search" value="<?php echo esc_attr( $search_query ); ?>" placeholder="<?php esc_attr_e( 'Product name, SKU or ID', 'lilleprinsen-price-monitor' ); ?>" />
+					<input id="lpm-product-search" type="search" name="lpm_product_search" value="<?php echo esc_attr( $search_query ); ?>" placeholder="<?php esc_attr_e( 'Product name, SKU or ID', 'lilleprinsen-price-monitor' ); ?>" autocomplete="off" data-lpm-product-search-input />
 					<button type="submit" class="button button-primary"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button>
 				</form>
 
-				<?php if ( '' !== $search_query ) : ?>
-					<?php $this->render_product_search_results( $search_results, $search_query ); ?>
-				<?php endif; ?>
+				<div data-lpm-product-search-status class="lpm-field-description"><?php esc_html_e( 'Async search starts after 3 characters, or immediately for a numeric product ID.', 'lilleprinsen-price-monitor' ); ?></div>
+				<div data-lpm-product-search-results>
+					<?php if ( '' !== $search_query ) : ?>
+						<?php $this->render_product_search_results( $search_results, $search_query ); ?>
+					<?php endif; ?>
+				</div>
 			</section>
 
 			<section class="lpm-card">
@@ -345,7 +348,7 @@ final class AdminPage {
 			<p><?php echo esc_html( $body ); ?></p>
 			<table class="lpm-compact-table">
 				<thead>
-					<tr>
+					<tr data-lpm-suggestion-row="<?php echo esc_attr( (string) $suggestion['id'] ); ?>" data-lpm-suggestion-status="<?php echo esc_attr( (string) $suggestion['status'] ); ?>" tabindex="0">
 						<th scope="col"><?php esc_html_e( 'Area', 'lilleprinsen-price-monitor' ); ?></th>
 						<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
 						<th scope="col"><?php esc_html_e( 'Safety note', 'lilleprinsen-price-monitor' ); ?></th>
@@ -373,6 +376,7 @@ final class AdminPage {
 		$total       = $this->repository->count_price_suggestions( $filters );
 		$counts      = $this->repository->get_suggestion_counts();
 		$confirm_id  = $this->get_positive_query_arg( 'lpm_confirm_update', 0 );
+		$highlight_id = $this->get_positive_query_arg( 'lpm_suggestion_id', 0 );
 		?>
 		<div class="lpm-grid lpm-grid-summary lpm-inbox-summary">
 			<?php
@@ -398,10 +402,30 @@ final class AdminPage {
 				</div>
 				<?php $this->render_status_pill( $this->real_updates_enabled( $settings ) ? __( 'Real updates enabled', 'lilleprinsen-price-monitor' ) : __( 'Dry-run only', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'warning' : 'ok' ); ?>
 			</div>
+			<?php $this->render_approval_quick_filters( $view ); ?>
 			<?php $this->render_approval_filters( $view ); ?>
+			<div class="lpm-approval-details" data-lpm-suggestion-details <?php echo $highlight_id > 0 ? 'data-lpm-initial-suggestion="' . esc_attr( (string) $highlight_id ) . '"' : ''; ?>>
+				<p class="lpm-empty"><?php esc_html_e( 'Select a suggestion to view product, rule, warning, and recovery details.', 'lilleprinsen-price-monitor' ); ?></p>
+			</div>
 			<?php $this->render_approvals_table( $suggestions, $settings ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_approvals_page', array( 'tab' => 'approvals', 'lpm_approval_view' => $view ) ); ?>
 		</section>
+		<?php
+	}
+
+	private function render_approval_quick_filters( string $active_view ): void {
+		$filters = array(
+			'pending'  => __( 'Needs review', 'lilleprinsen-price-monitor' ),
+			'blocked'  => __( 'Blocked', 'lilleprinsen-price-monitor' ),
+			'recovery' => __( 'Recovery', 'lilleprinsen-price-monitor' ),
+			'failed'   => __( 'Failed', 'lilleprinsen-price-monitor' ),
+		);
+		?>
+		<nav class="lpm-quick-filters" aria-label="<?php esc_attr_e( 'Quick inbox filters', 'lilleprinsen-price-monitor' ); ?>">
+			<?php foreach ( $filters as $view_key => $label ) : ?>
+				<a class="<?php echo esc_attr( $active_view === $view_key ? 'is-active' : '' ); ?>" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_approval_view' => $view_key ), admin_url( 'admin.php' ) ) ); ?>"><?php echo esc_html( $label ); ?></a>
+			<?php endforeach; ?>
+		</nav>
 		<?php
 	}
 
@@ -1834,7 +1858,7 @@ final class AdminPage {
 			<tbody>
 				<?php foreach ( $rows as $row ) : ?>
 					<?php $product = $this->get_product( (int) $row['product_id'] ); ?>
-					<tr>
+					<tr data-lpm-monitored-row="<?php echo esc_attr( (string) $row['id'] ); ?>" tabindex="0">
 						<td><input form="lpm-products-bulk-form" type="checkbox" name="monitored_product_ids[]" value="<?php echo esc_attr( (string) $row['id'] ); ?>" /></td>
 						<td>
 							<div class="lpm-product-cell">
@@ -1854,6 +1878,7 @@ final class AdminPage {
 						<td><?php echo esc_html( number_format_i18n( (int) ( $link_counts[ (int) $row['id'] ] ?? 0 ) ) ); ?></td>
 						<td>
 							<div class="lpm-actions">
+								<button type="button" class="button button-small" data-lpm-open-product="<?php echo esc_attr( (string) $row['id'] ); ?>"><?php esc_html_e( 'Details', 'lilleprinsen-price-monitor' ); ?></button>
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'monitored_product_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Manage competitors', 'lilleprinsen-price-monitor' ); ?></a>
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'products', 'edit_rules_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit rules', 'lilleprinsen-price-monitor' ); ?></a>
 								<?php $this->render_monitored_action_form( (int) $row['id'], ! empty( $row['enabled'] ) ? 'disable_monitored' : 'enable_monitored', ! empty( $row['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
@@ -2633,10 +2658,11 @@ final class AdminPage {
 									<?php if ( $can_real_update ) : ?>
 										<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_confirm_update' => (int) $suggestion['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Approve and update price', 'lilleprinsen-price-monitor' ); ?></a>
 									<?php else : ?>
-										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ) ); ?>
+										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ), '', 'data-lpm-approve-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
 									<?php endif; ?>
-									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'reject_suggestion', __( 'Reject', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
+									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'reject_suggestion', __( 'Reject', 'lilleprinsen-price-monitor' ), 'link-delete', 'data-lpm-reject-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
 								<?php endif; ?>
+								<button type="button" class="button button-small" data-lpm-view-suggestion="<?php echo esc_attr( (string) $suggestion['id'] ); ?>"><?php esc_html_e( 'Details', 'lilleprinsen-price-monitor' ); ?></button>
 								<a class="button button-small" href="<?php echo esc_url( $this->get_product_admin_url( (int) $suggestion['product_id'] ) ); ?>"><?php esc_html_e( 'View product', 'lilleprinsen-price-monitor' ); ?></a>
 								<?php if ( ! empty( $suggestion['competitor_url'] ) ) : ?>
 									<a class="button button-small" href="<?php echo esc_url( (string) $suggestion['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Open competitor', 'lilleprinsen-price-monitor' ); ?></a>
@@ -2936,11 +2962,11 @@ final class AdminPage {
 
 	private function render_add_monitoring_form( int $product_id ): void {
 		?>
-		<form method="post" class="lpm-inline-action">
+		<form method="post" class="lpm-inline-action" data-lpm-add-monitoring-form>
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
 			<input type="hidden" name="lpm_action" value="add_monitored_product" />
 			<input type="hidden" name="product_id" value="<?php echo esc_attr( (string) $product_id ); ?>" />
-			<button type="submit" class="button button-small"><?php esc_html_e( 'Add to monitoring', 'lilleprinsen-price-monitor' ); ?></button>
+			<button type="submit" class="button button-small" data-lpm-add-product="<?php echo esc_attr( (string) $product_id ); ?>"><?php esc_html_e( 'Add to monitoring', 'lilleprinsen-price-monitor' ); ?></button>
 		</form>
 		<?php
 	}
@@ -2978,14 +3004,17 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_suggestion_action_form( int $suggestion_id, string $action, string $label, string $class = '' ): void {
+	private function render_suggestion_action_form( int $suggestion_id, string $action, string $label, string $class = '', string $button_attributes = '' ): void {
+		if ( ! preg_match( '/^data-lpm-(approve|reject)-suggestion="[0-9]+"$/', $button_attributes ) ) {
+			$button_attributes = '';
+		}
 		?>
 		<form method="post" class="lpm-inline-action">
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
 			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
 			<input type="hidden" name="suggestion_id" value="<?php echo esc_attr( (string) $suggestion_id ); ?>" />
 			<input type="hidden" name="lpm_approval_view" value="<?php echo esc_attr( $this->get_approval_view() ); ?>" />
-			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
+			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>" <?php echo $button_attributes; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped ?>><?php echo esc_html( $label ); ?></button>
 		</form>
 		<?php
 	}
@@ -3358,6 +3387,7 @@ final class AdminPage {
 			'price_match_down'       => __( 'Price match down', 'lilleprinsen-price-monitor' ),
 			'price_match_up'         => __( 'Price match up', 'lilleprinsen-price-monitor' ),
 			'restore_previous_price' => __( 'Restore previous price', 'lilleprinsen-price-monitor' ),
+			'recovery'               => __( 'Recovery', 'lilleprinsen-price-monitor' ),
 			'all'                    => __( 'All', 'lilleprinsen-price-monitor' ),
 		);
 	}
