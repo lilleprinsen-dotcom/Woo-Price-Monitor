@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.0.0';
+	public const VERSION = '1.1.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -26,8 +26,19 @@ final class Schema {
 			'monitored_products' => $wpdb->prefix . 'lpm_monitored_products',
 			'competitor_links'   => $wpdb->prefix . 'lpm_competitor_links',
 			'price_suggestions'  => $wpdb->prefix . 'lpm_price_suggestions',
+			'price_match_sessions' => $wpdb->prefix . 'lpm_price_match_sessions',
 			'logs'               => $wpdb->prefix . 'lpm_logs',
 		);
+	}
+
+	public static function maybe_upgrade(): void {
+		$current_version = self::get_schema_version();
+
+		if ( self::VERSION === $current_version ) {
+			return;
+		}
+
+		self::create_tables();
 	}
 
 	public static function create_tables(): void {
@@ -91,6 +102,7 @@ final class Schema {
 			competitor_price decimal(20,4) NOT NULL,
 			suggested_price decimal(20,4) NOT NULL,
 			difference decimal(20,4) NOT NULL,
+			suggestion_type varchar(50) NOT NULL DEFAULT 'price_match_down',
 			status varchar(30) NOT NULL DEFAULT 'pending',
 			reason text NULL,
 			created_at datetime NOT NULL,
@@ -104,6 +116,39 @@ final class Schema {
 			KEY product_id (product_id),
 			KEY status (status),
 			KEY created_at (created_at)
+		) {$charset_collate};";
+
+		$sql[] = "CREATE TABLE {$tables['price_match_sessions']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			product_id bigint(20) unsigned NOT NULL,
+			monitored_product_id bigint(20) unsigned NOT NULL,
+			suggestion_id bigint(20) unsigned DEFAULT NULL,
+			status varchar(30) NOT NULL DEFAULT 'active',
+			original_regular_price decimal(20,4) DEFAULT NULL,
+			original_sale_price decimal(20,4) DEFAULT NULL,
+			original_active_price decimal(20,4) DEFAULT NULL,
+			original_sale_start datetime DEFAULT NULL,
+			original_sale_end datetime DEFAULT NULL,
+			matched_price decimal(20,4) DEFAULT NULL,
+			matched_regular_price decimal(20,4) DEFAULT NULL,
+			matched_sale_price decimal(20,4) DEFAULT NULL,
+			matched_at datetime DEFAULT NULL,
+			matched_by bigint(20) unsigned DEFAULT NULL,
+			restore_strategy varchar(50) NOT NULL DEFAULT 'previous_active_price',
+			recovery_strategy varchar(50) NOT NULL DEFAULT 'suggest_only',
+			last_competitor_price decimal(20,4) DEFAULT NULL,
+			last_lowest_competitor_price decimal(20,4) DEFAULT NULL,
+			last_checked_at datetime DEFAULT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			ended_at datetime DEFAULT NULL,
+			PRIMARY KEY  (id),
+			KEY product_id (product_id),
+			KEY monitored_product_id (monitored_product_id),
+			KEY suggestion_id (suggestion_id),
+			KEY status (status),
+			KEY matched_at (matched_at),
+			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
 
 		$sql[] = "CREATE TABLE {$tables['logs']} (

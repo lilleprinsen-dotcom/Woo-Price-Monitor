@@ -33,6 +33,11 @@ final class Settings {
 			'min_price_difference_to_suggest' => 10,
 			'max_allowed_price_drop_percent'  => 25,
 			'require_manual_approval'         => 1,
+			'recovery_when_competitor_increases' => 'suggest_only',
+			'recovery_if_competitor_still_below_previous_sale_price' => 'suggest_match_competitor',
+			'recovery_if_competitor_above_previous_regular_price' => 'suggest_restore_previous_regular_price',
+			'multiple_competitor_recovery_basis' => 'lowest_valid_competitor',
+			'price_match_write_mode'          => 'sale_price',
 			'rows_per_page'                   => 25,
 		);
 	}
@@ -96,6 +101,56 @@ final class Settings {
 			'min_price_difference_to_suggest' => $this->sanitize_decimal( $settings['min_price_difference_to_suggest'] ?? $defaults['min_price_difference_to_suggest'], (float) $defaults['min_price_difference_to_suggest'] ),
 			'max_allowed_price_drop_percent'  => $this->sanitize_decimal_between( $settings['max_allowed_price_drop_percent'] ?? $defaults['max_allowed_price_drop_percent'], 0, 100, (float) $defaults['max_allowed_price_drop_percent'] ),
 			'require_manual_approval'         => $this->sanitize_bool( $settings['require_manual_approval'] ?? $defaults['require_manual_approval'] ),
+			'recovery_when_competitor_increases' => $this->sanitize_choice(
+				$settings['recovery_when_competitor_increases'] ?? $defaults['recovery_when_competitor_increases'],
+				array(
+					'do_nothing',
+					'suggest_only',
+					'suggest_match_competitor',
+					'suggest_restore_previous_active_price',
+					'suggest_restore_previous_regular_price',
+					'suggest_restore_previous_sale_price',
+				),
+				(string) $defaults['recovery_when_competitor_increases']
+			),
+			'recovery_if_competitor_still_below_previous_sale_price' => $this->sanitize_choice(
+				$settings['recovery_if_competitor_still_below_previous_sale_price'] ?? $defaults['recovery_if_competitor_still_below_previous_sale_price'],
+				array(
+					'keep_current_price',
+					'suggest_match_competitor',
+					'suggest_restore_previous_sale_price',
+					'suggest_only',
+				),
+				(string) $defaults['recovery_if_competitor_still_below_previous_sale_price']
+			),
+			'recovery_if_competitor_above_previous_regular_price' => $this->sanitize_choice(
+				$settings['recovery_if_competitor_above_previous_regular_price'] ?? $defaults['recovery_if_competitor_above_previous_regular_price'],
+				array(
+					'keep_current_price',
+					'suggest_restore_previous_regular_price',
+					'suggest_match_competitor',
+					'suggest_only',
+				),
+				(string) $defaults['recovery_if_competitor_above_previous_regular_price']
+			),
+			'multiple_competitor_recovery_basis' => $this->sanitize_choice(
+				$settings['multiple_competitor_recovery_basis'] ?? $defaults['multiple_competitor_recovery_basis'],
+				array(
+					'lowest_valid_competitor',
+					'primary_competitor',
+					'all_competitors_must_increase',
+				),
+				(string) $defaults['multiple_competitor_recovery_basis']
+			),
+			'price_match_write_mode'          => $this->sanitize_choice(
+				$settings['price_match_write_mode'] ?? $defaults['price_match_write_mode'],
+				array(
+					'regular_price',
+					'sale_price',
+					'temporary_sale_price',
+				),
+				(string) $defaults['price_match_write_mode']
+			),
 			'rows_per_page'                   => $this->sanitize_int( $settings['rows_per_page'] ?? $defaults['rows_per_page'], 1, 200, (int) $defaults['rows_per_page'] ),
 		);
 	}
@@ -212,5 +267,15 @@ final class Settings {
 		}
 
 		return min( $decimal, $max );
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 * @param array<int, string> $allowed Allowed values.
+	 */
+	private function sanitize_choice( $value, array $allowed, string $fallback ): string {
+		$value = sanitize_key( (string) $value );
+
+		return in_array( $value, $allowed, true ) ? $value : $fallback;
 	}
 }

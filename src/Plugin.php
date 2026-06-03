@@ -12,6 +12,7 @@ use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\Notices;
 use Lilleprinsen\PriceMonitor\Assets\AdminAssets;
 use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -42,7 +43,9 @@ final class Plugin {
 		$repository = new Repository();
 		$admin_page = new AdminPage( $repository, $settings );
 
+		add_action( 'admin_init', array( Schema::class, 'maybe_upgrade' ) );
 		add_action( 'admin_init', array( $settings, 'handle_settings_save' ) );
+		add_action( 'admin_init', array( $admin_page, 'handle_actions' ) );
 		add_action( 'admin_menu', array( new AdminMenu( $admin_page ), 'register' ) );
 		add_action( 'admin_notices', array( new Notices(), 'render' ) );
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );

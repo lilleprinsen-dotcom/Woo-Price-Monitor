@@ -30,6 +30,13 @@ final class Repository {
 	 * @param array<string, mixed> $context Optional structured context.
 	 */
 	public function insert_log( string $level, string $event, ?string $message = null, array $context = array(), ?int $product_id = null ): bool {
+		return $this->write_log( $level, $event, $message, $context, $product_id );
+	}
+
+	/**
+	 * @param array<string, mixed> $context Optional structured context.
+	 */
+	public function write_log( string $level, string $event, ?string $message = null, array $context = array(), ?int $product_id = null ): bool {
 		$table = $this->tables['logs'];
 
 		if ( ! $this->table_exists( $table ) ) {
@@ -59,10 +66,11 @@ final class Repository {
 	 */
 	public function get_dashboard_counts(): array {
 		return array(
-			'monitored_products'      => $this->count_where( 'monitored_products', 'enabled = %d', array( 1 ) ),
-			'active_competitor_links' => $this->count_where( 'competitor_links', 'enabled = %d', array( 1 ) ),
-			'pending_suggestions'     => $this->count_where( 'price_suggestions', 'status = %s', array( 'pending' ) ),
-			'failed_logs'             => $this->count_where( 'logs', 'level = %s', array( 'error' ) ),
+			'monitored_products'          => $this->count_where( 'monitored_products', 'enabled = %d', array( 1 ) ),
+			'active_competitor_links'     => $this->count_where( 'competitor_links', 'enabled = %d', array( 1 ) ),
+			'pending_suggestions'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'pending' ) ),
+			'failed_logs'                 => $this->count_where( 'logs', 'level = %s', array( 'error' ) ),
+			'active_price_match_sessions' => $this->count_active_price_match_sessions(),
 		);
 	}
 
@@ -87,6 +95,472 @@ final class Repository {
 			'expected_schema_version' => Schema::VERSION,
 			'tables'                  => $tables,
 		);
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	public function add_monitored_product( int $product_id, ?string $sku = null ): array {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array(
+				'success' => false,
+				'code'    => 'missing_table',
+			);
+		}
+
+		$product_id = absint( $product_id );
+
+		if ( 0 >= $product_id ) {
+			return array(
+				'success' => false,
+				'code'    => 'invalid_product',
+			);
+		}
+
+		$existing = $this->get_monitored_product_by_product_id( $product_id );
+		$now      = current_time( 'mysql' );
+		$sku      = $this->sanitize_sku( $sku );
+
+		if ( $existing ) {
+			$updated = $this->wpdb->update(
+				$table,
+				array(
+					'sku'        => $sku,
+					'enabled'    => 1,
+					'updated_at' => $now,
+				),
+				array( 'id' => (int) $existing['id'] ),
+				array( '%s', '%d', '%s' ),
+				array( '%d' )
+			);
+
+			return array(
+				'success' => false !== $updated,
+				'code'    => ! empty( $existing['enabled'] ) ? 'already_monitored' : 'monitoring_reenabled',
+				'id'      => (int) $existing['id'],
+			);
+		}
+
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'product_id'             => $product_id,
+				'sku'                    => $sku,
+				'enabled'                => 1,
+				'priority'               => 'normal',
+				'strategy'               => 'notify_only',
+				'check_frequency_hours'  => 24,
+				'created_at'             => $now,
+				'updated_at'             => $now,
+			),
+			array( '%d', '%s', '%d', '%s', '%s', '%d', '%s', '%s' )
+		);
+
+		return array(
+			'success' => false !== $inserted,
+			'code'    => false !== $inserted ? 'monitoring_added' : 'monitoring_add_failed',
+			'id'      => false !== $inserted ? (int) $this->wpdb->insert_id : 0,
+		);
+	}
+
+	public function set_monitored_product_enabled( int $monitored_product_id, bool $enabled ): bool {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'    => $enabled ? 1 : 0,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $monitored_product_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_monitored_products( int $page, int $per_page ): array {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$sql    = $this->wpdb->prepare(
+			"SELECT * FROM {$table} ORDER BY updated_at DESC, id DESC LIMIT %d OFFSET %d",
+			$limit,
+			$offset
+		);
+
+		$rows = $this->wpdb->get_results( $sql, ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_monitored_products(): int {
+		return $this->get_table_count( 'monitored_products' );
+	}
+
+	/**
+	 * @return array<int, int>
+	 */
+	public function count_competitor_links_for_monitored_products( array $monitored_product_ids ): array {
+		$table = $this->tables['competitor_links'];
+		$ids   = array_values( array_filter( array_map( 'absint', $monitored_product_ids ) ) );
+
+		if ( empty( $ids ) || ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$sql          = $this->wpdb->prepare(
+			"SELECT monitored_product_id, COUNT(*) AS total FROM {$table} WHERE monitored_product_id IN ({$placeholders}) GROUP BY monitored_product_id",
+			$ids
+		);
+		$rows         = $this->wpdb->get_results( $sql, ARRAY_A );
+		$counts       = array();
+
+		if ( ! is_array( $rows ) ) {
+			return $counts;
+		}
+
+		foreach ( $rows as $row ) {
+			$counts[ (int) $row['monitored_product_id'] ] = (int) $row['total'];
+		}
+
+		return $counts;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_monitored_product( int $monitored_product_id ): ?array {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", absint( $monitored_product_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_monitored_product_by_product_id( int $product_id ): ?array {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE product_id = %d LIMIT 1", absint( $product_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Competitor link fields.
+	 */
+	public function add_competitor_link( array $data ): int {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$now      = current_time( 'mysql' );
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'monitored_product_id' => absint( $data['monitored_product_id'] ?? 0 ),
+				'competitor_name'      => sanitize_text_field( (string) ( $data['competitor_name'] ?? '' ) ),
+				'competitor_url'       => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
+				'match_type'           => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
+				'enabled'              => ! empty( $data['enabled'] ) ? 1 : 0,
+				'created_at'           => $now,
+				'updated_at'           => $now,
+			),
+			array( '%d', '%s', '%s', '%s', '%d', '%s', '%s' )
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Competitor link fields.
+	 */
+	public function update_competitor_link( int $competitor_link_id, array $data ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'competitor_name' => sanitize_text_field( (string) ( $data['competitor_name'] ?? '' ) ),
+				'competitor_url'  => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
+				'match_type'      => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
+				'enabled'         => ! empty( $data['enabled'] ) ? 1 : 0,
+				'updated_at'      => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%s', '%s', '%s', '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function set_competitor_link_enabled( int $competitor_link_id, bool $enabled ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'    => $enabled ? 1 : 0,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function delete_competitor_link( int $competitor_link_id ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$deleted = $this->wpdb->delete(
+			$table,
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%d' )
+		);
+
+		return false !== $deleted;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_competitor_links_for_monitored_product( int $monitored_product_id ): array {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$rows = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE monitored_product_id = %d ORDER BY enabled DESC, competitor_name ASC, id DESC",
+				absint( $monitored_product_id )
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_competitor_link( int $competitor_link_id ): ?array {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", absint( $competitor_link_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Log filters.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_logs( array $filters, int $page, int $per_page ): array {
+		$table = $this->tables['logs'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$where = $this->build_log_where( $filters );
+		$limit = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$sql   = "SELECT * FROM {$table} {$where['sql']} ORDER BY created_at DESC, id DESC LIMIT %d OFFSET %d";
+		$args  = array_merge( $where['args'], array( $limit, $offset ) );
+		$rows  = $this->wpdb->get_results( $this->wpdb->prepare( $sql, $args ), ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Log filters.
+	 */
+	public function count_logs( array $filters ): int {
+		$table = $this->tables['logs'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$where = $this->build_log_where( $filters );
+		$sql   = "SELECT COUNT(*) FROM {$table} {$where['sql']}";
+
+		if ( ! empty( $where['args'] ) ) {
+			$sql = $this->wpdb->prepare( $sql, $where['args'] );
+		}
+
+		return (int) $this->wpdb->get_var( $sql );
+	}
+
+	/**
+	 * @param array<string, mixed> $data Session fields.
+	 */
+	public function create_price_match_session( array $data ): int {
+		$table = $this->tables['price_match_sessions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$now      = current_time( 'mysql' );
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'product_id'                       => absint( $data['product_id'] ?? 0 ),
+				'monitored_product_id'             => absint( $data['monitored_product_id'] ?? 0 ),
+				'suggestion_id'                    => isset( $data['suggestion_id'] ) ? absint( $data['suggestion_id'] ) : null,
+				'status'                           => $this->sanitize_limited_text( (string) ( $data['status'] ?? 'active' ), 30, 'active' ),
+				'original_regular_price'           => $this->nullable_decimal( $data['original_regular_price'] ?? null ),
+				'original_sale_price'              => $this->nullable_decimal( $data['original_sale_price'] ?? null ),
+				'original_active_price'            => $this->nullable_decimal( $data['original_active_price'] ?? null ),
+				'original_sale_start'              => $this->nullable_datetime( $data['original_sale_start'] ?? null ),
+				'original_sale_end'                => $this->nullable_datetime( $data['original_sale_end'] ?? null ),
+				'matched_price'                    => $this->nullable_decimal( $data['matched_price'] ?? null ),
+				'matched_regular_price'            => $this->nullable_decimal( $data['matched_regular_price'] ?? null ),
+				'matched_sale_price'               => $this->nullable_decimal( $data['matched_sale_price'] ?? null ),
+				'matched_at'                       => $this->nullable_datetime( $data['matched_at'] ?? null ),
+				'matched_by'                       => isset( $data['matched_by'] ) ? absint( $data['matched_by'] ) : null,
+				'restore_strategy'                 => $this->sanitize_limited_text( (string) ( $data['restore_strategy'] ?? 'previous_active_price' ), 50, 'previous_active_price' ),
+				'recovery_strategy'                => $this->sanitize_limited_text( (string) ( $data['recovery_strategy'] ?? 'suggest_only' ), 50, 'suggest_only' ),
+				'last_competitor_price'            => $this->nullable_decimal( $data['last_competitor_price'] ?? null ),
+				'last_lowest_competitor_price'     => $this->nullable_decimal( $data['last_lowest_competitor_price'] ?? null ),
+				'last_checked_at'                  => $this->nullable_datetime( $data['last_checked_at'] ?? null ),
+				'created_at'                       => $now,
+				'updated_at'                       => $now,
+			),
+			array(
+				'%d',
+				'%d',
+				'%d',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%d',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+				'%s',
+			)
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_active_price_match_session_for_product( int $product_id ): ?array {
+		$table = $this->tables['price_match_sessions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE product_id = %d AND status = %s ORDER BY matched_at DESC, id DESC LIMIT 1",
+				absint( $product_id ),
+				'active'
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	public function end_price_match_session( int $session_id, string $status = 'ended' ): bool {
+		$table = $this->tables['price_match_sessions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'status'     => $this->sanitize_limited_text( $status, 30, 'ended' ),
+				'updated_at' => current_time( 'mysql' ),
+				'ended_at'   => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $session_id ) ),
+			array( '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function count_active_price_match_sessions(): int {
+		return $this->count_where( 'price_match_sessions', 'status = %s', array( 'active' ) );
 	}
 
 	public function get_table_count( string $table_key ): int {
@@ -126,6 +600,35 @@ final class Repository {
 		return (int) $this->wpdb->get_var( $sql );
 	}
 
+	/**
+	 * @param array<string, mixed> $filters Log filters.
+	 * @return array{sql: string, args: array<int, mixed>}
+	 */
+	private function build_log_where( array $filters ): array {
+		$where = array();
+		$args  = array();
+
+		if ( ! empty( $filters['level'] ) ) {
+			$where[] = 'level = %s';
+			$args[]  = $this->sanitize_limited_text( (string) $filters['level'], 20, 'info' );
+		}
+
+		if ( ! empty( $filters['event'] ) ) {
+			$where[] = 'event = %s';
+			$args[]  = $this->sanitize_limited_text( (string) $filters['event'], 100, 'event' );
+		}
+
+		if ( ! empty( $filters['product_id'] ) ) {
+			$where[] = 'product_id = %d';
+			$args[]  = absint( $filters['product_id'] );
+		}
+
+		return array(
+			'sql'  => ! empty( $where ) ? 'WHERE ' . implode( ' AND ', $where ) : '',
+			'args' => $args,
+		);
+	}
+
 	private function table_exists( string $table ): bool {
 		return $table === $this->wpdb->get_var( $this->wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
 	}
@@ -138,5 +641,65 @@ final class Repository {
 		}
 
 		return substr( $sanitized, 0, $length );
+	}
+
+	private function sanitize_sku( ?string $sku ): ?string {
+		if ( null === $sku ) {
+			return null;
+		}
+
+		$sku = sanitize_text_field( $sku );
+
+		return '' === $sku ? null : substr( $sku, 0, 191 );
+	}
+
+	private function sanitize_match_type( string $match_type ): string {
+		$allowed = array( 'unknown', 'exact', 'similar', 'different_variant', 'bundle', 'not_comparable' );
+		$match_type = sanitize_key( $match_type );
+
+		return in_array( $match_type, $allowed, true ) ? $match_type : 'unknown';
+	}
+
+	private function sanitize_per_page( int $per_page ): int {
+		return min( 200, max( 1, absint( $per_page ) ) );
+	}
+
+	private function get_offset( int $page, int $per_page ): int {
+		return max( 0, ( max( 1, absint( $page ) ) - 1 ) * $per_page );
+	}
+
+	/**
+	 * @param mixed $value Raw decimal.
+	 */
+	private function nullable_decimal( $value ): ?string {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$decimal = str_replace( ',', '.', sanitize_text_field( (string) $value ) );
+
+		if ( ! is_numeric( $decimal ) ) {
+			return null;
+		}
+
+		return number_format( (float) $decimal, 4, '.', '' );
+	}
+
+	/**
+	 * @param mixed $value Raw datetime.
+	 */
+	private function nullable_datetime( $value ): ?string {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$value     = sanitize_text_field( (string) $value );
+		$timestamp = strtotime( $value );
+
+		if ( false === $timestamp ) {
+			return null;
+		}
+
+		return gmdate( 'Y-m-d H:i:s', $timestamp );
 	}
 }
