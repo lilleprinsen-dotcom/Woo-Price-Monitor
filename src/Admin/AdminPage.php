@@ -11,6 +11,8 @@ use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
+use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
+use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
@@ -59,7 +61,7 @@ final class AdminPage {
 		$this->price_check_service    = $price_check_service ?? new PriceCheckService( null, $repository );
 		$this->price_recovery_service = $price_recovery_service ?? new PriceRecoveryService();
 		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service );
-		$this->notification_service   = $notification_service ?? new NotificationService();
+		$this->notification_service   = $notification_service ?? new NotificationService( array( new LogNotificationChannel( $repository ), new WebhookNotificationChannel( $repository ) ) );
 		$this->job_scheduler          = $job_scheduler ?? new JobScheduler( $settings, new \Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob( $repository, $settings, $this->price_check_service, $this->suggestion_service, $this->notification_service ), $repository );
 		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service );
 		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
@@ -150,6 +152,9 @@ final class AdminPage {
 				break;
 			case 'send_test_notification':
 				$this->handle_send_test_notification();
+				break;
+			case 'send_test_webhook':
+				$this->handle_send_test_webhook();
 				break;
 			case 'approve_and_update_price':
 				$this->handle_approve_and_update_price();
@@ -742,9 +747,9 @@ final class AdminPage {
 				<section class="lpm-card">
 					<div class="lpm-card-header">
 						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( __( 'Log only', 'lilleprinsen-price-monitor' ), 'muted' ); ?>
+						<?php $this->render_status_pill( ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Webhook enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' ); ?>
 					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'WhatsApp is not connected yet. Notification events are logged only until a provider integration is explicitly implemented.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-field-description"><?php esc_html_e( 'Direct WhatsApp is not implemented. Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
 					<?php
 					$this->render_checkbox_field( 'notifications_enabled', __( 'Notifications enabled', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'notify_on_new_suggestion', __( 'Notify on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
@@ -763,6 +768,15 @@ final class AdminPage {
 							'zapier_webhook' => __( 'Zapier webhook', 'lilleprinsen-price-monitor' ),
 						)
 					);
+					$this->render_checkbox_field( 'webhook_notifications_enabled', __( 'Enable webhook notifications', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. When enabled, selected events are posted as JSON to the webhook URL.', 'lilleprinsen-price-monitor' ) );
+					$this->render_text_field( 'webhook_url', __( 'Webhook URL', 'lilleprinsen-price-monitor' ), $settings, 'https://hook.make.com/...' );
+					$this->render_text_field( 'webhook_secret', __( 'Webhook secret', 'lilleprinsen-price-monitor' ), $settings, __( 'Optional HMAC secret', 'lilleprinsen-price-monitor' ) );
+					$this->render_checkbox_field( 'webhook_send_on_new_suggestion', __( 'Webhook on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'webhook_send_on_blocked_suggestion', __( 'Webhook on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'webhook_send_on_failed_check', __( 'Webhook on failed check', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'webhook_send_on_recovery_suggestion', __( 'Webhook on recovery suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'Stored for future work only. Token approval links are not implemented in this version.', 'lilleprinsen-price-monitor' ) );
+					$this->render_number_field( 'token_link_expiry_hours', __( 'Token link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					?>
 				</section>
 			</div>
@@ -775,7 +789,13 @@ final class AdminPage {
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
 			<input type="hidden" name="lpm_action" value="send_test_notification" />
 			<button type="submit" class="button"><?php esc_html_e( 'Send test notification', 'lilleprinsen-price-monitor' ); ?></button>
-			<span class="lpm-field-description"><?php esc_html_e( 'This writes a log entry only. No WhatsApp provider is connected.', 'lilleprinsen-price-monitor' ); ?></span>
+			<span class="lpm-field-description"><?php esc_html_e( 'This writes a log notification entry only.', 'lilleprinsen-price-monitor' ); ?></span>
+		</form>
+		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="send_test_webhook" />
+			<button type="submit" class="button"><?php esc_html_e( 'Test webhook', 'lilleprinsen-price-monitor' ); ?></button>
+			<span class="lpm-field-description"><?php esc_html_e( 'Sends one JSON test payload to the saved webhook URL. No WooCommerce price update link is included.', 'lilleprinsen-price-monitor' ); ?></span>
 		</form>
 		<?php
 	}
@@ -1627,6 +1647,18 @@ final class AdminPage {
 			),
 			$product_id
 		);
+		$this->notification_service->send(
+			'failed_check',
+			__( 'Price Monitor would send a failed check notification.', 'lilleprinsen-price-monitor' ),
+			$this->settings->get_all(),
+			array(
+				'competitor_link_id' => $link_id,
+				'competitor_url'     => (string) ( $link['competitor_url'] ?? '' ),
+				'error'              => $error_message,
+				'http_status'        => (int) $result['http_status'],
+			),
+			$product_id
+		);
 		$this->set_admin_notice(
 			sprintf(
 				/* translators: %s: error message. */
@@ -1874,6 +1906,25 @@ final class AdminPage {
 		$this->redirect_to_tab( 'settings', 'test_notification_sent' );
 	}
 
+	private function handle_send_test_webhook(): void {
+		$settings = $this->settings->get_all();
+		$channel  = new WebhookNotificationChannel( $this->repository );
+		$sent     = $channel->send(
+			'webhook_test',
+			__( 'Lilleprinsen Price Monitor webhook test. Direct WhatsApp is not implemented; this payload can be forwarded by Make, Zapier, or another webhook provider.', 'lilleprinsen-price-monitor' ),
+			array(
+				'force_webhook_test' => 1,
+				'status'             => 'test',
+				'reason'             => __( 'Admin-triggered webhook test.', 'lilleprinsen-price-monitor' ),
+				'created_at'         => current_time( 'mysql' ),
+			),
+			null,
+			$settings
+		);
+
+		$this->redirect_to_tab( 'settings', $sent ? 'test_webhook_sent' : 'test_webhook_failed', array( 'lpm_notice_type' => $sent ? 'success' : 'error' ) );
+	}
+
 	private function handle_approve_and_update_price(): void {
 		$suggestion = $this->get_submitted_suggestion();
 
@@ -2059,14 +2110,6 @@ final class AdminPage {
 	private function maybe_notify_created_suggestion( array $result, int $product_id ): void {
 		$settings = $this->settings->get_all();
 		$status   = (string) ( $result['status'] ?? '' );
-
-		if ( 'pending' === $status && empty( $settings['notify_on_new_suggestion'] ) ) {
-			return;
-		}
-
-		if ( 'blocked' === $status && empty( $settings['notify_on_blocked_suggestion'] ) ) {
-			return;
-		}
 
 		if ( ! in_array( $status, array( 'pending', 'blocked' ), true ) ) {
 			return;
@@ -4179,6 +4222,8 @@ final class AdminPage {
 			'suggested_price_update_failed'   => __( 'Could not update suggested price.', 'lilleprinsen-price-monitor' ),
 			'small_batch_completed'           => __( 'Small competitor check batch completed.', 'lilleprinsen-price-monitor' ),
 			'test_notification_sent'          => __( 'Test notification logged. WhatsApp is not connected yet.', 'lilleprinsen-price-monitor' ),
+			'test_webhook_sent'               => __( 'Test webhook sent.', 'lilleprinsen-price-monitor' ),
+			'test_webhook_failed'             => __( 'Test webhook failed. Check the webhook URL and logs.', 'lilleprinsen-price-monitor' ),
 			'real_update_confirmation_required' => __( 'Real price update confirmation is required.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_failed'        => __( 'Real price update failed.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_applied'       => __( 'WooCommerce price updated after explicit approval.', 'lilleprinsen-price-monitor' ),

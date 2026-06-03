@@ -21,7 +21,7 @@ Implemented foundation:
 - Approval inbox with dry-run approve, reject, suggested-price adjustment, product links, and competitor links.
 - Price recovery service that suggests safe recovery actions from price match session data.
 - Background job skeleton using Action Scheduler when available, disabled by default.
-- Notification abstraction with a log-only channel. No real WhatsApp calls are made.
+- Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 
 ## Architecture Principles
@@ -56,11 +56,12 @@ This project currently does not implement:
 - Frontend widgets, storefront notices, cart hooks, checkout hooks, or customer-facing behavior.
 - Full crawling or full catalog scanning.
 - Automatic price checks on normal frontend requests.
-- Real WhatsApp, SMS, webhook, or email provider integrations.
+- Direct WhatsApp, SMS, or email provider integrations.
 - Automatic or bulk WooCommerce price updates.
 - Direct SQL updates to `_price`, `_regular_price`, or `_sale_price`.
 - Heavy reporting over all products or all orders.
 - JavaScript/browser scraping, anti-bot bypassing, or external scraper workers.
+- Unauthenticated real WooCommerce price update links.
 
 ## Development
 

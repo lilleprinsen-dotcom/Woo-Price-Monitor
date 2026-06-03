@@ -117,7 +117,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add selected-row bulk actions for monitored products and competitor links.
 - Keep all import/export and bulk workflows admin-only and nonce-protected.
 
-## Current Milestone: Competitor Profiles And Extraction Rules
+### Milestone 14: Competitor Profiles And Extraction Rules
 
 - Add `lpm_competitors` for global competitor profiles.
 - Add nullable `competitor_id` on `lpm_competitor_links` so existing custom-name links keep working.
@@ -129,9 +129,22 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add a profile-only Test URL action that does not save product/link/observation data.
 - Keep all scraping respectful, bounded, admin-only, and dependency-free.
 
+## Current Milestone: Webhook Notifications
+
+- Add `WebhookNotificationChannel` for Make, Zapier, and similar webhook providers.
+- Keep notifications and webhook delivery disabled by default.
+- Add webhook URL, optional secret, and event toggles for new, blocked, failed-check, and recovery events.
+- Add HMAC-SHA256 signature header when a webhook secret is configured.
+- Add a test webhook admin action.
+- Build structured webhook payloads with product/suggestion data, review links, and human-readable message text.
+- Keep direct WhatsApp, Meta Cloud API, and Twilio integrations out of scope.
+- Keep real WooCommerce price updates behind logged-in admin confirmation only.
+- Store token approval link settings for future work but do not implement token actions yet.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
+- Add focused tests for webhook payload formatting and HMAC signature behavior.
 - Add focused tests for limited selector parsing and JavaScript-required profile behavior.
 - Add focused tests for `PricingRuleService` rounding, min price, cost, and margin outcomes once a lightweight WordPress test harness exists.
 - Add more structured logging around parser extraction methods.
