@@ -10,6 +10,8 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
+- [ ] Confirm Dashboard, Settings, and Logs still load after the admin tab renderer refactor.
+- [ ] Confirm POST actions still show notices and redirects after the admin action handler refactor.
 - [ ] Confirm dry-run mode is visible on the Dashboard and enabled by default.
 - [ ] Confirm Dashboard health cards show last check time, checks last 24 hours, failed checks last 24 hours, batch lock status, scheduled checks, pending/blocked suggestions, active price match sessions, real-update possibility, and webhook notification state.
 - [ ] Confirm Dashboard warnings appear when WooCommerce is inactive, dry-run mode is disabled, emergency update disable is off, scheduled checks use a large batch size, or many checks have failed.

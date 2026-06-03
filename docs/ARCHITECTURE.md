@@ -41,7 +41,16 @@ Competitor links include retry/backoff state through `consecutive_failures` and 
 
 ### Admin UI
 
-`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, History, Import / Export, Settings, and Logs tabs.
+`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main admin coordinator and still renders Products, Approvals, Competitors, History, and Import / Export while the admin UI is being split gradually.
+
+Current admin split:
+
+- `src/Admin/AdminActionHandler.php` owns POST action nonce/capability checks, action key sanitization, and action routing. It calls public action methods on `AdminPage` as an interim bridge.
+- `src/Admin/AdminViewHelpers.php` contains shared UI helpers used by extracted tab renderers.
+- `src/Admin/Tabs/DashboardTab.php` renders the Dashboard tab.
+- `src/Admin/Tabs/SettingsTab.php` renders the Settings tab.
+- `src/Admin/Tabs/LogsTab.php` renders the Logs tab.
+- `src/Admin/Tabs/ProductsTab.php`, `ApprovalsTab.php`, `CompetitorsTab.php`, `HistoryTab.php`, and `ImportExportTab.php` are lightweight placeholders for future extraction; current behavior still lives in `AdminPage`.
 
 The Competitors tab has two layers:
 

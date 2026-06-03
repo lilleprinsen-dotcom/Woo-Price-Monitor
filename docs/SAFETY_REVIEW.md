@@ -4,7 +4,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 
 ## Current Guardrails
 
-- No frontend hooks are registered. The plugin coordinator initializes only in admin or cron contexts.
+- No frontend hooks are registered. The plugin coordinator initializes only in admin, cron, or WP-CLI contexts.
 - Admin assets load only when `page=lilleprinsen-price-monitor`.
 - WooCommerce product search runs only after an admin submits a search query.
 - Product search is bounded to 20 results and uses exact ID lookup, SKU lookup, or a limited title query.
@@ -18,6 +18,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Scheduled checks are disabled by default.
 - Scheduled checks use Action Scheduler only when available and enabled.
 - Scheduled batches are capped by `max_urls_per_batch`.
+- Manual, scheduled, and WP-CLI batches share a transient lock and retry/backoff skips future-due failed links.
 - Scheduled checks never update WooCommerce prices.
 - Scheduled suggestion creation is disabled by default.
 - Pricing rules create dry-run suggestions only and store explainable rule metadata; they do not update WooCommerce prices.
@@ -30,10 +31,11 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Real updates require dry-run mode off, emergency disable off, explicit allow setting on, manual approval, explicit confirmation, allowed suggestion type, positive price, unchanged product snapshot, and max-drop validation.
 - Unauthenticated links cannot perform real WooCommerce price updates.
 - Real updates use WooCommerce CRUD APIs, not direct SQL price metadata writes.
+- Retention cleanup is manual/admin-only or WP-CLI-invoked. It deletes old debug/operational logs and observations while preserving approval/update audit logs.
 
 ## Review Notes
 
-The current code registers normal WordPress admin hooks, an Action Scheduler action, and an `admin_init` scheduling check. The main plugin file prevents the coordinator from loading during normal frontend requests. The job action can run in cron, and scheduled processing exits when scheduled checks are disabled.
+The current code registers normal WordPress admin hooks, an Action Scheduler action, an `admin_init` scheduling check, and bounded WP-CLI commands. The main plugin file prevents the coordinator from loading during normal frontend requests. The job action can run in cron, and scheduled processing exits when scheduled checks are disabled.
 
 `PriceCheckService` uses external HTTP only for manual checks or bounded job batches. There is no crawler, link discovery, or automatic all-product scan.
 
@@ -42,12 +44,12 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 ## Known Risks And TODOs
 
 - Product title search depends on WooCommerce query behavior and should be tested on the production-like catalog before relying on it.
-- Action Scheduler locking and duplicate scheduling should be reviewed before scheduled checks are enabled in production.
+- Action Scheduler duplicate scheduling should be reviewed before scheduled checks are enabled in production at high volume; batch execution now has a shared transient lock.
 - Parser behavior is MVP-level and can misread complex competitor pages; suggestions should stay manual-review/dry-run until parsing confidence improves.
 - Selector rules support only simple `.class`, `#id`, and `[attr="value"]` patterns for now.
 - JavaScript-rendered competitor pages require a future, explicit external worker design; the internal checker does not render JavaScript.
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
-- Log retention is not implemented yet.
+- Primary-competitor and all-competitors-must-increase recovery behavior remains future work beyond the conservative lowest-valid-competitor behavior.
 - Tokenized dry-run approval link settings are stored for future work, but token actions and the `lpm_approval_tokens` table are not implemented yet.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.
