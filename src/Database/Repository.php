@@ -1370,6 +1370,28 @@ final class Repository {
 		return false !== $updated;
 	}
 
+	public function update_suggestion_group_action_status( int $suggestion_id, string $status ): bool {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$status  = $this->sanitize_limited_text( $status, 30, 'pending' );
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'group_action_status' => $status,
+				'updated_at'          => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $suggestion_id ) ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
 	/**
 	 * @return array<string, int>
 	 */
@@ -1628,6 +1650,38 @@ final class Repository {
 		return is_array( $rows ) ? $rows : array();
 	}
 
+	/**
+	 * @param array<int, int> $product_ids Product IDs.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_active_price_match_sessions_for_products( array $product_ids ): array {
+		$table       = $this->tables['price_match_sessions'];
+		$product_ids = array_values( array_unique( array_filter( array_map( 'absint', $product_ids ) ) ) );
+
+		if ( empty( $product_ids ) || ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$placeholders = implode( ', ', array_fill( 0, count( $product_ids ), '%d' ) );
+		$sql          = "SELECT * FROM {$table} WHERE product_id IN ({$placeholders}) AND status = %s ORDER BY matched_at DESC, id DESC";
+		$rows         = $this->wpdb->get_results( $this->wpdb->prepare( $sql, array_merge( $product_ids, array( 'active' ) ) ), ARRAY_A );
+		$sessions     = array();
+
+		if ( ! is_array( $rows ) ) {
+			return array();
+		}
+
+		foreach ( $rows as $row ) {
+			$product_id = absint( $row['product_id'] ?? 0 );
+
+			if ( $product_id > 0 && ! isset( $sessions[ $product_id ] ) ) {
+				$sessions[ $product_id ] = $row;
+			}
+		}
+
+		return $sessions;
+	}
+
 	private function count_price_suggestions_by_view( string $view ): int {
 		return $this->count_price_suggestions( array( 'view' => $view ) );
 	}
@@ -1777,6 +1831,71 @@ final class Repository {
 		);
 
 		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array{active_real: int, active_dry_run: int, safety_warnings: int, warnings: array<int, string>}
+	 */
+	public function get_product_group_health( int $group_id ): array {
+		$members  = $this->tables['product_group_members'] ?? '';
+		$sessions = $this->tables['price_match_sessions'] ?? '';
+		$warnings = array();
+
+		if ( ! $members || ! $this->table_exists( $members ) ) {
+			return array(
+				'active_real'     => 0,
+				'active_dry_run'  => 0,
+				'safety_warnings' => 0,
+				'warnings'        => array(),
+			);
+		}
+
+		$active_real = 0;
+		$dry_run     = 0;
+
+		if ( $sessions && $this->table_exists( $sessions ) ) {
+			$active_real = (int) $this->wpdb->get_var(
+				$this->wpdb->prepare(
+					"SELECT COUNT(DISTINCT pms.product_id)
+					FROM {$sessions} pms
+					INNER JOIN {$members} pgm ON pms.product_id = pgm.product_id
+					WHERE pgm.group_id = %d AND pgm.enabled = 1 AND pms.status = %s",
+					absint( $group_id ),
+					'active'
+				)
+			);
+			$dry_run = (int) $this->wpdb->get_var(
+				$this->wpdb->prepare(
+					"SELECT COUNT(DISTINCT pms.product_id)
+					FROM {$sessions} pms
+					INNER JOIN {$members} pgm ON pms.product_id = pgm.product_id
+					WHERE pgm.group_id = %d AND pgm.enabled = 1 AND pms.status = %s",
+					absint( $group_id ),
+					'active_dry_run'
+				)
+			);
+		}
+
+		$group = $this->get_product_group( $group_id );
+
+		if ( $group && 'primary_product_controls_group' === (string) ( $group['pricing_mode'] ?? '' ) && empty( $group['primary_product_id'] ) ) {
+			$warnings[] = __( 'Primary-controlled group has no primary product.', 'lilleprinsen-price-monitor' );
+		}
+
+		$enabled_members = (int) $this->wpdb->get_var(
+			$this->wpdb->prepare( "SELECT COUNT(*) FROM {$members} WHERE group_id = %d AND enabled = 1", absint( $group_id ) )
+		);
+
+		if ( $enabled_members <= 0 ) {
+			$warnings[] = __( 'Group has no enabled members.', 'lilleprinsen-price-monitor' );
+		}
+
+		return array(
+			'active_real'     => $active_real,
+			'active_dry_run'  => $dry_run,
+			'safety_warnings' => count( $warnings ),
+			'warnings'        => $warnings,
+		);
 	}
 
 	/**

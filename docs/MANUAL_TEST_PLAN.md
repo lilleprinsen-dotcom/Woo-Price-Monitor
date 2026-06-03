@@ -60,10 +60,13 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Switch the group to `primary_product_controls_group`, create a suggestion from the primary product, and confirm it is group-aware.
 - [ ] Try creating a suggestion from a non-primary product in a primary-controlled group and confirm it is skipped with a clear reason.
 - [ ] Switch the group to `manual_review_only`, create a suggestion, and confirm it appears as manual review.
-- [ ] Confirm group suggestions show a group badge, group name, and affected product count in Approvals.
-- [ ] Dry-run approve a group suggestion and confirm the log records affected group members and WooCommerce prices are unchanged.
-- [ ] Confirm no real-update button is shown for group suggestions in this version.
-- [ ] Try a group suggestion where one member has a minimum price above the suggestion and confirm group warnings are stored in rule details.
+- [ ] Confirm group suggestions show a group badge, group name, affected product count, warnings, and blocked products in Approvals/details.
+- [ ] Dry-run approve a group suggestion and confirm the log records affected group members, dry-run sessions are admin-only, WooCommerce prices are unchanged, and no frontend price-match box/coupon exclusion appears.
+- [ ] With real updates disabled, confirm no group real update can be submitted.
+- [ ] On staging only, enable all real-update safety settings and open the group confirmation page. Confirm all products, old prices, new prices, blocked products, pricing mode, and partial-update setting are visible before submitting.
+- [ ] Try a group suggestion where one member has a minimum price above the suggestion and confirm the whole real group update is blocked when partial updates are disabled.
+- [ ] Enable partial group updates on staging, repeat the blocked-member case, and confirm only eligible products update and logs show skipped products.
+- [ ] Create a group recovery case with different original prices per member and confirm it becomes manual review with the warning “Group members have different original prices. Manual review required.”
 - [ ] Click Manage competitors for the monitored product.
 - [ ] In the side drawer Competitors tab, add a competitor link with URL, profile, match type, enabled state, and primary state without page reload.
 - [ ] In the side drawer, edit a competitor link and confirm the list refreshes without page reload.

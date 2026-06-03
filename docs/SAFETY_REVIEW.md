@@ -48,7 +48,7 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 
 `PriceCheckService` uses external HTTP only for manual checks or bounded job batches. There is no crawler, link discovery, or automatic all-product scan.
 
-`PriceUpdateService` contains real update code, but it is guarded by settings and confirmation. The default settings keep it unavailable. Group suggestions are excluded from the real-update button path in this version; dry-run group approval logs affected members only.
+`PriceUpdateService` contains real update code, but it is guarded by settings and confirmation. The default settings keep it unavailable. Group real updates use a separate guarded confirmation path, validate every enabled member first, use WooCommerce CRUD only, and keep partial updates disabled by default.
 
 ## Known Risks And TODOs
 
@@ -61,6 +61,6 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
 - Direct WhatsApp delivery remains future work; webhook payloads can be forwarded by Make/Zapier.
-- Real multi-product group update confirmation is future work. Any future implementation must validate every member, use WooCommerce CRUD, and keep partial updates disabled by default.
+- Group real update validation is intentionally conservative. Full rollback after a mid-update failure is not attempted; successful and failed products are logged and `group_action_status` records `completed`, `partial`, or `failed`.
 - Price-match frontend display depends on cached product flags or active session rows. Staging should confirm cache state is set/cleared as expected before enabling the customer-facing box.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.
