@@ -18,12 +18,17 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Add a product to monitoring and confirm it appears in Existing monitored products.
 - [ ] Click Edit rules for the monitored product and update priority, strategy, min margin, min price, check frequency, and enabled state.
 - [ ] Confirm the rule changes are saved and logged.
+- [ ] Select monitored products on the current Products page and apply bulk enable/disable.
+- [ ] Select monitored products and apply bulk priority, strategy, check frequency, min margin, and min price changes.
+- [ ] Confirm monitored product bulk actions affect only selected rows on the current page.
 - [ ] Disable and re-enable monitoring for that product.
 - [ ] Click Manage competitors for the monitored product.
 - [ ] Add a competitor link with a valid http/https URL.
 - [ ] Try an invalid URL and confirm validation blocks it.
 - [ ] Edit the competitor link and confirm changes persist.
 - [ ] Disable and re-enable the competitor link.
+- [ ] Select competitor links and apply bulk enable/disable, set match type, and delete selected on a staging-only link.
+- [ ] Confirm competitor bulk actions affect only selected links.
 - [ ] Click Test check on a simple competitor/test page and confirm detected price, currency, and extraction method notice.
 - [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
@@ -40,6 +45,14 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm log pagination does not load all rows at once.
 - [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.
 - [ ] Confirm the competitor management screen shows the latest five checks for the selected monitored product.
+- [ ] Open Import / Export and download the sample CSV template.
+- [ ] Upload a small valid CSV and confirm the preview shows valid rows before anything is committed.
+- [ ] Upload rows with missing products, invalid URLs, invalid strategy, invalid enabled values, and duplicate competitor URLs; confirm warnings/errors are clear.
+- [ ] Confirm a valid preview and verify monitored products/rules/competitor links are created or updated.
+- [ ] Confirm invalid preview rows are logged as skipped during confirm.
+- [ ] Try a file larger than the configured cap and confirm it is rejected.
+- [ ] Export monitored products/links and confirm CSV includes product/rule/link fields without exceeding the safe row cap.
+- [ ] Export pending suggestions, recent failed checks, and price observations.
 - [ ] Confirm scheduled checks are disabled by default in Settings.
 - [ ] Click Run one small check batch now only on staging and confirm it respects `max_urls_per_batch`.
 - [ ] Send test notification and confirm it writes a log entry only.

@@ -80,6 +80,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		</section>
 
+		<section class="lpm-panel <?php echo esc_attr( 'import_export' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="import_export">
+			<?php
+			if ( 'import_export' === $active_tab ) {
+				$this->render_import_export();
+			}
+			?>
+		</section>
+
 		<section class="lpm-panel <?php echo esc_attr( 'settings' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings">
 			<?php
 			if ( 'settings' === $active_tab ) {
