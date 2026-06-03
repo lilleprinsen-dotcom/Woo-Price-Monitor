@@ -36,7 +36,7 @@ final class NotificationService {
 		$sent = false;
 
 		foreach ( $this->channels as $channel ) {
-			$sent = $channel->send( $event, $message, $context, $product_id ) || $sent;
+			$sent = $channel->send( $event, $message, $context, $product_id, $settings ) || $sent;
 		}
 
 		return $sent;

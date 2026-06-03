@@ -125,9 +125,20 @@ This service is present for future controlled use. Defaults keep real updates bl
 
 ### Notifications
 
-`src/Notifications/NotificationService.php` routes notification events through configured channels. `src/Notifications/NotificationInterface.php` defines the channel contract. `src/Notifications/LogNotificationChannel.php` writes log entries describing what would have been sent.
+`src/Notifications/NotificationService.php` routes notification events through configured channels. `src/Notifications/NotificationInterface.php` defines the channel contract.
 
-Notifications are disabled by default, and the only current channel is log-only. WhatsApp provider settings are placeholders and make no external provider calls.
+Current notification modules:
+
+- `src/Notifications/LogNotificationChannel.php` writes log entries for debugging/audit.
+- `src/Notifications/WebhookNotificationChannel.php` posts JSON payloads to Make, Zapier, or another webhook provider when enabled.
+- `src/Notifications/NotificationMessageBuilder.php` builds structured payloads and human-readable `message_text`.
+- `src/Service/ReviewLinkService.php` builds safe WordPress admin review links.
+
+Notifications are disabled by default. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Webhook failures are logged and do not block the admin or batch flow.
+
+Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by those external tools. Direct Meta WhatsApp Cloud API and Twilio WhatsApp integrations are not implemented.
+
+Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
 ### Settings
 
@@ -142,6 +153,14 @@ Important conservative defaults:
 - `allow_real_price_updates = 0`
 - `require_confirmation_for_real_updates = 1`
 - `notifications_enabled = 0`
+- `webhook_notifications_enabled = 0`
+- `webhook_url = ''`
+- `webhook_send_on_new_suggestion = 1`
+- `webhook_send_on_blocked_suggestion = 1`
+- `webhook_send_on_failed_check = 0`
+- `webhook_send_on_recovery_suggestion = 1`
+- `allow_token_dry_run_approval_links = 0`
+- `token_link_expiry_hours = 24`
 - `max_urls_per_batch = 10`
 - `observation_retention_days = 90`
 - `failed_observation_retention_days = 30`
@@ -242,6 +261,17 @@ Current competitor link bulk actions:
 3. Admin approves dry-run or rejects.
 4. Dry-run approval logs the decision and may create a dry-run price match session for recovery state.
 5. WooCommerce prices are not changed unless every real-update guard is explicitly satisfied and a separate confirmation is submitted.
+
+### Webhook Notifications
+
+1. Admin enables notifications and webhook notifications in Settings.
+2. Admin saves a Make/Zapier/webhook URL and optional secret.
+3. New, blocked, recovery, and failed-check events call `NotificationService`.
+4. The log channel writes audit entries according to the log notification toggles.
+5. The webhook channel checks its own event toggles and posts a bounded JSON payload.
+6. Payloads include product/suggestion context, `message_text`, `review_url`, and `approval_url`.
+7. `approval_url` is a normal admin review URL, not an unauthenticated update action.
+8. Optional token dry-run approval link settings are stored for future work only; token approval is not implemented yet.
 
 ## Performance Notes
 

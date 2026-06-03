@@ -172,11 +172,7 @@ final class CheckCompetitorLinkJob {
 	private function maybe_notify_suggestion( array $settings, array $suggestion, int $product_id ): void {
 		$status = (string) ( $suggestion['status'] ?? '' );
 
-		if ( 'pending' === $status && empty( $settings['notify_on_new_suggestion'] ) ) {
-			return;
-		}
-
-		if ( 'blocked' === $status && empty( $settings['notify_on_blocked_suggestion'] ) ) {
+		if ( ! in_array( $status, array( 'pending', 'blocked' ), true ) ) {
 			return;
 		}
 
@@ -194,16 +190,13 @@ final class CheckCompetitorLinkJob {
 	 * @param array<string, mixed> $link Competitor link row.
 	 */
 	private function maybe_notify_failed_check( array $settings, array $link, string $error ): void {
-		if ( empty( $settings['notify_on_failed_check'] ) ) {
-			return;
-		}
-
 		$this->notification_service->send(
 			'failed_check',
 			__( 'Price Monitor would send a failed check notification.', 'lilleprinsen-price-monitor' ),
 			$settings,
 			array(
 				'competitor_link_id' => (int) $link['id'],
+				'competitor_url'     => (string) ( $link['competitor_url'] ?? '' ),
 				'error'              => $error,
 			),
 			(int) $link['product_id']

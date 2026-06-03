@@ -21,10 +21,14 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Scheduled checks never update WooCommerce prices.
 - Scheduled suggestion creation is disabled by default.
 - Pricing rules create dry-run suggestions only and store explainable rule metadata; they do not update WooCommerce prices.
-- Notifications are disabled by default and currently use only `LogNotificationChannel`.
-- WhatsApp settings are placeholders only. No real WhatsApp provider call is implemented.
+- Notifications are disabled by default.
+- Webhook notifications are also disabled by default and require a valid admin-configured webhook URL.
+- Webhook payloads are JSON only, may include an HMAC signature, and failures are logged without blocking admin workflows.
+- WhatsApp settings are placeholders only. No direct Meta/Twilio WhatsApp provider call is implemented.
+- Notification review links point to normal authenticated WordPress admin URLs.
 - Real WooCommerce price updates are blocked by default.
 - Real updates require dry-run mode off, emergency disable off, explicit allow setting on, manual approval, explicit confirmation, allowed suggestion type, positive price, unchanged product snapshot, and max-drop validation.
+- Unauthenticated links cannot perform real WooCommerce price updates.
 - Real updates use WooCommerce CRUD APIs, not direct SQL price metadata writes.
 
 ## Review Notes
@@ -45,4 +49,5 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
 - Log retention is not implemented yet.
+- Tokenized dry-run approval link settings are stored for future work, but token actions and the `lpm_approval_tokens` table are not implemented yet.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.

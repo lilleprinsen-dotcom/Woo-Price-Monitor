@@ -20,6 +20,7 @@ use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
+use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
@@ -57,7 +58,12 @@ final class Plugin {
 		$pricing_rules        = new PricingRuleService();
 		$price_check          = new PriceCheckService( null, $repository );
 		$suggestion_service   = new SuggestionService( $repository, $price_recovery, $pricing_rules );
-		$notification_service = new NotificationService( array( new LogNotificationChannel( $repository ) ) );
+		$notification_service = new NotificationService(
+			array(
+				new LogNotificationChannel( $repository ),
+				new WebhookNotificationChannel( $repository ),
+			)
+		);
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );
 		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
 		$job_scheduler        = new JobScheduler( $settings, $check_job, $repository );

@@ -11,6 +11,11 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
 - [ ] Confirm dry-run mode is visible on the Dashboard and enabled by default.
+- [ ] Confirm notifications and webhook notifications are disabled by default.
+- [ ] Add a staging Make/Zapier/webhook URL, optional secret, and enable webhook notifications.
+- [ ] Click Test webhook and confirm the provider receives a JSON payload with `event`, `site_url`, `plugin_version`, `message_text`, `review_url`, and no real price-update action link.
+- [ ] If a webhook secret is set, confirm the request includes an `X-LPM-Signature` header.
+- [ ] Break the webhook URL temporarily and confirm the admin flow continues while a webhook failure is logged.
 - [ ] On Products, confirm the pre-search message says to search by name, SKU, or ID.
 - [ ] Search by product ID and confirm at most 20 results.
 - [ ] Search by SKU and confirm the expected product appears.
@@ -43,14 +48,19 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.
+- [ ] If webhook notifications are enabled for new suggestions, confirm the webhook payload includes product/suggestion fields and a WordPress admin `review_url`.
 - [ ] Confirm the Approvals row shows margin after, warnings, and a rule summary when rule data is available.
 - [ ] Confirm skipped suggestions are logged when the price difference is below the configured minimum.
 - [ ] Confirm blocked suggestions are created when the drop exceeds the max allowed drop percent.
+- [ ] If webhook notifications are enabled for blocked suggestions, confirm a blocked suggestion sends a webhook payload.
+- [ ] If webhook notifications are enabled for recovery suggestions, create a staging recovery suggestion and confirm it sends a webhook payload.
 - [ ] Open Approvals and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
 - [ ] Edit a suggested price and confirm the old/new price is logged.
 - [ ] Approve a pending suggestion as dry-run and confirm WooCommerce product price is unchanged.
 - [ ] Reject a suggestion and confirm status and logs update.
 - [ ] Confirm real update controls remain blocked by default with dry-run mode and emergency disable enabled.
+- [ ] Confirm webhook `review_url` and `approval_url` require normal WordPress admin login.
+- [ ] Confirm no unauthenticated webhook link can perform a real WooCommerce price update.
 - [ ] Open Logs and test filters for level, event, and product ID.
 - [ ] Confirm log pagination does not load all rows at once.
 - [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.

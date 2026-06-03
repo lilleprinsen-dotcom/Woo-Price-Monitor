@@ -22,10 +22,15 @@ final class LogNotificationChannel implements NotificationInterface {
 
 	/**
 	 * @param array<string, mixed> $context Notification context.
+	 * @param array<string, mixed> $settings Sanitized plugin settings.
 	 */
-	public function send( string $event, string $message, array $context = array(), ?int $product_id = null ): bool {
+	public function send( string $event, string $message, array $context = array(), ?int $product_id = null, array $settings = array() ): bool {
+		if ( ! $this->should_send( $event, $context, $settings ) ) {
+			return false;
+		}
+
 		$context['channel'] = 'log';
-		$context['note']    = __( 'WhatsApp is not connected yet. This notification was logged only.', 'lilleprinsen-price-monitor' );
+		$context['note']    = __( 'Notification event logged for debugging/audit. Direct WhatsApp is not implemented.', 'lilleprinsen-price-monitor' );
 
 		return $this->repository->write_log(
 			'info',
@@ -34,5 +39,29 @@ final class LogNotificationChannel implements NotificationInterface {
 			$context,
 			$product_id
 		);
+	}
+
+	/**
+	 * @param array<string, mixed> $context Notification context.
+	 * @param array<string, mixed> $settings Sanitized plugin settings.
+	 */
+	private function should_send( string $event, array $context, array $settings ): bool {
+		if ( in_array( $event, array( 'test', 'webhook_test' ), true ) ) {
+			return true;
+		}
+
+		if ( 'failed_check' === $event ) {
+			return ! empty( $settings['notify_on_failed_check'] );
+		}
+
+		if ( str_starts_with( $event, 'price_suggestion_' ) ) {
+			if ( 'blocked' === (string) ( $context['status'] ?? '' ) || 'price_suggestion_blocked' === $event ) {
+				return ! empty( $settings['notify_on_blocked_suggestion'] );
+			}
+
+			return ! empty( $settings['notify_on_new_suggestion'] );
+		}
+
+		return true;
 	}
 }

@@ -71,6 +71,15 @@ final class Settings {
 			'notify_on_failed_check'          => 0,
 			'notification_phone_number'       => '',
 			'whatsapp_provider'               => 'none',
+			'webhook_notifications_enabled'   => 0,
+			'webhook_url'                     => '',
+			'webhook_secret'                  => '',
+			'webhook_send_on_new_suggestion'  => 1,
+			'webhook_send_on_blocked_suggestion' => 1,
+			'webhook_send_on_failed_check'    => 0,
+			'webhook_send_on_recovery_suggestion' => 1,
+			'allow_token_dry_run_approval_links' => 0,
+			'token_link_expiry_hours'         => 24,
 			'rows_per_page'                   => 25,
 		);
 	}
@@ -241,6 +250,15 @@ final class Settings {
 				array( 'none', 'meta_cloud_api', 'twilio', 'make_webhook', 'zapier_webhook' ),
 				(string) $defaults['whatsapp_provider']
 			),
+			'webhook_notifications_enabled'   => $this->sanitize_bool( $settings['webhook_notifications_enabled'] ?? $defaults['webhook_notifications_enabled'] ),
+			'webhook_url'                     => $this->sanitize_webhook_url( $settings['webhook_url'] ?? $defaults['webhook_url'] ),
+			'webhook_secret'                  => $this->sanitize_secret( $settings['webhook_secret'] ?? $defaults['webhook_secret'] ),
+			'webhook_send_on_new_suggestion'  => $this->sanitize_bool( $settings['webhook_send_on_new_suggestion'] ?? $defaults['webhook_send_on_new_suggestion'] ),
+			'webhook_send_on_blocked_suggestion' => $this->sanitize_bool( $settings['webhook_send_on_blocked_suggestion'] ?? $defaults['webhook_send_on_blocked_suggestion'] ),
+			'webhook_send_on_failed_check'    => $this->sanitize_bool( $settings['webhook_send_on_failed_check'] ?? $defaults['webhook_send_on_failed_check'] ),
+			'webhook_send_on_recovery_suggestion' => $this->sanitize_bool( $settings['webhook_send_on_recovery_suggestion'] ?? $defaults['webhook_send_on_recovery_suggestion'] ),
+			'allow_token_dry_run_approval_links' => $this->sanitize_bool( $settings['allow_token_dry_run_approval_links'] ?? $defaults['allow_token_dry_run_approval_links'] ),
+			'token_link_expiry_hours'         => $this->sanitize_int( $settings['token_link_expiry_hours'] ?? $defaults['token_link_expiry_hours'], 1, 168, (int) $defaults['token_link_expiry_hours'] ),
 			'rows_per_page'                   => $this->sanitize_int( $settings['rows_per_page'] ?? $defaults['rows_per_page'], 1, 200, (int) $defaults['rows_per_page'] ),
 		);
 	}
@@ -310,6 +328,34 @@ final class Settings {
 		$phone = preg_replace( '/[^0-9+() .-]/', '', $phone );
 
 		return is_string( $phone ) ? substr( trim( $phone ), 0, 50 ) : '';
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_webhook_url( $value ): string {
+		$url = esc_url_raw( (string) $value );
+
+		if ( '' === $url ) {
+			return '';
+		}
+
+		$parts = wp_parse_url( $url );
+
+		if ( ! is_array( $parts ) || empty( $parts['host'] ) || empty( $parts['scheme'] ) || ! in_array( strtolower( (string) $parts['scheme'] ), array( 'http', 'https' ), true ) ) {
+			return '';
+		}
+
+		return substr( $url, 0, 500 );
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_secret( $value ): string {
+		$secret = sanitize_text_field( (string) $value );
+
+		return substr( trim( $secret ), 0, 255 );
 	}
 
 	/**
