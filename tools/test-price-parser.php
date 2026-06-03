@@ -53,6 +53,20 @@ lpm_run_tests(
 			lpm_assert_float_equals( 1098.5, $result['price'], 'Selector price should handle thousand separator and decimal comma.' );
 			lpm_assert_same( 'selector_price', $result['extraction_method'], 'Selector method should be recorded.' );
 		},
+		'Attribute selector price extraction' => static function () use ( $parser ): void {
+			$result = $parser->parse(
+				'<html><body><span data-lpm-price="main" content="1 249,00"></span></body></html>',
+				array(
+					'price_extraction_mode' => 'selector',
+					'price_selector'        => '[data-lpm-price="main"]',
+					'default_currency'      => 'NOK',
+				)
+			);
+
+			lpm_assert_true( $result['success'], 'Attribute selector parser should succeed.' );
+			lpm_assert_float_equals( 1249.0, $result['price'], 'Attribute selector should read content attribute.' );
+			lpm_assert_same( 'selector_price', $result['extraction_method'], 'Selector method should be recorded.' );
+		},
 		'Stock in text' => static function () use ( $parser, $selector_rules ): void {
 			$result = $parser->parse(
 				lpm_test_fixture( 'stock-in.html' ),
@@ -84,6 +98,22 @@ lpm_run_tests(
 
 			lpm_assert_true( $result['success'], 'Stock out parser should still extract price.' );
 			lpm_assert_same( 'out_of_stock', $result['stock_status'], 'Stock out text should be detected before stock in text.' );
+		},
+		'Stock out wins with normalized text' => static function () use ( $parser, $selector_rules ): void {
+			$result = $parser->parse(
+				'<html><body><span class="price-current">kr 899</span><p id="stock-state">På' . "\n" . ' lager - Ikke PÅ lager akkurat nå</p></body></html>',
+				array_merge(
+					$selector_rules,
+					array(
+						'stock_selector' => '#stock-state',
+						'stock_in_text'  => 'på lager',
+						'stock_out_text' => 'ikke på lager',
+					)
+				)
+			);
+
+			lpm_assert_true( $result['success'], 'Stock parser should still extract price.' );
+			lpm_assert_same( 'out_of_stock', $result['stock_status'], 'Out-of-stock text should win after case and whitespace normalization.' );
 		},
 		'No price failure' => static function () use ( $parser ): void {
 			$result = $parser->parse( lpm_test_fixture( 'no-price.html' ) );

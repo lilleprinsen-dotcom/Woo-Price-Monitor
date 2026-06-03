@@ -10,6 +10,8 @@ declare(strict_types=1);
 require_once __DIR__ . '/test-bootstrap.php';
 
 use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
+use Lilleprinsen\PriceMonitor\Admin\TokenActionHandler;
+use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 final class LpmFakeApprovalTokenRepository {
 	/**
@@ -26,6 +28,16 @@ final class LpmFakeApprovalTokenRepository {
 	 * @var array<int, array<string, mixed>>
 	 */
 	public array $logs = array();
+
+	/**
+	 * @var array<int, array<string, mixed>>
+	 */
+	public array $monitored_products = array();
+
+	/**
+	 * @var array<int, array<int, array<string, mixed>>>
+	 */
+	public array $group_members = array();
 
 	public int $next_token_id = 1;
 
@@ -113,6 +125,42 @@ final class LpmFakeApprovalTokenRepository {
 		return true;
 	}
 
+	public function update_suggested_price( int $suggestion_id, float $suggested_price ): bool {
+		if ( empty( $this->suggestions[ $suggestion_id ] ) ) {
+			return false;
+		}
+
+		$this->suggestions[ $suggestion_id ]['suggested_price'] = $suggested_price;
+		$this->suggestions[ $suggestion_id ]['difference'] = round( $suggested_price - (float) ( $this->suggestions[ $suggestion_id ]['current_price'] ?? 0 ), 4 );
+
+		return true;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_monitored_product( int $monitored_product_id ): ?array {
+		return $this->monitored_products[ $monitored_product_id ] ?? null;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_product_group_members( int $group_id, bool $enabled_only = false ): array {
+		$members = $this->group_members[ $group_id ] ?? array();
+
+		if ( ! $enabled_only ) {
+			return $members;
+		}
+
+		return array_values(
+			array_filter(
+				$members,
+				static fn( array $member ): bool => ! empty( $member['enabled'] )
+			)
+		);
+	}
+
 	public function reject_suggestion( int $suggestion_id, int $user_id ): bool {
 		if ( empty( $this->suggestions[ $suggestion_id ] ) ) {
 			return false;
@@ -151,6 +199,27 @@ function lpm_action_token_settings(): array {
 	$settings['whatsapp_action_links_enabled'] = 1;
 
 	return $settings;
+}
+
+function lpm_token_handler( LpmFakeApprovalTokenRepository $repo, array $settings = array() ): TokenActionHandler {
+	$GLOBALS['lpm_test_options'][ Settings::OPTION_NAME ] = array_merge(
+		array(
+			'max_allowed_price_drop_percent' => 25,
+			'max_allowed_price_increase_percent' => 50,
+		),
+		$settings
+	);
+
+	return new TokenActionHandler( $repo, new Settings(), new ApprovalTokenService( $repo ) );
+}
+
+function lpm_token_validation( int $suggestion_id, string $action ): array {
+	return array(
+		'success'       => true,
+		'token_id'      => 1,
+		'suggestion_id' => $suggestion_id,
+		'action'        => $action,
+	);
 }
 
 lpm_run_tests(
@@ -231,6 +300,130 @@ lpm_run_tests(
 			lpm_assert_true( $updated, 'Dry-run approval should update suggestion status.' );
 			lpm_assert_same( 'approved_dry_run', $repo->suggestions[10]['status'], 'Dry-run approval status should be recorded.' );
 			lpm_assert_same( 0, $repo->price_update_calls, 'Dry-run token approval must not call a price update service.' );
+		},
+		'match price token action records dry run only' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array(
+				'id' => 1,
+				'suggestion_id' => 30,
+				'action' => ApprovalTokenService::ACTION_MATCH_PRICE,
+				'used_at' => null,
+			);
+			$repo->suggestions[30] = array(
+				'id' => 30,
+				'status' => 'pending',
+				'current_price' => 1299,
+				'competitor_price' => 1199,
+				'monitored_product_id' => 300,
+				'applies_to_group' => 0,
+			);
+			$repo->monitored_products[300] = array( 'id' => 300, 'min_price' => 1000 );
+
+			$result = lpm_token_handler( $repo )->apply_token_action( lpm_token_validation( 30, ApprovalTokenService::ACTION_MATCH_PRICE ) );
+
+			lpm_assert_same( 200, $result['status_code'], 'Match-price token action should be recorded.' );
+			lpm_assert_float_equals( 1199.0, $repo->suggestions[30]['suggested_price'], 'Suggested price should match competitor price.' );
+			lpm_assert_same( 'approved_dry_run', $repo->suggestions[30]['status'], 'Match-price action should dry-run approve only.' );
+			lpm_assert_same( 0, $repo->price_update_calls, 'Token match action must not call a WooCommerce price update.' );
+		},
+		'match price minus one token action records dry run only' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array(
+				'id' => 1,
+				'suggestion_id' => 31,
+				'action' => ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1,
+				'used_at' => null,
+			);
+			$repo->suggestions[31] = array(
+				'id' => 31,
+				'status' => 'pending',
+				'current_price' => 1299,
+				'competitor_price' => 1199,
+				'monitored_product_id' => 301,
+			);
+			$repo->monitored_products[301] = array( 'id' => 301, 'min_price' => 1000 );
+
+			$result = lpm_token_handler( $repo )->apply_token_action( lpm_token_validation( 31, ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 ) );
+
+			lpm_assert_same( 200, $result['status_code'], 'Match-price-minus-one token action should be recorded.' );
+			lpm_assert_float_equals( 1198.0, $repo->suggestions[31]['suggested_price'], 'Suggested price should be competitor price minus 1.' );
+			lpm_assert_same( 'approved_dry_run', $repo->suggestions[31]['status'], 'Match-price-minus-one action should dry-run approve only.' );
+			lpm_assert_same( 0, $repo->price_update_calls, 'Token match -1 action must not call a WooCommerce price update.' );
+		},
+		'match price token action blocks invalid requested price' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array( 'id' => 1, 'suggestion_id' => 32, 'action' => ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1, 'used_at' => null );
+			$repo->suggestions[32] = array(
+				'id' => 32,
+				'status' => 'pending',
+				'current_price' => 100,
+				'competitor_price' => 0.5,
+				'monitored_product_id' => 302,
+			);
+
+			$result = lpm_token_handler( $repo )->apply_token_action( lpm_token_validation( 32, ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 ) );
+
+			lpm_assert_same( 403, $result['status_code'], 'Invalid match-price-minus-one token action should be blocked.' );
+			lpm_assert_same( 'pending', $repo->suggestions[32]['status'], 'Blocked token action should not approve the suggestion.' );
+			lpm_assert_true( ! isset( $repo->suggestions[32]['suggested_price'] ), 'Blocked token action should not update suggested price.' );
+		},
+		'match price token action respects max drop limit' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array( 'id' => 1, 'suggestion_id' => 33, 'action' => ApprovalTokenService::ACTION_MATCH_PRICE, 'used_at' => null );
+			$repo->suggestions[33] = array(
+				'id' => 33,
+				'status' => 'pending',
+				'current_price' => 100,
+				'competitor_price' => 50,
+				'monitored_product_id' => 303,
+			);
+
+			$result = lpm_token_handler( $repo, array( 'max_allowed_price_drop_percent' => 10 ) )->apply_token_action( lpm_token_validation( 33, ApprovalTokenService::ACTION_MATCH_PRICE ) );
+
+			lpm_assert_same( 403, $result['status_code'], 'Suspicious token price drop should be blocked.' );
+			lpm_assert_same( 'pending', $repo->suggestions[33]['status'], 'Blocked drop should not approve the suggestion.' );
+			lpm_assert_true( ! isset( $repo->suggestions[33]['suggested_price'] ), 'Blocked drop should not update suggested price.' );
+		},
+		'match price token action respects monitored min price' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array( 'id' => 1, 'suggestion_id' => 34, 'action' => ApprovalTokenService::ACTION_MATCH_PRICE, 'used_at' => null );
+			$repo->suggestions[34] = array(
+				'id' => 34,
+				'status' => 'pending',
+				'current_price' => 120,
+				'competitor_price' => 90,
+				'monitored_product_id' => 304,
+			);
+			$repo->monitored_products[304] = array( 'id' => 304, 'min_price' => 95 );
+
+			$result = lpm_token_handler( $repo, array( 'max_allowed_price_drop_percent' => 100 ) )->apply_token_action( lpm_token_validation( 34, ApprovalTokenService::ACTION_MATCH_PRICE ) );
+
+			lpm_assert_same( 403, $result['status_code'], 'Token action below min price should be blocked.' );
+			lpm_assert_same( 'pending', $repo->suggestions[34]['status'], 'Blocked min price should not approve the suggestion.' );
+			lpm_assert_true( ! isset( $repo->suggestions[34]['suggested_price'] ), 'Blocked min price should not update suggested price.' );
+		},
+		'group match price token action respects member min price' => static function (): void {
+			$repo = new LpmFakeApprovalTokenRepository();
+			$repo->tokens[1] = array( 'id' => 1, 'suggestion_id' => 35, 'action' => ApprovalTokenService::ACTION_MATCH_PRICE, 'used_at' => null );
+			$repo->suggestions[35] = array(
+				'id' => 35,
+				'status' => 'pending',
+				'current_price' => 120,
+				'competitor_price' => 100,
+				'monitored_product_id' => 305,
+				'group_id' => 70,
+				'applies_to_group' => 1,
+			);
+			$repo->group_members[70] = array(
+				array( 'product_id' => 501, 'enabled' => 1, 'min_price' => 101 ),
+				array( 'product_id' => 502, 'enabled' => 1, 'min_price' => 90 ),
+			);
+
+			$result = lpm_token_handler( $repo, array( 'max_allowed_price_drop_percent' => 100 ) )->apply_token_action( lpm_token_validation( 35, ApprovalTokenService::ACTION_MATCH_PRICE ) );
+
+			lpm_assert_same( 403, $result['status_code'], 'Group token action below member min price should be blocked.' );
+			lpm_assert_same( 'pending', $repo->suggestions[35]['status'], 'Blocked group action should not approve the suggestion.' );
+			lpm_assert_true( ! isset( $repo->suggestions[35]['suggested_price'] ), 'Blocked group action should not update suggested price.' );
 		},
 		'reject works for pending and blocked suggestions only' => static function (): void {
 			$repo = new LpmFakeApprovalTokenRepository();

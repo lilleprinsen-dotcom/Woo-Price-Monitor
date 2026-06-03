@@ -166,7 +166,7 @@ Group real updates remain intentionally conservative. The approval inbox does no
 
 `src/Frontend/FrontendPlugin.php` is the optional frontend module. It registers WooCommerce display and coupon hooks only when the relevant settings are enabled.
 
-`src/Service/PriceMatchDisplayService.php` decides whether a product should show the price-match box. It reads `_lpm_price_matched_active` or `_lpm_price_matched_group_active` product meta first. On single product pages it may use the indexed active price-match session lookup as a fallback; loop display relies on cached/simple state.
+`src/Service/PriceMatchDisplayService.php` decides whether a product should show the price-match box. It reads `_lpm_price_matched_active` or `_lpm_price_matched_group_active` product meta first, but only the `real` meta value counts for storefront display and coupon exclusion. Dry-run sessions must not set these real-match flags. On single product pages it may use the indexed real active price-match session lookup as a fallback; loop display relies on cached/simple state.
 
 `assets/price-match-box.css` contains the lightweight frontend styles. The default customer text is Norwegian and explains that discount codes cannot be combined with price-matched products.
 
@@ -198,7 +198,7 @@ Review links in notification payloads point to normal WordPress admin pages and 
 
 When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. When `whatsapp_action_links_enabled = 1`, suggestion payloads may also include `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `action_link_expires_at`, `competitor_url`, and `review_url` for Make/Zapier/WhatsApp messages. Tokens are stored only as hashes in `lpm_approval_tokens`, expire, and are one-time use.
 
-Token actions can record dry-run approve/reject decisions and can adjust the stored suggested price to competitor price or competitor price minus 1 kr before dry-run approval. They never call `PriceUpdateService` and never update WooCommerce prices. Real updates still require logged-in admin confirmation through the normal admin workflow.
+Token actions can record dry-run approve/reject decisions and can adjust the stored suggested price to competitor price or competitor price minus 1 kr before dry-run approval. Match-price token actions validate positive price, configured max drop/increase, monitored-product minimum price, and group-member minimum prices before touching the suggestion. They never call `PriceUpdateService` and never update WooCommerce prices. Real updates still require logged-in admin confirmation through the normal admin workflow.
 
 ### Retention Cleanup
 

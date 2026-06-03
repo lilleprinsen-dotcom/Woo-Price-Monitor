@@ -1488,8 +1488,8 @@ final class Repository {
 
 		$session_id = false !== $inserted ? (int) $this->wpdb->insert_id : 0;
 
-		if ( $session_id > 0 && in_array( (string) ( $data['status'] ?? 'active' ), array( 'active', 'active_dry_run' ), true ) && function_exists( 'update_post_meta' ) ) {
-			update_post_meta( absint( $data['product_id'] ?? 0 ), '_lpm_price_matched_active', 'yes' );
+		if ( $session_id > 0 && 'active' === (string) ( $data['status'] ?? 'active' ) && function_exists( 'update_post_meta' ) ) {
+			update_post_meta( absint( $data['product_id'] ?? 0 ), '_lpm_price_matched_active', 'real' );
 		}
 
 		return $session_id;
@@ -1558,10 +1558,9 @@ final class Repository {
 
 		return (bool) $this->wpdb->get_var(
 			$this->wpdb->prepare(
-				"SELECT id FROM {$table} WHERE product_id = %d AND status IN (%s, %s) LIMIT 1",
+				"SELECT id FROM {$table} WHERE product_id = %d AND status = %s LIMIT 1",
 				absint( $product_id ),
-				'active',
-				'active_dry_run'
+				'active'
 			)
 		);
 	}

@@ -101,6 +101,13 @@ final class TokenActionHandler {
 				return $this->blocked_response( $suggestion_id, $action, __( 'The requested token action would create an invalid suggested price.', 'lilleprinsen-price-monitor' ) );
 			}
 
+			$validation_result = $this->validate_match_price_action( $suggestion, $new_price );
+
+			if ( empty( $validation_result['success'] ) ) {
+				$this->token_service->mark_used( $token_id );
+				return $this->blocked_response( $suggestion_id, $action, (string) $validation_result['message'] );
+			}
+
 			$price_updated = $this->repository->update_suggested_price( $suggestion_id, round( $new_price, 4 ) );
 			$updated       = $price_updated && $this->repository->approve_suggestion_dry_run( $suggestion_id, 0 );
 			$title         = ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 === $action ? __( 'Match price -1 kr recorded', 'lilleprinsen-price-monitor' ) : __( 'Match price recorded', 'lilleprinsen-price-monitor' );
@@ -150,6 +157,168 @@ final class TokenActionHandler {
 			'message'     => $message . ' ' . __( 'WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
 			'status_code' => 403,
 		);
+	}
+
+	/**
+	 * Token match actions are dry-run only, but they still need conservative
+	 * price safety checks before changing the stored suggestion price.
+	 *
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @return array{success: bool, message: string}
+	 */
+	private function validate_match_price_action( array $suggestion, float $new_price ): array {
+		if ( $new_price <= 0 ) {
+			return array(
+				'success' => false,
+				'message' => __( 'The requested token action would create an invalid suggested price.', 'lilleprinsen-price-monitor' ),
+			);
+		}
+
+		$current_price = (float) ( $suggestion['current_price'] ?? 0 );
+		$settings      = $this->settings->get_all();
+
+		if ( $current_price > 0 ) {
+			$drop_percent = (float) ( $settings['max_allowed_price_drop_percent'] ?? 0 );
+
+			if ( $new_price < $current_price && $drop_percent > 0 ) {
+				$actual_drop = ( ( $current_price - $new_price ) / $current_price ) * 100;
+
+				if ( $actual_drop > $drop_percent ) {
+					return array(
+						'success' => false,
+						'message' => sprintf(
+							/* translators: 1: actual drop percent, 2: allowed drop percent. */
+							__( 'The requested token action is blocked because the price drop is %.2f%%, above the configured %.2f%% limit.', 'lilleprinsen-price-monitor' ),
+							$actual_drop,
+							$drop_percent
+						),
+					);
+				}
+			}
+
+			$increase_percent = (float) ( $settings['max_allowed_price_increase_percent'] ?? 0 );
+
+			if ( $new_price > $current_price && $increase_percent > 0 ) {
+				$actual_increase = ( ( $new_price - $current_price ) / $current_price ) * 100;
+
+				if ( $actual_increase > $increase_percent ) {
+					return array(
+						'success' => false,
+						'message' => sprintf(
+							/* translators: 1: actual increase percent, 2: allowed increase percent. */
+							__( 'The requested token action is blocked because the price increase is %.2f%%, above the configured %.2f%% limit.', 'lilleprinsen-price-monitor' ),
+							$actual_increase,
+							$increase_percent
+						),
+					);
+				}
+			}
+		}
+
+		$monitored_product = $this->get_monitored_product_for_suggestion( $suggestion );
+		$min_price         = $this->extract_positive_decimal( $monitored_product['min_price'] ?? null );
+
+		if ( null !== $min_price && $new_price < $min_price ) {
+			return array(
+				'success' => false,
+				'message' => sprintf(
+					/* translators: 1: requested price, 2: minimum price. */
+					__( 'The requested token action is blocked because %.2f is below the monitored product minimum price %.2f.', 'lilleprinsen-price-monitor' ),
+					$new_price,
+					$min_price
+				),
+			);
+		}
+
+		if ( ! empty( $suggestion['applies_to_group'] ) ) {
+			$group_result = $this->validate_group_match_price_action( $suggestion, $new_price );
+
+			if ( empty( $group_result['success'] ) ) {
+				return $group_result;
+			}
+		}
+
+		return array(
+			'success' => true,
+			'message' => '',
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @return array<string, mixed>
+	 */
+	private function get_monitored_product_for_suggestion( array $suggestion ): array {
+		if ( ! method_exists( $this->repository, 'get_monitored_product' ) ) {
+			return array();
+		}
+
+		$monitored_product = $this->repository->get_monitored_product( absint( $suggestion['monitored_product_id'] ?? 0 ) );
+
+		return is_array( $monitored_product ) ? $monitored_product : array();
+	}
+
+	/**
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @return array{success: bool, message: string}
+	 */
+	private function validate_group_match_price_action( array $suggestion, float $new_price ): array {
+		if ( ! method_exists( $this->repository, 'get_product_group_members' ) ) {
+			return array(
+				'success' => false,
+				'message' => __( 'The requested group token action is blocked because group members could not be validated.', 'lilleprinsen-price-monitor' ),
+			);
+		}
+
+		$group_id = absint( $suggestion['group_id'] ?? 0 );
+		$members  = $group_id > 0 ? $this->repository->get_product_group_members( $group_id, true ) : array();
+
+		if ( empty( $members ) ) {
+			return array(
+				'success' => false,
+				'message' => __( 'The requested group token action is blocked because no enabled group members were found.', 'lilleprinsen-price-monitor' ),
+			);
+		}
+
+		foreach ( $members as $member ) {
+			if ( ! is_array( $member ) ) {
+				continue;
+			}
+
+			$member_min_price = $this->extract_positive_decimal( $member['min_price'] ?? null );
+
+			if ( null !== $member_min_price && $new_price < $member_min_price ) {
+				return array(
+					'success' => false,
+					'message' => sprintf(
+						/* translators: 1: product ID, 2: requested price, 3: minimum price. */
+						__( 'The requested group token action is blocked because product %1$d would receive %2$.2f, below its minimum price %3$.2f.', 'lilleprinsen-price-monitor' ),
+						absint( $member['product_id'] ?? 0 ),
+						$new_price,
+						$member_min_price
+					),
+				);
+			}
+		}
+
+		// TODO: Extend token dry-run validation with full group cost/margin checks once those rules are centralized for all group members.
+		return array(
+			'success' => true,
+			'message' => '',
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw decimal value.
+	 */
+	private function extract_positive_decimal( $value ): ?float {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$value = is_scalar( $value ) ? (float) $value : 0.0;
+
+		return $value > 0 ? $value : null;
 	}
 
 	private function get_success_log_event( string $action ): string {

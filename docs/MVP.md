@@ -160,10 +160,10 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Respect primary-controlled and manual-review-only group modes.
 - Keep group real updates out of the automatic/token path; dry-run approval logs affected members only.
 - Add optional lightweight frontend price-match box settings and CSS.
-- Use cached/simple price-match state for frontend display and coupon exclusion.
-- Exclude price-matched cart lines from coupon discounts when enabled.
+- Use cached/simple real price-match state for frontend display and coupon exclusion; dry-run sessions do not trigger storefront display.
+- Exclude real price-matched cart lines from coupon discounts when enabled.
 - Extend webhook payloads with Match price, Match price -1 kr, Reject, competitor, and review action links.
-- Keep action links disabled by default, expiring, one-time use, hash-stored, and dry-run-only for price actions.
+- Keep action links disabled by default, expiring, one-time use, hash-stored, dry-run-only for price actions, and blocked when requested prices violate core safety limits.
 
 ## Next Safe Hardening Work
 
