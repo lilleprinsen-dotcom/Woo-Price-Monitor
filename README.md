@@ -25,6 +25,7 @@ Implemented foundation:
 - Admin-only manual retention cleanup for old operational logs and price observations.
 - Bounded WP-CLI commands for check batches, cleanup, and operational status.
 - Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
+- Optional one-time token links for webhook dry-run approval or rejection only. Token links are disabled by default and can never update WooCommerce prices.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 
 ## Architecture Principles
@@ -49,6 +50,7 @@ The plugin creates these custom tables with the active WordPress table prefix:
 - `lpm_price_observations`: historical check rows for trust, debugging, recovery behavior, and future reports.
 - `lpm_price_suggestions`: dry-run and real-update workflow suggestions, suggestion type, status, reason, rule details, warnings, margin snapshot, reviewer, and timestamps.
 - `lpm_price_match_sessions`: original price state and recovery context for price-match sessions, including dry-run sessions.
+- `lpm_approval_tokens`: hashed, expiring, one-time dry-run approval/rejection tokens for webhook workflows.
 - `lpm_logs`: audit trail for admin actions, checks, suggestions, notifications, jobs, and guarded price update attempts.
 
 Schema creation and migrations live in `src/Database/Schema.php`. Repository helpers live in `src/Database/Repository.php`.
@@ -65,7 +67,7 @@ This project currently does not implement:
 - Direct SQL updates to `_price`, `_regular_price`, or `_sale_price`.
 - Heavy reporting over all products or all orders.
 - JavaScript/browser scraping, anti-bot bypassing, or external scraper workers.
-- Unauthenticated real WooCommerce price update links.
+- Unauthenticated real WooCommerce price update links. Token links can only approve dry-run suggestions or reject suggestions.
 
 ## Development
 
@@ -89,6 +91,6 @@ composer run test:local
 composer run qa
 ```
 
-The local tests cover pure service behavior for `PriceParser`, `PricingRuleService`, and `PriceRecoveryService` using minimal WordPress function stubs. They do not load WordPress, WooCommerce, custom database tables, admin screens, Action Scheduler, WP-CLI commands, HTTP requests, or webhook delivery.
+The local tests cover pure service behavior for `PriceParser`, `PricingRuleService`, `PriceRecoveryService`, and `ApprovalTokenService` using minimal WordPress function stubs. They do not load WordPress, WooCommerce, custom database tables, admin screens, Action Scheduler, WP-CLI commands, HTTP requests, or webhook delivery.
 
 See `AGENTS.md` for coding rules, `docs/ARCHITECTURE.md` for module details, `docs/MVP.md` for staged work, `docs/SAFETY_REVIEW.md` for current guardrails, and `docs/MANUAL_TEST_PLAN.md` for manual QA.

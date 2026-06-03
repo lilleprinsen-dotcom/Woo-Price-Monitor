@@ -33,20 +33,25 @@ final class RetentionService {
 		$debug_days     = $this->bounded_days( $settings['debug_log_retention_days'] ?? 14, 1, 3650, 14 );
 		$success_days   = $this->bounded_days( $settings['observation_retention_days'] ?? 90, 1, 3650, 90 );
 		$failed_days    = $this->bounded_days( $settings['failed_observation_retention_days'] ?? 30, 1, 3650, 30 );
+		$token_days     = $this->bounded_days( $settings['token_retention_days'] ?? 30, 1, 3650, 30 );
 		$log_cutoff     = $this->cutoff_datetime( $log_days );
 		$debug_cutoff   = $this->cutoff_datetime( $debug_days );
 		$success_cutoff = $this->cutoff_datetime( $success_days );
 		$failed_cutoff  = $this->cutoff_datetime( $failed_days );
+		$token_cutoff   = $this->cutoff_datetime( $token_days );
 
 		$logs_deleted         = $this->repository->delete_old_non_audit_logs( $log_cutoff, $debug_cutoff );
 		$observations_deleted = $this->repository->delete_old_price_observations( $success_cutoff, $failed_cutoff );
+		$tokens_deleted       = $this->repository->delete_old_approval_tokens( $token_cutoff );
 		$summary              = array(
 			'logs_deleted'         => $logs_deleted,
 			'observations_deleted' => $observations_deleted,
+			'tokens_deleted'       => $tokens_deleted,
 			'log_cutoff'           => $log_cutoff,
 			'debug_log_cutoff'     => $debug_cutoff,
 			'observation_cutoff'   => $success_cutoff,
 			'failed_observation_cutoff' => $failed_cutoff,
+			'token_cutoff'         => $token_cutoff,
 			'audit_logs_preserved' => ! empty( $settings['keep_audit_logs_forever'] ),
 		);
 

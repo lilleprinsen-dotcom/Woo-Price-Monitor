@@ -27,11 +27,13 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Webhook payloads are JSON only, may include an HMAC signature, and failures are logged without blocking admin workflows.
 - WhatsApp settings are placeholders only. No direct Meta/Twilio WhatsApp provider call is implemented.
 - Notification review links point to normal authenticated WordPress admin URLs.
+- Tokenized approve/reject links are disabled by default, expire, are one-time use, and store only token hashes.
+- Tokenized links can only approve dry-run suggestions or reject suggestions. They cannot approve real WooCommerce price updates.
 - Real WooCommerce price updates are blocked by default.
 - Real updates require dry-run mode off, emergency disable off, explicit allow setting on, manual approval, explicit confirmation, allowed suggestion type, positive price, unchanged product snapshot, and max-drop validation.
 - Unauthenticated links cannot perform real WooCommerce price updates.
 - Real updates use WooCommerce CRUD APIs, not direct SQL price metadata writes.
-- Retention cleanup is manual/admin-only or WP-CLI-invoked. It deletes old debug/operational logs and observations while preserving approval/update audit logs.
+- Retention cleanup is manual/admin-only or WP-CLI-invoked. It deletes old debug/operational logs, observations, and old used/expired token rows while preserving approval/update audit logs.
 
 ## Review Notes
 
@@ -50,6 +52,5 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - JavaScript-rendered competitor pages require a future, explicit external worker design; the internal checker does not render JavaScript.
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
-- Primary-competitor and all-competitors-must-increase recovery behavior remains future work beyond the conservative lowest-valid-competitor behavior.
-- Tokenized dry-run approval link settings are stored for future work, but token actions and the `lpm_approval_tokens` table are not implemented yet.
+- Direct WhatsApp delivery remains future work; webhook payloads can be forwarded by Make/Zapier.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.

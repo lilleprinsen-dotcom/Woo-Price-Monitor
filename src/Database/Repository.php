@@ -943,6 +943,112 @@ final class Repository {
 	}
 
 	/**
+	 * @param array<string, mixed> $data Token row data.
+	 */
+	public function create_approval_token( array $data ): int {
+		$table = $this->tables['approval_tokens'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'suggestion_id'    => absint( $data['suggestion_id'] ?? 0 ),
+				'action'           => $this->sanitize_approval_token_action( (string) ( $data['action'] ?? '' ) ),
+				'token_hash'       => sanitize_text_field( (string) ( $data['token_hash'] ?? '' ) ),
+				'expires_at'       => sanitize_text_field( (string) ( $data['expires_at'] ?? '' ) ),
+				'created_at'       => sanitize_text_field( (string) ( $data['created_at'] ?? current_time( 'mysql' ) ) ),
+			),
+			array( '%d', '%s', '%s', '%s', '%s' )
+		);
+
+		return false === $inserted ? 0 : (int) $this->wpdb->insert_id;
+	}
+
+	public function delete_existing_approval_tokens_for_suggestion_action( int $suggestion_id, string $action ): int {
+		$table = $this->tables['approval_tokens'];
+		$action = $this->sanitize_approval_token_action( $action );
+
+		if ( ! $this->table_exists( $table ) || '' === $action ) {
+			return 0;
+		}
+
+		$deleted = $this->wpdb->query(
+			$this->wpdb->prepare(
+				"DELETE FROM {$table} WHERE suggestion_id = %d AND action = %s AND used_at IS NULL",
+				absint( $suggestion_id ),
+				$action
+			)
+		);
+
+		return false === $deleted ? 0 : (int) $deleted;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_approval_token_by_hash( string $token_hash ): ?array {
+		$table = $this->tables['approval_tokens'];
+		$token_hash = sanitize_text_field( $token_hash );
+
+		if ( ! $this->table_exists( $table ) || '' === $token_hash ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE token_hash = %s LIMIT 1",
+				$token_hash
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	public function mark_approval_token_used( int $token_id, string $ip = '', string $user_agent = '' ): bool {
+		$table = $this->tables['approval_tokens'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->query(
+			$this->wpdb->prepare(
+				"UPDATE {$table}
+				SET used_at = %s, used_ip = %s, used_user_agent = %s
+				WHERE id = %d AND used_at IS NULL",
+				current_time( 'mysql' ),
+				substr( sanitize_text_field( $ip ), 0, 100 ),
+				substr( sanitize_text_field( $user_agent ), 0, 255 ),
+				absint( $token_id )
+			)
+		);
+
+		return false !== $updated && (int) $updated > 0;
+	}
+
+	public function delete_old_approval_tokens( string $cutoff ): int {
+		$table = $this->tables['approval_tokens'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$deleted = $this->wpdb->query(
+			$this->wpdb->prepare(
+				"DELETE FROM {$table} WHERE (used_at IS NOT NULL AND used_at < %s) OR expires_at < %s",
+				$cutoff,
+				$cutoff
+			)
+		);
+
+		return false === $deleted ? 0 : (int) $deleted;
+	}
+
+	/**
 	 * @param array<string, mixed> $data Observation fields.
 	 */
 	public function create_price_observation( array $data ): int {
@@ -1526,6 +1632,12 @@ final class Repository {
 			'webhook_test',
 			'retention_cleanup_completed',
 		);
+	}
+
+	private function sanitize_approval_token_action( string $action ): string {
+		$action = sanitize_key( $action );
+
+		return in_array( $action, array( 'approve_dry_run', 'reject' ), true ) ? $action : '';
 	}
 
 	private function set_suggestion_review_status( int $suggestion_id, string $status, string $date_column, string $user_column, int $user_id ): bool {

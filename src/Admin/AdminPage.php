@@ -1532,10 +1532,11 @@ final class AdminPage {
 
 		$this->set_admin_notice(
 			sprintf(
-				/* translators: 1: logs deleted, 2: observations deleted. */
-				__( 'Cleanup finished: %1$d logs deleted and %2$d observations deleted.', 'lilleprinsen-price-monitor' ),
+				/* translators: 1: logs deleted, 2: observations deleted, 3: token rows deleted. */
+				__( 'Cleanup finished: %1$d logs deleted, %2$d observations deleted and %3$d token rows deleted.', 'lilleprinsen-price-monitor' ),
 				(int) $summary['logs_deleted'],
-				(int) $summary['observations_deleted']
+				(int) $summary['observations_deleted'],
+				(int) ( $summary['tokens_deleted'] ?? 0 )
 			)
 		);
 		$this->redirect_to_tab( 'settings', 'retention_cleanup_completed' );
@@ -2587,6 +2588,7 @@ final class AdminPage {
 					<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Reason', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Created', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Token links', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
 				</tr>
 			</thead>
@@ -2621,6 +2623,9 @@ final class AdminPage {
 							<?php $this->render_recovery_details_summary( (string) ( $suggestion['rule_details'] ?? '' ), (float) $suggestion['current_price'], (float) $suggestion['competitor_price'], (float) $suggestion['suggested_price'], $currency ); ?>
 						</td>
 						<td><?php echo esc_html( $this->format_datetime( $suggestion['created_at'] ?? null ) ); ?></td>
+						<td>
+							<?php $this->render_token_link_status( (string) $suggestion['status'], $settings ); ?>
+						</td>
 						<td>
 							<div class="lpm-actions lpm-inbox-actions">
 								<?php if ( $can_review ) : ?>
@@ -3039,6 +3044,28 @@ final class AdminPage {
 			esc_attr( $status ),
 			esc_html( $label )
 		);
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
+	 */
+	private function render_token_link_status( string $suggestion_status, array $settings ): void {
+		if ( empty( $settings['allow_token_dry_run_approval_links'] ) ) {
+			$this->render_status_pill( __( 'Disabled', 'lilleprinsen-price-monitor' ), 'muted' );
+			return;
+		}
+
+		if ( 'pending' === $suggestion_status ) {
+			$this->render_status_pill( __( 'Approve/reject', 'lilleprinsen-price-monitor' ), 'ok' );
+			return;
+		}
+
+		if ( 'blocked' === $suggestion_status ) {
+			$this->render_status_pill( __( 'Reject only', 'lilleprinsen-price-monitor' ), 'warning' );
+			return;
+		}
+
+		$this->render_status_pill( __( 'Unavailable', 'lilleprinsen-price-monitor' ), 'muted' );
 	}
 
 	private function render_empty_card( string $title, string $body ): void {

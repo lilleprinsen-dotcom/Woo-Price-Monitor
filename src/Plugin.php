@@ -13,6 +13,7 @@ use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\CsvImportService;
 use Lilleprinsen\PriceMonitor\Admin\Notices;
 use Lilleprinsen\PriceMonitor\Admin\ProductSearchService;
+use Lilleprinsen\PriceMonitor\Admin\TokenActionHandler;
 use Lilleprinsen\PriceMonitor\Assets\AdminAssets;
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
@@ -22,6 +23,7 @@ use Lilleprinsen\PriceMonitor\Cli\Command as CliCommand;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
+use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
@@ -59,11 +61,12 @@ final class Plugin {
 		$price_recovery       = new PriceRecoveryService();
 		$pricing_rules        = new PricingRuleService();
 		$price_check          = new PriceCheckService( null, $repository );
+		$approval_tokens      = new ApprovalTokenService( $repository );
 		$suggestion_service   = new SuggestionService( $repository, $price_recovery, $pricing_rules );
 		$notification_service = new NotificationService(
 			array(
 				new LogNotificationChannel( $repository ),
-				new WebhookNotificationChannel( $repository ),
+				new WebhookNotificationChannel( $repository, null, $approval_tokens ),
 			)
 		);
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );
@@ -74,6 +77,7 @@ final class Plugin {
 		$notice_store         = new AdminNoticeStore();
 		$csv_import           = new CsvImportService( $repository );
 		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service );
+		$token_handler        = new TokenActionHandler( $repository, $settings, $approval_tokens );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
 
@@ -83,6 +87,8 @@ final class Plugin {
 		add_action( 'admin_menu', array( new AdminMenu( $admin_page ), 'register' ) );
 		add_action( 'admin_notices', array( new Notices(), 'render' ) );
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );
+		add_action( 'admin_post_lpm_token_action', array( $token_handler, 'handle' ) );
+		add_action( 'admin_post_nopriv_lpm_token_action', array( $token_handler, 'handle' ) );
 		$job_scheduler->register();
 		$this->register_cli( $settings, $repository, $check_job, $retention_service );
 	}

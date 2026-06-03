@@ -8,6 +8,7 @@
 namespace Lilleprinsen\PriceMonitor\Notifications;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -18,9 +19,9 @@ final class WebhookNotificationChannel implements NotificationInterface {
 
 	private NotificationMessageBuilder $builder;
 
-	public function __construct( Repository $repository, ?NotificationMessageBuilder $builder = null ) {
+	public function __construct( Repository $repository, ?NotificationMessageBuilder $builder = null, ?ApprovalTokenService $approval_tokens = null ) {
 		$this->repository = $repository;
-		$this->builder    = $builder ?? new NotificationMessageBuilder( $repository );
+		$this->builder    = $builder ?? new NotificationMessageBuilder( $repository, null, $approval_tokens );
 	}
 
 	/**
@@ -39,7 +40,7 @@ final class WebhookNotificationChannel implements NotificationInterface {
 			return false;
 		}
 
-		$payload = $this->builder->build_payload( $event, $message, $context, $product_id );
+		$payload = $this->builder->build_payload( $event, $message, $context, $product_id, $settings );
 		$body    = wp_json_encode( $payload );
 
 		if ( false === $body ) {

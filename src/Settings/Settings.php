@@ -85,6 +85,7 @@ final class Settings {
 			'webhook_send_on_recovery_suggestion' => 1,
 			'allow_token_dry_run_approval_links' => 0,
 			'token_link_expiry_hours'         => 24,
+			'token_retention_days'            => 30,
 			'rows_per_page'                   => 25,
 		);
 	}
@@ -269,6 +270,7 @@ final class Settings {
 			'webhook_send_on_recovery_suggestion' => $this->sanitize_bool( $settings['webhook_send_on_recovery_suggestion'] ?? $defaults['webhook_send_on_recovery_suggestion'] ),
 			'allow_token_dry_run_approval_links' => $this->sanitize_bool( $settings['allow_token_dry_run_approval_links'] ?? $defaults['allow_token_dry_run_approval_links'] ),
 			'token_link_expiry_hours'         => $this->sanitize_int( $settings['token_link_expiry_hours'] ?? $defaults['token_link_expiry_hours'], 1, 168, (int) $defaults['token_link_expiry_hours'] ),
+			'token_retention_days'            => $this->sanitize_int( $settings['token_retention_days'] ?? $defaults['token_retention_days'], 1, 3650, (int) $defaults['token_retention_days'] ),
 			'rows_per_page'                   => $this->sanitize_int( $settings['rows_per_page'] ?? $defaults['rows_per_page'], 1, 200, (int) $defaults['rows_per_page'] ),
 		);
 	}

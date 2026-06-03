@@ -139,7 +139,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Build structured webhook payloads with product/suggestion data, review links, and human-readable message text.
 - Keep direct WhatsApp, Meta Cloud API, and Twilio integrations out of scope.
 - Keep real WooCommerce price updates behind logged-in admin confirmation only.
-- Store token approval link settings for future work but do not implement token actions yet.
+- Add optional tokenized dry-run approve/reject links only; do not allow tokenized real price updates.
 
 ## Current Milestone: Production Safety Controls
 

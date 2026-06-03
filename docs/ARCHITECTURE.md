@@ -33,9 +33,10 @@ Current custom tables:
 - `lpm_price_observations`
 - `lpm_price_suggestions`
 - `lpm_price_match_sessions`
+- `lpm_approval_tokens`
 - `lpm_logs`
 
-`src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, observation history, suggestion review state, competitor link state, and price match session helpers.
+`src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, observation history, suggestion review state, competitor link state, price match session helpers, and hashed approval-token storage.
 
 Competitor links include recovery, retry, and backoff state through `is_primary`, `consecutive_failures`, and `next_check_after`. Failed checks delay the next batch attempt by 1 hour, 6 hours, then 24 hours for later failures. Successful checks reset the failure counter and clear the backoff timestamp. Only one primary competitor link is kept per monitored product.
 
@@ -158,6 +159,7 @@ Current notification modules:
 - `src/Notifications/WebhookNotificationChannel.php` posts JSON payloads to Make, Zapier, or another webhook provider when enabled.
 - `src/Notifications/NotificationMessageBuilder.php` builds structured payloads and human-readable `message_text`.
 - `src/Service/ReviewLinkService.php` builds safe WordPress admin review links.
+- `src/Service/ApprovalTokenService.php` creates one-time token links for dry-run approval or rejection only.
 
 Notifications are disabled by default. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Webhook failures are logged and do not block the admin or batch flow.
 
@@ -165,9 +167,11 @@ Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by tho
 
 Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
+When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. Tokens are stored only as hashes in `lpm_approval_tokens`, expire according to `token_link_expiry_hours`, and are one-time use. Token endpoints can only set suggestion status to `approved_dry_run` or `rejected`; they never call `PriceUpdateService` and never update WooCommerce prices.
+
 ### Retention Cleanup
 
-`src/Service/RetentionService.php` provides an admin-only and WP-CLI-invoked cleanup workflow. It deletes old debug and known operational logs plus old price observation rows based on retention settings. Approval and real price-update audit logs are preserved. Cleanup is not scheduled automatically.
+`src/Service/RetentionService.php` provides an admin-only and WP-CLI-invoked cleanup workflow. It deletes old debug and known operational logs, old price observation rows, and old used/expired approval-token rows based on retention settings. Approval and real price-update audit logs are preserved. Cleanup is not scheduled automatically.
 
 ### WP-CLI
 
@@ -200,6 +204,7 @@ Important conservative defaults:
 - `webhook_send_on_recovery_suggestion = 1`
 - `allow_token_dry_run_approval_links = 0`
 - `token_link_expiry_hours = 24`
+- `token_retention_days = 30`
 - `max_urls_per_batch = 10`
 - `check_batch_lock_minutes = 10`
 - `observation_retention_days = 90`
@@ -322,6 +327,7 @@ Current competitor link bulk actions:
 2. Admin can adjust the suggested price.
 3. Admin approves dry-run or rejects.
 4. Dry-run approval logs the decision and may create a dry-run price match session for recovery state.
+5. Token approval links, when enabled, can only record dry-run approval or rejection and never perform real price updates.
 5. WooCommerce prices are not changed unless every real-update guard is explicitly satisfied and a separate confirmation is submitted.
 
 ### Webhook Notifications
@@ -333,7 +339,7 @@ Current competitor link bulk actions:
 5. The webhook channel checks its own event toggles and posts a bounded JSON payload.
 6. Payloads include product/suggestion context, `message_text`, `review_url`, and `approval_url`.
 7. `approval_url` is a normal admin review URL, not an unauthenticated update action.
-8. Optional token dry-run approval link settings are stored for future work only; token approval is not implemented yet.
+8. If token links are enabled, payloads can include one-time `dry_run_approve_url` and `reject_url` values for dry-run workflow actions only.
 
 ## Performance Notes
 

@@ -8,6 +8,7 @@
 namespace Lilleprinsen\PriceMonitor\Notifications;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
 use Lilleprinsen\PriceMonitor\Service\ReviewLinkService;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -19,16 +20,19 @@ final class NotificationMessageBuilder {
 
 	private ReviewLinkService $review_links;
 
-	public function __construct( Repository $repository, ?ReviewLinkService $review_links = null ) {
-		$this->repository   = $repository;
-		$this->review_links = $review_links ?? new ReviewLinkService();
+	private ?ApprovalTokenService $approval_tokens;
+
+	public function __construct( Repository $repository, ?ReviewLinkService $review_links = null, ?ApprovalTokenService $approval_tokens = null ) {
+		$this->repository      = $repository;
+		$this->review_links    = $review_links ?? new ReviewLinkService();
+		$this->approval_tokens = $approval_tokens;
 	}
 
 	/**
 	 * @param array<string, mixed> $context Notification context.
 	 * @return array<string, mixed>
 	 */
-	public function build_payload( string $event, string $fallback_message, array $context, ?int $product_id = null ): array {
+	public function build_payload( string $event, string $fallback_message, array $context, ?int $product_id = null, array $settings = array() ): array {
 		$context = $this->hydrate_context( $context );
 		$product = $this->get_product( $product_id ?? absint( $context['product_id'] ?? 0 ) );
 		$product_id = $product_id ?? absint( $context['product_id'] ?? 0 );
@@ -39,8 +43,10 @@ final class NotificationMessageBuilder {
 
 		$review_url = $this->get_review_url( $event, $context );
 		$message    = $this->build_message_text( $event, $fallback_message, $context, $product );
+		$token_links = $this->build_token_links( $context, $settings );
 
-		return array(
+		return array_merge(
+			array(
 			'event'             => sanitize_key( $event ),
 			'site_url'          => home_url(),
 			'plugin_version'    => defined( 'LPM_VERSION' ) ? LPM_VERSION : '',
@@ -61,6 +67,8 @@ final class NotificationMessageBuilder {
 			'created_at'        => $this->nullable_text( $context['created_at'] ?? null ),
 			'message_text'      => $message,
 			'context'           => $this->sanitize_context( $context ),
+			),
+			$token_links
 		);
 	}
 
@@ -148,6 +156,47 @@ final class NotificationMessageBuilder {
 			),
 			admin_url( 'admin.php' )
 		);
+	}
+
+	/**
+	 * @param array<string, mixed> $context Notification context.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array<string, mixed>
+	 */
+	private function build_token_links( array $context, array $settings ): array {
+		if ( ! $this->approval_tokens || empty( $settings['allow_token_dry_run_approval_links'] ) ) {
+			return array();
+		}
+
+		$suggestion_id = absint( $context['suggestion_id'] ?? 0 );
+		$status        = (string) ( $context['status'] ?? '' );
+
+		if ( $suggestion_id <= 0 || ! in_array( $status, array( 'pending', 'blocked' ), true ) ) {
+			return array();
+		}
+
+		$links = array();
+
+		if ( 'pending' === $status ) {
+			$approve = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_APPROVE_DRY_RUN, $settings );
+
+			if ( ! empty( $approve['success'] ) ) {
+				$links['dry_run_approve_url'] = esc_url_raw( (string) $approve['url'] );
+				$links['token_expires_at']    = $this->nullable_text( $approve['expires_at'] ?? null );
+			}
+		}
+
+		$reject = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_REJECT, $settings );
+
+		if ( ! empty( $reject['success'] ) ) {
+			$links['reject_url'] = esc_url_raw( (string) $reject['url'] );
+
+			if ( empty( $links['token_expires_at'] ) ) {
+				$links['token_expires_at'] = $this->nullable_text( $reject['expires_at'] ?? null );
+			}
+		}
+
+		return $links;
 	}
 
 	private function get_product( int $product_id ): ?object {
