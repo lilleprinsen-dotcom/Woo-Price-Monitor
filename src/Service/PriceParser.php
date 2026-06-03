@@ -417,7 +417,7 @@ final class PriceParser {
 			return '';
 		}
 
-		if ( ! preg_match_all( '#<([A-Za-z][A-Za-z0-9:-]*)(\s[^>]*)?>(.*?)</\1>#is', $html, $matches, PREG_SET_ORDER ) ) {
+		if ( ! preg_match_all( '#<([A-Za-z][A-Za-z0-9:-]*)(\s[^>]*)?>#is', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
 			return '';
 		}
 
@@ -428,13 +428,15 @@ final class PriceParser {
 				break;
 			}
 
-			$attributes = $this->parse_html_attributes( (string) ( $match[2] ?? '' ) );
+			$tag_name       = strtolower( (string) ( $match[1][0] ?? '' ) );
+			$raw_attributes = (string) ( $match[2][0] ?? '' );
+			$attributes     = $this->parse_html_attributes( $raw_attributes );
 
 			if ( ! $this->attributes_match_selector( $attributes, $matcher ) ) {
 				continue;
 			}
 
-			$text = $this->extract_fallback_node_text( (string) ( $match[3] ?? '' ), $attributes );
+			$text = $this->extract_fallback_node_text( $this->get_fallback_inner_html( $html, $tag_name, $match ), $attributes );
 
 			if ( '' !== $text ) {
 				$text_parts[] = $text;
@@ -442,6 +444,33 @@ final class PriceParser {
 		}
 
 		return trim( implode( ' ', $text_parts ) );
+	}
+
+	/**
+	 * @param array<int|string, mixed> $match Opening tag match with offsets.
+	 */
+	private function get_fallback_inner_html( string $html, string $tag_name, array $match ): string {
+		if ( '' === $tag_name ) {
+			return '';
+		}
+
+		$opening_tag = (string) ( $match[0][0] ?? '' );
+		$start       = (int) ( $match[0][1] ?? 0 ) + strlen( $opening_tag );
+		$remaining   = substr( $html, $start, 16384 );
+
+		if ( false === $remaining || '' === $remaining ) {
+			return '';
+		}
+
+		$closing_pattern = '#</' . preg_quote( $tag_name, '#' ) . '\s*>#i';
+
+		if ( ! preg_match( $closing_pattern, $remaining, $closing_match, PREG_OFFSET_CAPTURE ) ) {
+			return '';
+		}
+
+		$length = (int) ( $closing_match[0][1] ?? 0 );
+
+		return substr( $remaining, 0, max( 0, $length ) );
 	}
 
 	/**
@@ -516,7 +545,7 @@ final class PriceParser {
 	 * @param array<string, string> $attributes Parsed attributes.
 	 */
 	private function extract_fallback_node_text( string $inner_html, array $attributes ): string {
-		foreach ( array( 'content', 'data-price', 'aria-label', 'title' ) as $attribute ) {
+		foreach ( array( 'content', 'data-price', 'data-lpm-price', 'aria-label', 'title' ) as $attribute ) {
 			if ( ! empty( $attributes[ $attribute ] ) ) {
 				return $this->normalize_extracted_text( $attributes[ $attribute ] );
 			}

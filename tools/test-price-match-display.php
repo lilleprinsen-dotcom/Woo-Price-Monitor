@@ -10,7 +10,9 @@ declare(strict_types=1);
 require_once __DIR__ . '/test-bootstrap.php';
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Frontend\FrontendPlugin;
 use Lilleprinsen\PriceMonitor\Service\PriceMatchDisplayService;
+use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! class_exists( 'wpdb' ) ) {
 	final class wpdb {
@@ -57,6 +59,15 @@ if ( ! function_exists( 'get_post_meta' ) ) {
 		unset( $single );
 
 		return $GLOBALS['lpm_test_post_meta'][ (int) $post_id ][ (string) $key ] ?? '';
+	}
+}
+
+if ( ! function_exists( 'wc_add_notice' ) ) {
+	function wc_add_notice( $message, $type = 'notice' ): void {
+		$GLOBALS['lpm_test_wc_notices'][] = array(
+			'message' => (string) $message,
+			'type'    => (string) $type,
+		);
 	}
 }
 
@@ -145,6 +156,37 @@ lpm_run_tests(
 
 			lpm_assert_same( false, $state['show'], 'No real active lookup row should hide the frontend box.' );
 			lpm_assert_same( false, $service->product_is_price_matched( 13, true ), 'No real active lookup row should not count for coupon exclusion.' );
+		},
+		'dry-run state does not remove coupon discount' => static function (): void {
+			$GLOBALS['lpm_test_post_meta'] = array(
+				14 => array( '_lpm_price_matched_active' => 'yes' ),
+			);
+			$GLOBALS['lpm_test_wc_notices'] = array();
+
+			$database = new wpdb();
+			global $wpdb;
+			$wpdb = $database;
+			$plugin = new FrontendPlugin( new Settings(), new Repository( $database ) );
+
+			$discount = $plugin->filter_coupon_discount_amount( 25, 100, array( 'product_id' => 14 ), true, null );
+
+			lpm_assert_same( 25, $discount, 'Dry-run/legacy match state should not remove coupon discount.' );
+			lpm_assert_same( array(), $GLOBALS['lpm_test_wc_notices'], 'Dry-run/legacy match state should not add coupon notice.' );
+		},
+		'real active state removes coupon discount' => static function (): void {
+			$GLOBALS['lpm_test_post_meta'] = array();
+			$GLOBALS['lpm_test_wc_notices'] = array();
+
+			$database = new wpdb();
+			$database->real_active_products[15] = true;
+			global $wpdb;
+			$wpdb = $database;
+			$plugin = new FrontendPlugin( new Settings(), new Repository( $database ) );
+
+			$discount = $plugin->filter_coupon_discount_amount( 25, 100, array( 'product_id' => 15 ), true, null );
+
+			lpm_assert_same( 0, $discount, 'Real active match state should remove coupon discount for that line.' );
+			lpm_assert_same( 'Rabattkoder kan ikke brukes på prismatch.', $GLOBALS['lpm_test_wc_notices'][0]['message'] ?? '', 'Real active match state should add the Norwegian coupon notice.' );
 		},
 	)
 );

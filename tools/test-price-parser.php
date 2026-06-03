@@ -67,6 +67,20 @@ lpm_run_tests(
 			lpm_assert_float_equals( 1249.0, $result['price'], 'Attribute selector should read content attribute.' );
 			lpm_assert_same( 'selector_price', $result['extraction_method'], 'Selector method should be recorded.' );
 		},
+		'Nested fallback selector reads data-lpm-price attribute' => static function () use ( $parser ): void {
+			$result = $parser->parse(
+				'<html><body><section><div><span itemprop="price" data-lpm-price="1 349,00"></span></div></section></body></html>',
+				array(
+					'price_extraction_mode' => 'selector',
+					'price_selector'        => '[itemprop="price"]',
+					'default_currency'      => 'NOK',
+				)
+			);
+
+			lpm_assert_true( $result['success'], 'Nested fallback selector should succeed.' );
+			lpm_assert_float_equals( 1349.0, $result['price'], 'Fallback should read data-lpm-price when content/data-price are absent.' );
+			lpm_assert_same( 'selector_price', $result['extraction_method'], 'Selector method should be recorded.' );
+		},
 		'Stock in text' => static function () use ( $parser, $selector_rules ): void {
 			$result = $parser->parse(
 				lpm_test_fixture( 'stock-in.html' ),

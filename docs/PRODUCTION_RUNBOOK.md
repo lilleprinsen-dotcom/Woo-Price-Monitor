@@ -2,6 +2,8 @@
 
 Lilleprinsen Price Monitor should be launched as an admin-only, dry-run monitoring tool first. Treat every production operation as opt-in, bounded, and reversible.
 
+Also review `docs/PRODUCTION_AUDIT.md` before staging or live dry-run launch.
+
 ## Recommended Dry-Run Launch
 
 1. Activate the plugin with WooCommerce active.
