@@ -1,120 +1,107 @@
 # MVP Plan
 
-Woo Price Monitor should start as a safe, admin-only, mostly dry-run plugin. Each milestone should be small enough for a focused pull request.
+Lilleprinsen Price Monitor is being built in small, reviewable pull requests. The MVP keeps monitoring admin-only, dry-run first, and safe for a large WooCommerce catalog.
 
-## Milestone 0: Project Documentation
+## Completed Foundations
 
-- Add development rules for future Codex agents.
-- Document the plugin purpose, scope, architecture, and staged plan.
-- Keep the repository ready for a minimal plugin scaffold.
+### Milestone 0: Project Documentation
 
-## Milestone 1: Plugin Shell And Custom Tables
+- Added `AGENTS.md`.
+- Documented purpose, constraints, architecture, and staged scope.
 
-- Add the main plugin file and admin-only bootstrap.
-- Add activation logic for custom tables.
-- Add schema version storage.
-- Add basic uninstall or retention policy notes.
-- Run PHP syntax checks if PHP is available.
+### Milestone 1: Plugin Shell And Custom Tables
 
-Expected tables:
+- Added the main plugin file, constants, autoloader, activation/deactivation hooks, and uninstall placeholder.
+- Added admin-only bootstrap with WooCommerce dependency notice.
+- Added custom database schema and schema version option.
+- Added initial settings storage.
 
-- Monitored products.
-- Competitor URLs.
-- Price checks.
-- Price suggestions.
-- Action logs.
+### Milestone 2: Admin Shell
 
-## Milestone 2: Monitored Product List
+- Added WooCommerce submenu "Price Monitor".
+- Added Dashboard, Products, Approvals, Competitors, Settings, and Logs tabs.
+- Added plugin admin assets loaded only on the plugin page.
+- Added dashboard cards and system status.
 
-- Add a WooCommerce admin page for monitored products.
-- Support paginated listing, status filtering, and indexed lookup.
-- Add selected products by product ID, SKU, or bounded search.
-- Prevent duplicate monitored product entries.
-- Do not scan the full product catalog.
+### Milestone 3: Product And Competitor Workflow
 
-## Milestone 3: Competitor URL Management
+- Added bounded product search by ID, SKU, or title, limited to 20 results.
+- Added selected products to `lpm_monitored_products`.
+- Added paginated monitored product list.
+- Added competitor link add, edit, enable, disable, and delete actions.
+- Logged admin actions.
 
-- Add a product monitor detail screen.
-- Allow admins to add, edit, disable, and delete competitor URLs.
-- Validate and sanitize URLs.
-- Store competitor URLs in the custom table.
-- Log admin actions.
+### Milestone 4: Manual Price Checks
 
-## Milestone 4: Dry-Run Price Observations
+- Added manual "Test check" for competitor links.
+- Added `PriceCheckService` and `PriceParser`.
+- Stored last detected competitor price, currency, check time, and error state on `lpm_competitor_links`.
+- Kept checks admin-triggered and bounded.
 
-- Add manual competitor price observation entry or placeholder check records.
-- Store observed price, currency, URL reference, status, and timestamps.
-- Keep all checks admin-triggered and bounded.
-- Do not add scraping or external HTTP requests yet.
-- Do not run any checks on frontend requests.
+### Milestone 5: Suggestions And Recovery Foundation
 
-## Milestone 5: Suggestion Engine
+- Added `SuggestionService` for dry-run suggestions.
+- Added `PriceRecoveryService` for future price-up and restore suggestion decisions.
+- Added `lpm_price_suggestions` with `suggestion_type`.
+- Added `lpm_price_match_sessions` for dry-run and future real recovery state.
+- Added duplicate pending suggestion prevention and safety checks for minimum difference and maximum price drop.
 
-- Generate price suggestions from current WooCommerce price snapshots and recent observations.
-- Keep suggestion rules simple and explainable.
-- Store suggested price, reason, source observation IDs, and status.
-- Do not update WooCommerce product prices.
+### Milestone 6: Approval Inbox
 
-## Milestone 6: Approval And Rejection Workflow
+- Added pricing inbox filters and summary cards.
+- Added dry-run approve, reject, and suggested price adjustment.
+- Added dry-run price match session creation after approving price-match-down suggestions.
+- Added links to WooCommerce product admin and competitor URLs.
 
-- Add an admin approval queue for suggestions.
-- Allow approve and reject decisions with optional notes.
-- Log reviewer, decision, timestamps, and price snapshots.
-- Keep approval dry-run in the MVP.
-- Clearly separate approval state from actual WooCommerce price updates.
+### Milestone 7: Production-Safe Operations Skeleton
 
-## Milestone 7: Hardening
+- Added `JobScheduler` and `CheckCompetitorLinkJob`.
+- Kept scheduled checks disabled by default.
+- Used Action Scheduler only when available and explicitly enabled.
+- Processed only due enabled competitor links in small batches.
+- Kept scheduled suggestion creation disabled by default.
+- Ensured scheduled checks never update WooCommerce prices.
 
-- Add retention limits for old observations and logs.
-- Add more validation around prices, currencies, and product state.
-- Add simple tests for suggestion calculations.
-- Add PHP syntax checks to the development workflow.
-- Review indexes against expected admin filters.
+### Milestone 8: Notification Abstraction
 
-## Milestone 8: Production-Safe Operations Skeleton
+- Added `NotificationService`, `NotificationInterface`, and `LogNotificationChannel`.
+- Kept notifications disabled by default.
+- Added WhatsApp provider placeholders with no real provider calls.
+- Logged notification test events only.
 
-- Add a bounded background check skeleton using Action Scheduler when available.
-- Keep scheduled checks disabled by default.
-- Process only due, enabled competitor links with `max_urls_per_batch`.
-- Optionally create suggestions from scheduled checks, disabled by default.
-- Add a manual "Run one small check batch now" admin action.
-- Log batch start, completion, failed links, skipped links, and processed totals.
-- Never update WooCommerce prices from scheduled checks.
+### Milestone 9: Guarded Real Update Foundation
 
-## Milestone 9: Notification Abstraction
+- Added `PriceUpdateService` using WooCommerce CRUD APIs.
+- Kept real updates blocked by default through dry-run mode, emergency disable, explicit allow setting, and confirmation requirements.
+- Added single-product confirmation flow in the Approvals tab when all guards are enabled.
+- Added snapshot validation and max-drop safety validation.
 
-- Add `NotificationService` and channel interfaces.
-- Keep notifications disabled by default.
-- Add a log-only notification channel.
-- Add WhatsApp provider and phone number placeholders without real API calls.
-- Log what would have been sent for suggestion and failed-check notifications.
+## Current Stabilization Milestone
 
-## Milestone 10: Guarded Real Update Foundation
+- Extract bounded product search into `ProductSearchService`.
+- Extract one-time admin notices into `AdminNoticeStore`.
+- Add lightweight PHP lint tooling.
+- Align docs with current `lpm_*` tables and implemented modules.
+- Add a manual test plan.
+- Add a safety review document.
 
-- Add `PriceUpdateService` using WooCommerce CRUD APIs only.
-- Keep dry-run mode enabled by default.
-- Keep `disable_all_price_updates` enabled by default.
-- Require explicit admin confirmation for a single product update.
-- Block updates when product price changed after suggestion creation.
-- Respect `max_allowed_price_drop_percent` and allowed suggestion type settings.
-- Log old and new price state for every attempted real update.
-- Create or end price match sessions only after explicit approval.
+## Next Safe Hardening Work
+
+- Add small unit tests for pure parsing, suggestion, and recovery decisions.
+- Add more structured logging around parser extraction methods.
+- Add table migration tests where possible.
+- Add retention policies for old logs and historical suggestions.
+- Review Action Scheduler locking and duplicate job protection before enabling scheduled checks in production.
+- Consider soft-delete semantics for competitor links if historical link auditability becomes important.
 
 ## Later, Explicitly Opt-In Work
 
-These should not be included in the MVP unless explicitly requested:
-
-- Automatic competitor checks across broad catalogs.
-- Unlimited scraping or parsing competitor pages.
-- Automatic or bulk WooCommerce price updates.
-- Real WhatsApp, SMS, webhook, or email messaging.
-- Bulk import jobs.
-- Advanced reports across the whole product or order catalog.
-
-Still not implemented:
+These are not part of the current MVP stabilization:
 
 - Real WhatsApp provider integration.
-- Bulk price updates.
-- Scheduled price updates.
-- Full catalog scans.
+- Automatic or bulk WooCommerce price updates.
+- Broad scheduled checks across large portions of the catalog.
+- Full crawler behavior or competitor site discovery.
+- Bulk product import jobs.
+- Advanced reporting over all products or orders.
 - Advanced multi-competitor recovery modes beyond conservative lowest-valid checks.

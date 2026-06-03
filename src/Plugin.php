@@ -8,8 +8,10 @@
 namespace Lilleprinsen\PriceMonitor;
 
 use Lilleprinsen\PriceMonitor\Admin\AdminMenu;
+use Lilleprinsen\PriceMonitor\Admin\AdminNoticeStore;
 use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\Notices;
+use Lilleprinsen\PriceMonitor\Admin\ProductSearchService;
 use Lilleprinsen\PriceMonitor\Assets\AdminAssets;
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
@@ -56,7 +58,9 @@ final class Plugin {
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );
 		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
 		$job_scheduler        = new JobScheduler( $settings, $check_job, $repository );
-		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update );
+		$product_search       = new ProductSearchService( $repository );
+		$notice_store         = new AdminNoticeStore();
+		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store );
 
 		add_action( 'admin_init', array( Schema::class, 'maybe_upgrade' ) );
 		add_action( 'admin_init', array( $settings, 'handle_settings_save' ) );

@@ -1,0 +1,7 @@
+{
+  "name": "lilleprinsen/price-monitor",
+  "type": "wordpress-plugin",
+  "scripts": {
+    "lint:php": "bash tools/lint-php.sh"
+  }
+}

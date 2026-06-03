@@ -13,6 +13,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class Deactivator {
 	public static function deactivate(): void {
-		// No scheduled jobs or frontend hooks are registered in this foundation version.
+		// No destructive deactivation cleanup is needed for the current custom tables.
 	}
 }
