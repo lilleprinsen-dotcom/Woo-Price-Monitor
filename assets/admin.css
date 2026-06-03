@@ -67,7 +67,7 @@
 }
 
 .lpm-grid-summary {
-	grid-template-columns: repeat(5, minmax(0, 1fr));
+	grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
 	margin-bottom: 16px;
 }
 
@@ -100,6 +100,11 @@
 	font-size: 16px;
 	line-height: 1.3;
 	margin: 0;
+}
+
+.lpm-card-subtitle {
+	font-size: 13px;
+	margin: 4px 0 0;
 }
 
 .lpm-card p {
@@ -250,9 +255,65 @@
 	min-width: 230px;
 }
 
+.lpm-product-cell small {
+	color: #646970;
+	display: block;
+	font-size: 12px;
+	margin-top: 3px;
+}
+
+.lpm-filter-tabs {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 6px;
+	margin: 0 0 14px;
+}
+
+.lpm-filter-tab {
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 6px;
+	color: #1d2327;
+	font-weight: 600;
+	padding: 7px 10px;
+	text-decoration: none;
+}
+
+.lpm-filter-tab:hover,
+.lpm-filter-tab:focus {
+	background: #f0f6fc;
+	box-shadow: none;
+	color: #0a4b78;
+}
+
+.lpm-filter-tab.is-active {
+	background: #1d2327;
+	border-color: #1d2327;
+	color: #fff;
+}
+
 .lpm-inline-action {
 	display: inline;
 	margin: 0;
+}
+
+.lpm-inbox-actions {
+	min-width: 320px;
+}
+
+.lpm-price-edit {
+	align-items: center;
+	display: inline-flex;
+	gap: 5px;
+}
+
+.lpm-price-edit input[type="number"] {
+	max-width: 104px;
+	min-height: 28px;
+}
+
+.lpm-suggestion-reason {
+	min-width: 220px;
 }
 
 .lpm-stacked-form {

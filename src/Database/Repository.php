@@ -65,10 +65,15 @@ final class Repository {
 	 * @return array<string, int>
 	 */
 	public function get_dashboard_counts(): array {
+		$recent_cutoff = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - WEEK_IN_SECONDS );
+
 		return array(
 			'monitored_products'          => $this->count_where( 'monitored_products', 'enabled = %d', array( 1 ) ),
 			'active_competitor_links'     => $this->count_where( 'competitor_links', 'enabled = %d', array( 1 ) ),
 			'pending_suggestions'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'pending' ) ),
+			'blocked_suggestions'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'blocked' ) ),
+			'recovery_suggestions'        => $this->count_price_suggestions_by_view( 'recovery' ),
+			'recent_failed_checks'        => $this->count_where( 'logs', 'level = %s AND event = %s AND created_at >= %s', array( 'error', 'competitor_check_failed', $recent_cutoff ) ),
 			'failed_logs'                 => $this->count_where( 'logs', 'level = %s', array( 'error' ) ),
 			'active_price_match_sessions' => $this->count_active_price_match_sessions(),
 		);
@@ -410,6 +415,198 @@ final class Repository {
 		return is_array( $row ) ? $row : null;
 	}
 
+	public function update_competitor_check_result( int $competitor_link_id, ?float $price, string $currency, ?string $error ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$data = array(
+			'last_checked_at' => current_time( 'mysql' ),
+			'last_error'      => null === $error || '' === $error ? null : sanitize_textarea_field( $error ),
+			'updated_at'      => current_time( 'mysql' ),
+		);
+
+		$formats = array( '%s', '%s', '%s' );
+
+		if ( null !== $price ) {
+			$data['last_price']    = $this->nullable_decimal( $price );
+			$data['last_currency'] = $this->sanitize_currency( $currency );
+			$formats[]             = '%s';
+			$formats[]             = '%s';
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			$data,
+			array( 'id' => absint( $competitor_link_id ) ),
+			$formats,
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Suggestion fields.
+	 */
+	public function create_price_suggestion( array $data ): int {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$now      = current_time( 'mysql' );
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'monitored_product_id' => absint( $data['monitored_product_id'] ?? 0 ),
+				'competitor_link_id'   => isset( $data['competitor_link_id'] ) ? absint( $data['competitor_link_id'] ) : null,
+				'product_id'           => absint( $data['product_id'] ?? 0 ),
+				'current_price'        => $this->decimal( $data['current_price'] ?? 0 ),
+				'competitor_price'     => $this->decimal( $data['competitor_price'] ?? 0 ),
+				'suggested_price'      => $this->decimal( $data['suggested_price'] ?? 0 ),
+				'difference'           => $this->decimal( $data['difference'] ?? 0 ),
+				'suggestion_type'      => $this->sanitize_suggestion_type( (string) ( $data['suggestion_type'] ?? 'price_match_down' ) ),
+				'status'               => $this->sanitize_suggestion_status( (string) ( $data['status'] ?? 'pending' ) ),
+				'reason'               => isset( $data['reason'] ) ? sanitize_textarea_field( (string) $data['reason'] ) : null,
+				'created_at'           => $now,
+				'updated_at'           => $now,
+			),
+			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	public function has_duplicate_pending_suggestion( int $monitored_product_id, int $competitor_link_id, float $competitor_price ): bool {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$sql = $this->wpdb->prepare(
+			"SELECT id FROM {$table} WHERE monitored_product_id = %d AND competitor_link_id = %d AND status = %s AND ABS(competitor_price - %f) < 0.0001 LIMIT 1",
+			absint( $monitored_product_id ),
+			absint( $competitor_link_id ),
+			'pending',
+			$competitor_price
+		);
+
+		return (bool) $this->wpdb->get_var( $sql );
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Suggestion filters.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_price_suggestions( array $filters, int $page, int $per_page ): array {
+		$table = $this->tables['price_suggestions'];
+		$links = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$where  = $this->build_suggestion_where( $filters );
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$sql    = "SELECT ps.*, cl.competitor_name, cl.competitor_url FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id {$where['sql']} ORDER BY ps.created_at DESC, ps.id DESC LIMIT %d OFFSET %d";
+		$args   = array_merge( $where['args'], array( $limit, $offset ) );
+		$rows   = $this->wpdb->get_results( $this->wpdb->prepare( $sql, $args ), ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Suggestion filters.
+	 */
+	public function count_price_suggestions( array $filters ): int {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$where = $this->build_suggestion_where( $filters );
+		$sql   = "SELECT COUNT(*) FROM {$table} ps {$where['sql']}";
+
+		if ( ! empty( $where['args'] ) ) {
+			$sql = $this->wpdb->prepare( $sql, $where['args'] );
+		}
+
+		return (int) $this->wpdb->get_var( $sql );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_price_suggestion( int $suggestion_id ): ?array {
+		$table = $this->tables['price_suggestions'];
+		$links = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT ps.*, cl.competitor_name, cl.competitor_url FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id WHERE ps.id = %d LIMIT 1",
+				absint( $suggestion_id )
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	public function update_suggested_price( int $suggestion_id, float $suggested_price ): bool {
+		$table      = $this->tables['price_suggestions'];
+		$suggestion = $this->get_price_suggestion( $suggestion_id );
+
+		if ( ! $suggestion || ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'suggested_price' => $this->decimal( $suggested_price ),
+				'difference'      => $this->decimal( $suggested_price - (float) $suggestion['current_price'] ),
+				'updated_at'      => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $suggestion_id ) ),
+			array( '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function approve_suggestion_dry_run( int $suggestion_id, int $user_id ): bool {
+		return $this->set_suggestion_review_status( $suggestion_id, 'approved_dry_run', 'approved_at', 'approved_by', $user_id );
+	}
+
+	public function reject_suggestion( int $suggestion_id, int $user_id ): bool {
+		return $this->set_suggestion_review_status( $suggestion_id, 'rejected', 'rejected_at', 'rejected_by', $user_id );
+	}
+
+	/**
+	 * @return array<string, int>
+	 */
+	public function get_suggestion_counts(): array {
+		return array(
+			'pending'          => $this->count_where( 'price_suggestions', 'status = %s', array( 'pending' ) ),
+			'blocked'          => $this->count_where( 'price_suggestions', 'status = %s', array( 'blocked' ) ),
+			'approved_dry_run' => $this->count_where( 'price_suggestions', 'status = %s', array( 'approved_dry_run' ) ),
+			'rejected'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'rejected' ) ),
+			'recovery'         => $this->count_price_suggestions_by_view( 'recovery' ),
+		);
+	}
+
 	/**
 	 * @param array<string, mixed> $filters Log filters.
 	 * @return array<int, array<string, mixed>>
@@ -527,9 +724,10 @@ final class Repository {
 
 		$row = $this->wpdb->get_row(
 			$this->wpdb->prepare(
-				"SELECT * FROM {$table} WHERE product_id = %d AND status = %s ORDER BY matched_at DESC, id DESC LIMIT 1",
+				"SELECT * FROM {$table} WHERE product_id = %d AND status IN (%s, %s) ORDER BY matched_at DESC, id DESC LIMIT 1",
 				absint( $product_id ),
-				'active'
+				'active',
+				'active_dry_run'
 			),
 			ARRAY_A
 		);
@@ -560,7 +758,41 @@ final class Repository {
 	}
 
 	public function count_active_price_match_sessions(): int {
-		return $this->count_where( 'price_match_sessions', 'status = %s', array( 'active' ) );
+		return $this->count_where( 'price_match_sessions', 'status IN (%s, %s)', array( 'active', 'active_dry_run' ) );
+	}
+
+	private function count_price_suggestions_by_view( string $view ): int {
+		return $this->count_price_suggestions( array( 'view' => $view ) );
+	}
+
+	private function set_suggestion_review_status( int $suggestion_id, string $status, string $date_column, string $user_column, int $user_id ): bool {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$allowed_date_columns = array( 'approved_at', 'rejected_at' );
+		$allowed_user_columns = array( 'approved_by', 'rejected_by' );
+
+		if ( ! in_array( $date_column, $allowed_date_columns, true ) || ! in_array( $user_column, $allowed_user_columns, true ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'status'      => $this->sanitize_suggestion_status( $status ),
+				$date_column  => current_time( 'mysql' ),
+				$user_column  => absint( $user_id ),
+				'updated_at'  => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $suggestion_id ) ),
+			array( '%s', '%s', '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
 	}
 
 	public function get_table_count( string $table_key ): int {
@@ -629,6 +861,52 @@ final class Repository {
 		);
 	}
 
+	/**
+	 * @param array<string, mixed> $filters Suggestion filters.
+	 * @return array{sql: string, args: array<int, mixed>}
+	 */
+	private function build_suggestion_where( array $filters ): array {
+		$view  = isset( $filters['view'] ) ? sanitize_key( (string) $filters['view'] ) : 'pending';
+		$where = array();
+		$args  = array();
+
+		switch ( $view ) {
+			case 'pending':
+			case 'blocked':
+			case 'approved_dry_run':
+			case 'rejected':
+				$where[] = 'ps.status = %s';
+				$args[]  = $view;
+				break;
+			case 'price_match_down':
+			case 'price_match_up':
+				$where[] = 'ps.suggestion_type = %s';
+				$args[]  = $view;
+				break;
+			case 'restore_previous_price':
+				$where[] = 'ps.suggestion_type IN (%s, %s, %s)';
+				$args[]  = 'restore_previous_active_price';
+				$args[]  = 'restore_previous_regular_price';
+				$args[]  = 'restore_previous_sale_price';
+				break;
+			case 'recovery':
+				$where[] = 'ps.suggestion_type IN (%s, %s, %s, %s)';
+				$args[]  = 'price_match_up';
+				$args[]  = 'restore_previous_active_price';
+				$args[]  = 'restore_previous_regular_price';
+				$args[]  = 'restore_previous_sale_price';
+				break;
+			case 'all':
+			default:
+				break;
+		}
+
+		return array(
+			'sql'  => ! empty( $where ) ? 'WHERE ' . implode( ' AND ', $where ) : '',
+			'args' => $args,
+		);
+	}
+
 	private function table_exists( string $table ): bool {
 		return $table === $this->wpdb->get_var( $this->wpdb->prepare( 'SHOW TABLES LIKE %s', $table ) );
 	}
@@ -660,6 +938,35 @@ final class Repository {
 		return in_array( $match_type, $allowed, true ) ? $match_type : 'unknown';
 	}
 
+	private function sanitize_suggestion_type( string $suggestion_type ): string {
+		$allowed = array(
+			'price_match_down',
+			'price_match_up',
+			'restore_previous_active_price',
+			'restore_previous_regular_price',
+			'restore_previous_sale_price',
+			'manual_review',
+			'blocked',
+		);
+		$suggestion_type = sanitize_key( $suggestion_type );
+
+		return in_array( $suggestion_type, $allowed, true ) ? $suggestion_type : 'manual_review';
+	}
+
+	private function sanitize_suggestion_status( string $status ): string {
+		$allowed = array( 'pending', 'blocked', 'approved_dry_run', 'rejected' );
+		$status  = sanitize_key( $status );
+
+		return in_array( $status, $allowed, true ) ? $status : 'pending';
+	}
+
+	private function sanitize_currency( string $currency ): string {
+		$currency = strtoupper( sanitize_text_field( $currency ) );
+		$currency = preg_replace( '/[^A-Z]/', '', $currency );
+
+		return is_string( $currency ) && '' !== $currency ? substr( $currency, 0, 10 ) : 'NOK';
+	}
+
 	private function sanitize_per_page( int $per_page ): int {
 		return min( 200, max( 1, absint( $per_page ) ) );
 	}
@@ -683,6 +990,15 @@ final class Repository {
 		}
 
 		return number_format( (float) $decimal, 4, '.', '' );
+	}
+
+	/**
+	 * @param mixed $value Raw decimal.
+	 */
+	private function decimal( $value ): string {
+		$decimal = $this->nullable_decimal( $value );
+
+		return null === $decimal ? '0.0000' : $decimal;
 	}
 
 	/**
