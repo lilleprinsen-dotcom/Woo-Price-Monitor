@@ -1,0 +1,49 @@
+.lpm-price-match-box {
+	--lpm-price-match-bg: color-mix(in srgb, currentColor 7%, transparent);
+	--lpm-price-match-text: currentColor;
+	--lpm-price-match-border: color-mix(in srgb, currentColor 18%, transparent);
+	--lpm-price-match-radius: 10px;
+	background: var(--lpm-price-match-bg);
+	border: 1px solid var(--lpm-price-match-border);
+	border-radius: var(--lpm-price-match-radius);
+	color: var(--lpm-price-match-text);
+	display: inline-flex;
+	flex-direction: column;
+	gap: 2px;
+	margin: 8px 0;
+	max-width: 100%;
+	padding: 8px 10px;
+}
+
+.lpm-price-match-box__main {
+	align-items: center;
+	display: flex;
+	font-size: 0.93rem;
+	font-weight: 600;
+	gap: 6px;
+	line-height: 1.35;
+}
+
+.lpm-price-match-box__emoji {
+	font-size: 0.95em;
+	line-height: 1;
+}
+
+.lpm-price-match-box__subtext {
+	font-size: 0.82rem;
+	line-height: 1.35;
+	opacity: 0.72;
+}
+
+.products .lpm-price-match-box {
+	margin-top: 6px;
+	padding: 6px 8px;
+}
+
+.products .lpm-price-match-box__main {
+	font-size: 0.82rem;
+}
+
+.products .lpm-price-match-box__subtext {
+	display: none;
+}

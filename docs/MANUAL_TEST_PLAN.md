@@ -14,7 +14,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 
 - [ ] Activate the plugin from WordPress admin.
 - [ ] Confirm the WooCommerce submenu "Price Monitor" appears.
-- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, `lpm_approval_tokens`, and `lpm_logs`.
+- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_product_groups`, `lpm_product_group_members`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, `lpm_approval_tokens`, and `lpm_logs`.
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
@@ -51,6 +51,19 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Use the profile Test URL field with a simple page and confirm the result card shows price, currency, stock status, extraction method, HTTP status, and error/warning.
 - [ ] Mark the profile as requiring JavaScript and confirm profile testing returns the clear internal-checker warning without trying browser automation.
 - [ ] Confirm profile-only Test URL does not create a product observation row or update a competitor link.
+- [ ] Open Groups and create a group with pricing mode `shared_price`.
+- [ ] Search monitored products by name, SKU, and product ID from the group member panel and confirm results are limited to monitored products found in a bounded search.
+- [ ] Add 3 monitored products to the group.
+- [ ] Set one group member as primary and confirm only one primary member is shown.
+- [ ] Disable and re-enable a group member.
+- [ ] Remove a group member.
+- [ ] Switch the group to `primary_product_controls_group`, create a suggestion from the primary product, and confirm it is group-aware.
+- [ ] Try creating a suggestion from a non-primary product in a primary-controlled group and confirm it is skipped with a clear reason.
+- [ ] Switch the group to `manual_review_only`, create a suggestion, and confirm it appears as manual review.
+- [ ] Confirm group suggestions show a group badge, group name, and affected product count in Approvals.
+- [ ] Dry-run approve a group suggestion and confirm the log records affected group members and WooCommerce prices are unchanged.
+- [ ] Confirm no real-update button is shown for group suggestions in this version.
+- [ ] Try a group suggestion where one member has a minimum price above the suggestion and confirm group warnings are stored in rule details.
 - [ ] Click Manage competitors for the monitored product.
 - [ ] In the side drawer Competitors tab, add a competitor link with URL, profile, match type, enabled state, and primary state without page reload.
 - [ ] In the side drawer, edit a competitor link and confirm the list refreshes without page reload.
@@ -74,6 +87,14 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] If webhook notifications are enabled for new suggestions, confirm the webhook payload includes product/suggestion fields and a WordPress admin `review_url`.
 - [ ] With token links disabled, confirm suggestion webhook payloads do not include `dry_run_approve_url` or `reject_url`.
 - [ ] Enable token dry-run approval links, create a pending suggestion notification, and confirm the webhook payload includes `dry_run_approve_url`, `reject_url`, and `token_expires_at`.
+- [ ] Enable webhook/WhatsApp action links and create a pending suggestion notification.
+- [ ] Confirm the webhook payload includes `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `competitor_url`, `review_url`, `action_link_expires_at`, and `action_warning_text`.
+- [ ] Use the Match price action link in dry-run mode and confirm the suggestion price is set to competitor price, status becomes approved dry-run, and WooCommerce price is unchanged.
+- [ ] Use the Match price -1 kr action link in dry-run mode and confirm the suggestion price is set to competitor price minus 1, status becomes approved dry-run, and WooCommerce price is unchanged.
+- [ ] Use the Reject action link and confirm the suggestion is rejected and WooCommerce price is unchanged.
+- [ ] Reuse a webhook action token and confirm reuse is blocked and logged.
+- [ ] Let a webhook action token expire and confirm expiry is blocked and logged.
+- [ ] Confirm no webhook/WhatsApp token link can perform a real WooCommerce price update even if real updates are enabled in settings.
 - [ ] Open the dry-run approve token URL and confirm the page says dry-run approval was recorded and WooCommerce price was not changed.
 - [ ] Reopen the same approve token URL and confirm reuse is blocked and logged.
 - [ ] Open a reject token URL for a pending or blocked suggestion and confirm the suggestion becomes rejected without changing WooCommerce price.
@@ -131,6 +152,20 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Run `wp lpm cleanup` on staging and confirm it logs the cleanup summary.
 - [ ] Send test notification and confirm it writes a log entry only.
 - [ ] Confirm no WhatsApp, webhook, SMS, or email provider call is made.
+
+## Frontend Price-Match Box And Coupons
+
+- [ ] Keep `price_match_box_enabled` off and confirm no price-match box CSS is enqueued on product pages.
+- [ ] Create or approve a dry-run price match session for a staging product.
+- [ ] Enable `price_match_box_enabled` and `price_match_box_show_on_product_page`.
+- [ ] Open that product page and confirm the Norwegian price-match box appears near the configured position.
+- [ ] Open a normal product without active match state and confirm the box does not show.
+- [ ] Update text, subtext, emoji, colors, and border radius settings and confirm the frontend box reflects the changes.
+- [ ] Enable loop display on staging and confirm loop boxes are compact and do not trigger product scans or external requests.
+- [ ] Enable `disable_coupons_for_price_matched_products`.
+- [ ] Add a price-matched product and a normal product to cart, apply a coupon, and confirm the matched line receives no coupon discount while the normal line behavior is acceptable.
+- [ ] Confirm the cart/checkout notice says `Rabattkoder kan ikke brukes på prismatch.`
+- [ ] Confirm no product prices are changed directly in cart by the coupon restriction.
 
 ## Pricing Rule Examples
 

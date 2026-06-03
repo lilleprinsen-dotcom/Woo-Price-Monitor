@@ -108,23 +108,16 @@ final class NotificationMessageBuilder {
 
 		if ( str_starts_with( $event, 'price_suggestion_' ) ) {
 			$currency = (string) ( $context['currency'] ?? ( $context['last_currency'] ?? 'NOK' ) );
-			$parts    = array(
+			return trim(
 				sprintf(
-					/* translators: %s: product name. */
-					__( 'Price suggestion created: %s.', 'lilleprinsen-price-monitor' ),
-					'' !== $product_name ? $product_name : __( 'Unknown product', 'lilleprinsen-price-monitor' )
-				),
-				sprintf(
-					/* translators: 1: current price, 2: competitor price, 3: suggested price. */
-					__( 'Current price %1$s, competitor %2$s, suggested %3$s.', 'lilleprinsen-price-monitor' ),
+					/* translators: 1: product name, 2: current price, 3: competitor price, 4: suggested price. */
+					__( "Prisforslag: %1\$s\nDin pris: %2\$s\nKonkurrent: %3\$s\nForslag: %4\$s\n\nVelg: Match pris, Match pris -1 kr, Avvis eller review i admin.", 'lilleprinsen-price-monitor' ),
+					'' !== $product_name ? $product_name : __( 'Unknown product', 'lilleprinsen-price-monitor' ),
 					$this->format_price( $context['current_price'] ?? null, $currency ),
 					$this->format_price( $context['competitor_price'] ?? null, $currency ),
 					$this->format_price( $context['suggested_price'] ?? null, $currency )
-				),
-				__( 'Review in admin.', 'lilleprinsen-price-monitor' ),
+				)
 			);
-
-			return trim( implode( ' ', $parts ) );
 		}
 
 		if ( 'failed_check' === $event ) {
@@ -164,7 +157,7 @@ final class NotificationMessageBuilder {
 	 * @return array<string, mixed>
 	 */
 	private function build_token_links( array $context, array $settings ): array {
-		if ( ! $this->approval_tokens || empty( $settings['allow_token_dry_run_approval_links'] ) ) {
+		if ( ! $this->approval_tokens ) {
 			return array();
 		}
 
@@ -177,7 +170,7 @@ final class NotificationMessageBuilder {
 
 		$links = array();
 
-		if ( 'pending' === $status ) {
+		if ( 'pending' === $status && ! empty( $settings['allow_token_dry_run_approval_links'] ) ) {
 			$approve = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_APPROVE_DRY_RUN, $settings );
 
 			if ( ! empty( $approve['success'] ) ) {
@@ -186,13 +179,41 @@ final class NotificationMessageBuilder {
 			}
 		}
 
-		$reject = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_REJECT, $settings );
+		if ( 'pending' === $status && ! empty( $settings['whatsapp_action_links_enabled'] ) ) {
+			$match = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_MATCH_PRICE, $settings );
+
+			if ( ! empty( $match['success'] ) ) {
+				$links['action_match_price_url'] = esc_url_raw( (string) $match['url'] );
+				$links['action_link_expires_at'] = $this->nullable_text( $match['expires_at'] ?? null );
+			}
+
+			$match_minus_1 = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1, $settings );
+
+			if ( ! empty( $match_minus_1['success'] ) ) {
+				$links['action_match_price_minus_1_url'] = esc_url_raw( (string) $match_minus_1['url'] );
+
+				if ( empty( $links['action_link_expires_at'] ) ) {
+					$links['action_link_expires_at'] = $this->nullable_text( $match_minus_1['expires_at'] ?? null );
+				}
+			}
+
+			$links['action_warning_text'] = __( 'Token action links record dry-run approve/reject only. Real WooCommerce updates require logged-in admin confirmation.', 'lilleprinsen-price-monitor' );
+		}
+
+		$reject = ( ! empty( $settings['allow_token_dry_run_approval_links'] ) || ! empty( $settings['whatsapp_action_links_enabled'] ) )
+			? $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_REJECT, $settings )
+			: array();
 
 		if ( ! empty( $reject['success'] ) ) {
 			$links['reject_url'] = esc_url_raw( (string) $reject['url'] );
+			$links['action_reject_url'] = esc_url_raw( (string) $reject['url'] );
 
 			if ( empty( $links['token_expires_at'] ) ) {
 				$links['token_expires_at'] = $this->nullable_text( $reject['expires_at'] ?? null );
+			}
+
+			if ( empty( $links['action_link_expires_at'] ) ) {
+				$links['action_link_expires_at'] = $this->nullable_text( $reject['expires_at'] ?? null );
 			}
 		}
 

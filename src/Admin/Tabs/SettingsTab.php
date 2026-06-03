@@ -130,6 +130,7 @@ final class SettingsTab extends AdminViewHelpers {
 						$settings,
 						$this->get_real_update_type_options()
 					);
+					$this->render_checkbox_field( 'allow_partial_group_price_updates', __( 'Allow partial group price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default off. If any group member fails safety checks, the intended future behavior is to block the whole real group update.', 'lilleprinsen-price-monitor' ) );
 					?>
 				</section>
 
@@ -208,6 +209,40 @@ final class SettingsTab extends AdminViewHelpers {
 
 				<section class="lpm-card">
 					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Frontend price-match box', 'lilleprinsen-price-monitor' ); ?></h2>
+						<?php $this->render_status_pill( ! empty( $settings['price_match_box_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['price_match_box_enabled'] ) ? 'warning' : 'muted' ); ?>
+					</div>
+					<p class="lpm-field-description"><?php esc_html_e( 'Shows a small Norwegian price-match message only for products with stored active match state. It does not check competitors or calculate prices on frontend requests.', 'lilleprinsen-price-monitor' ); ?></p>
+					<?php
+					$this->render_checkbox_field( 'price_match_box_enabled', __( 'Enable frontend price-match box', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'price_match_box_show_on_product_page', __( 'Show on product pages', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'price_match_box_show_on_loop', __( 'Show in product loops', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Loop display uses cached/simple state only.', 'lilleprinsen-price-monitor' ) );
+					$this->render_select_field(
+						'price_match_box_position',
+						__( 'Product page position', 'lilleprinsen-price-monitor' ),
+						$settings,
+						array(
+							'below_price'            => __( 'Below price', 'lilleprinsen-price-monitor' ),
+							'below_add_to_cart'      => __( 'Below add to cart', 'lilleprinsen-price-monitor' ),
+							'product_summary_bottom' => __( 'Product summary bottom', 'lilleprinsen-price-monitor' ),
+						)
+					);
+					$this->render_text_field( 'price_match_box_text', __( 'Main text', 'lilleprinsen-price-monitor' ), $settings, '⭐ Prismatch: Denne varen er matchet mot våre nærmeste konkurrenter.' );
+					$this->render_text_field( 'price_match_box_subtext', __( 'Subtext', 'lilleprinsen-price-monitor' ), $settings, 'Rabattkoder kan ikke brukes på prismatch.' );
+					$this->render_text_field( 'price_match_box_emoji', __( 'Emoji', 'lilleprinsen-price-monitor' ), $settings, '⭐' );
+					$this->render_checkbox_field( 'price_match_box_use_theme_color', __( 'Use theme color where possible', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_text_field( 'price_match_box_background_color', __( 'Background color', 'lilleprinsen-price-monitor' ), $settings, '#f8faf9' );
+					$this->render_text_field( 'price_match_box_text_color', __( 'Text color', 'lilleprinsen-price-monitor' ), $settings, '#1f2933' );
+					$this->render_text_field( 'price_match_box_border_color', __( 'Border color', 'lilleprinsen-price-monitor' ), $settings, '#d8e2dc' );
+					$this->render_number_field( 'price_match_box_border_radius', __( 'Border radius', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_checkbox_field( 'price_match_box_hide_if_no_active_match', __( 'Hide if no active match', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'price_match_box_show_for_group_matches', __( 'Show for group matches', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'disable_coupons_for_price_matched_products', __( 'Disable coupon discounts on price-matched products', 'lilleprinsen-price-monitor' ), $settings, __( 'Shows a Norwegian notice and removes coupon discount from matched cart lines only.', 'lilleprinsen-price-monitor' ) );
+					?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
 						<h2><?php esc_html_e( 'Retention cleanup', 'lilleprinsen-price-monitor' ); ?></h2>
 						<?php $this->render_status_pill( __( 'Manual only', 'lilleprinsen-price-monitor' ), 'muted' ); ?>
 					</div>
@@ -256,6 +291,15 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'When enabled, webhook notifications can include one-time approve dry-run and reject links.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'token_link_expiry_hours', __( 'Token link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_number_field( 'token_retention_days', __( 'Token retention days', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					?>
+					<p class="lpm-field-description"><?php esc_html_e( 'WhatsApp action links are webhook payload links for Make/Zapier messages. They are disabled by default and only record dry-run actions unless real updates are reviewed by a logged-in admin.', 'lilleprinsen-price-monitor' ); ?></p>
+					<?php
+					$this->render_checkbox_field( 'whatsapp_action_links_enabled', __( 'Enable webhook/WhatsApp action links', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_number_field( 'whatsapp_action_link_expiry_hours', __( 'Action link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_checkbox_field( 'allow_token_match_price_dry_run', __( 'Allow Match price dry-run token action', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'allow_token_match_price_minus_1_dry_run', __( 'Allow Match price -1 kr dry-run token action', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'allow_token_reject', __( 'Allow Reject token action', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'allow_unauthenticated_real_price_update_from_token', __( 'Allow unauthenticated real update from token', 'lilleprinsen-price-monitor' ), $settings, __( 'Strong warning: default off and not used by this version. Real price updates still require logged-in admin confirmation.', 'lilleprinsen-price-monitor' ) );
 					?>
 				</section>
 			</div>

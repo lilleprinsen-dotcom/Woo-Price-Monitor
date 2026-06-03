@@ -138,7 +138,19 @@ function lpm_token_settings( bool $enabled = true ): array {
 	return array(
 		'allow_token_dry_run_approval_links' => $enabled ? 1 : 0,
 		'token_link_expiry_hours' => 24,
+		'whatsapp_action_links_enabled' => 0,
+		'whatsapp_action_link_expiry_hours' => 24,
+		'allow_token_match_price_dry_run' => 1,
+		'allow_token_match_price_minus_1_dry_run' => 1,
+		'allow_token_reject' => 1,
 	);
+}
+
+function lpm_action_token_settings(): array {
+	$settings = lpm_token_settings( false );
+	$settings['whatsapp_action_links_enabled'] = 1;
+
+	return $settings;
 }
 
 lpm_run_tests(
@@ -189,6 +201,23 @@ lpm_run_tests(
 
 			lpm_assert_same( false, $validation['success'], 'Wrong action should fail.' );
 			lpm_assert_same( 'wrong_action', $validation['code'], 'Wrong action should return wrong_action code.' );
+		},
+		'match price action is disabled by default' => static function (): void {
+			$repo    = new LpmFakeApprovalTokenRepository();
+			$service = new ApprovalTokenService( $repo );
+			$result  = $service->create_token( 10, ApprovalTokenService::ACTION_MATCH_PRICE, lpm_token_settings() );
+
+			lpm_assert_same( false, $result['success'], 'Match price token should not be created while action links are disabled.' );
+			lpm_assert_same( array(), $repo->tokens, 'Disabled action should not store token rows.' );
+		},
+		'match price actions can create one-time dry-run links when enabled' => static function (): void {
+			$repo    = new LpmFakeApprovalTokenRepository();
+			$service = new ApprovalTokenService( $repo );
+			$result  = $service->create_token( 10, ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1, lpm_action_token_settings() );
+
+			lpm_assert_true( ! empty( $result['success'] ), 'Match price -1 token should be created when action links are enabled.' );
+			lpm_assert_same( ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1, $result['action'], 'Action should be stored exactly.' );
+			lpm_assert_true( ! empty( $result['url'] ), 'Token URL should be returned for webhook payloads.' );
 		},
 		'approve dry run does not call price updates' => static function (): void {
 			$repo = new LpmFakeApprovalTokenRepository();

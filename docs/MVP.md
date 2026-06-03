@@ -141,7 +141,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Keep real WooCommerce price updates behind logged-in admin confirmation only.
 - Add optional tokenized dry-run approve/reject links only; do not allow tokenized real price updates.
 
-## Current Milestone: Production Safety Controls
+### Milestone 16: Production Safety Controls
 
 - Add a shared transient batch lock for manual, scheduled, and WP-CLI check batches.
 - Add retry/backoff fields on competitor links with 1-hour, 6-hour, and 24-hour retry windows.
@@ -151,16 +151,32 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add dashboard health cards for lock status, scheduled checks, failed checks, real-update possibility, webhook state, and active sessions.
 - Keep all production operations bounded, opt-in, and dry-run by default.
 
+### Milestone 17: Product Groups, Frontend Price-Match Box, And Webhook Actions
+
+- Add `lpm_product_groups` and `lpm_product_group_members`.
+- Add a Groups tab for creating groups, managing members, setting a primary member, and choosing pricing mode.
+- Extend suggestions with `group_id`, `applies_to_group`, and `group_action_status`.
+- Create group-aware dry-run suggestions for shared-price groups.
+- Respect primary-controlled and manual-review-only group modes.
+- Keep group real updates out of the automatic/token path; dry-run approval logs affected members only.
+- Add optional lightweight frontend price-match box settings and CSS.
+- Use cached/simple price-match state for frontend display and coupon exclusion.
+- Exclude price-matched cart lines from coupon discounts when enabled.
+- Extend webhook payloads with Match price, Match price -1 kr, Reject, competitor, and review action links.
+- Keep action links disabled by default, expiring, one-time use, hash-stored, and dry-run-only for price actions.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
 - Add focused tests for webhook payload formatting and HMAC signature behavior.
+- Add focused tests for group-aware suggestion metadata and token match-price actions.
 - Add focused tests for limited selector parsing and JavaScript-required profile behavior.
 - Add focused tests for `PricingRuleService` rounding, min price, cost, and margin outcomes once a lightweight WordPress test harness exists.
 - Add more structured logging around parser extraction methods.
 - Add table migration tests where possible.
 - Add focused tests for batch locking, retry/backoff, and retention cleanup once a lightweight WordPress test harness exists.
 - Consider soft-delete semantics for competitor links if historical link auditability becomes important.
+- Build a dedicated guarded real-update confirmation flow for group suggestions, with partial updates disabled by default.
 
 ## Later, Explicitly Opt-In Work
 
@@ -168,6 +184,7 @@ These are not part of the current MVP stabilization:
 
 - Real WhatsApp provider integration.
 - Automatic or bulk WooCommerce price updates.
+- Unauthenticated real price updates from WhatsApp/webhook links.
 - Broad scheduled checks across large portions of the catalog.
 - Full crawler behavior or competitor site discovery.
 - Bulk product import jobs.

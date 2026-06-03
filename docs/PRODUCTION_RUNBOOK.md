@@ -11,6 +11,9 @@ Lilleprinsen Price Monitor should be launched as an admin-only, dry-run monitori
 5. Add direct competitor links for those selected products only.
 6. Run manual "Test check" actions and review History, Logs, and Approvals.
 7. Keep approved suggestions as dry-run records until the team trusts parser results, margins, and recovery behavior.
+8. Keep product groups in dry-run review until group member safety rules have been checked on staging.
+9. Keep the frontend price-match box disabled until active match state and coupon behavior have been verified on staging.
+10. Keep webhook/WhatsApp action links disabled until token expiry, one-time use, and dry-run-only behavior have been tested.
 
 ## Server Cron With WP-CLI
 
@@ -67,6 +70,31 @@ Real updates are blocked by default. To pause all possible real update behavior:
 4. Keep `require_confirmation_for_real_updates = yes`.
 
 Approvals can still be recorded as dry-run workflow state. WooCommerce prices are not changed while the guards above are active.
+
+Webhook action links also remain dry-run-only. They can adjust the stored suggestion price, approve dry-run, or reject depending on settings, but they do not perform WooCommerce price updates.
+
+## Frontend Price-Match Box
+
+The frontend box is optional and disabled by default. When enabled, it should only display for products with stored active match state. It must not run competitor checks, external HTTP requests, product scans, or price calculations on storefront traffic.
+
+Before enabling on production:
+
+1. Verify `_lpm_price_matched_active` state is set and cleared correctly for staging sessions.
+2. Confirm normal products do not show the box.
+3. Confirm CSS is lightweight and only enqueued when the box setting is enabled.
+4. Confirm coupon discounts are removed from price-matched cart lines only when `disable_coupons_for_price_matched_products` is enabled.
+
+## Webhook Action Links
+
+Make/Zapier can forward webhook payload fields to WhatsApp messages:
+
+- `action_match_price_url`
+- `action_match_price_minus_1_url`
+- `action_reject_url`
+- `competitor_url`
+- `review_url`
+
+These links are disabled by default, expire, are one-time use, and store only token hashes. In this version they do not perform real WooCommerce price updates. Real updates still require logged-in admin confirmation through the normal admin approval flow.
 
 ## Disable Scheduled Checks
 
