@@ -24,6 +24,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 			<?php esc_html_e( 'Settings saved.', 'lilleprinsen-price-monitor' ); ?>
 		</div>
 	<?php endif; ?>
+	<?php $this->render_admin_notices(); ?>
 
 	<nav class="lpm-tabs" aria-label="<?php esc_attr_e( 'Price Monitor sections', 'lilleprinsen-price-monitor' ); ?>">
 		<?php foreach ( $tabs as $tab_key => $tab_label ) : ?>
@@ -40,27 +41,51 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 	<div class="lpm-panels">
 		<section class="lpm-panel <?php echo esc_attr( 'dashboard' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="dashboard">
-			<?php $this->render_dashboard( $counts, $settings, $table_status, $woocommerce_active ); ?>
+			<?php
+			if ( 'dashboard' === $active_tab ) {
+				$this->render_dashboard( $counts, $settings, $table_status, $woocommerce_active );
+			}
+			?>
 		</section>
 
 		<section class="lpm-panel <?php echo esc_attr( 'products' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="products">
-			<?php $this->render_placeholder_panel( __( 'Products', 'lilleprinsen-price-monitor' ), __( 'Product monitoring lists will be added in a later milestone with paginated, selected-product-only workflows.', 'lilleprinsen-price-monitor' ) ); ?>
+			<?php
+			if ( 'products' === $active_tab ) {
+				$this->render_products();
+			}
+			?>
 		</section>
 
 		<section class="lpm-panel <?php echo esc_attr( 'approvals' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="approvals">
-			<?php $this->render_placeholder_panel( __( 'Approvals', 'lilleprinsen-price-monitor' ), __( 'Suggestion approval and rejection queues will stay dry-run until explicit price update work is requested.', 'lilleprinsen-price-monitor' ) ); ?>
+			<?php
+			if ( 'approvals' === $active_tab ) {
+				$this->render_placeholder_panel( __( 'Approvals', 'lilleprinsen-price-monitor' ), __( 'Suggestion approval and rejection queues will stay dry-run until explicit price update work is requested.', 'lilleprinsen-price-monitor' ) );
+			}
+			?>
 		</section>
 
 		<section class="lpm-panel <?php echo esc_attr( 'competitors' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="competitors">
-			<?php $this->render_placeholder_panel( __( 'Competitors', 'lilleprinsen-price-monitor' ), __( 'Competitor URL management will store direct URLs in custom tables without scraping in this version.', 'lilleprinsen-price-monitor' ) ); ?>
+			<?php
+			if ( 'competitors' === $active_tab ) {
+				$this->render_competitors();
+			}
+			?>
 		</section>
 
 		<section class="lpm-panel <?php echo esc_attr( 'settings' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings">
-			<?php $this->render_settings( $settings ); ?>
+			<?php
+			if ( 'settings' === $active_tab ) {
+				$this->render_settings( $settings );
+			}
+			?>
 		</section>
 
 		<section class="lpm-panel <?php echo esc_attr( 'logs' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="logs">
-			<?php $this->render_logs( $table_status ); ?>
+			<?php
+			if ( 'logs' === $active_tab ) {
+				$this->render_logs( $table_status );
+			}
+			?>
 		</section>
 	</div>
 </div>
