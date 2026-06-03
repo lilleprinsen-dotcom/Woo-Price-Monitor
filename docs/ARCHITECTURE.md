@@ -124,7 +124,9 @@ Current rule controls include:
 
 `src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price, asks `PricingRuleService` for the final dry-run decision, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes. Manual-review outcomes are stored as approval-inbox suggestions with `suggestion_type = manual_review` and workflow status `pending`.
 
-When the monitored product belongs to an enabled product group, `SuggestionService` marks the suggestion with `group_id`, `applies_to_group`, and `group_action_status`. `shared_price` groups create group-aware suggestions, `primary_product_controls_group` only allows the primary product to drive group suggestions, and `manual_review_only` forces a manual-review suggestion. Group member warnings are stored in `rule_details`.
+`src/Service/GroupSuggestionService.php` centralizes product group behavior. It determines whether a monitored product belongs to an active group, applies the exact pricing-mode rules, validates enabled group members for a suggested price, returns affected and blocked product IDs, and explains warnings in plain English.
+
+When the monitored product belongs to an enabled product group, `SuggestionService` marks the suggestion with `group_id`, `applies_to_group`, and `group_action_status`. `shared_price` groups create group-aware suggestions from any enabled member, `primary_product_controls_group` only allows the primary product to drive group-wide suggestions, and `manual_review_only` forces a manual-review suggestion. Group member warnings and affected/blocked products are stored in `rule_details`.
 
 Suggestion rows also store `margin_after_change`, `rule_details`, and `warnings` when available so the Approvals inbox can explain why a suggestion was made or blocked.
 
@@ -148,7 +150,7 @@ Recovery basis modes:
 - `primary_competitor`: require one fresh enabled primary competitor. If no primary competitor is set, or its data is stale/missing, return manual review.
 - `all_competitors_must_increase`: require all enabled exact/similar competitors to have fresh valid prices. If any exact/similar competitor is stale or lower than the proposed recovery price, avoid recovery.
 
-Recovery also avoids automatic suggestions when the product price has changed since the active real price-match session was created, when original session price fields are missing, or when the proposed recovery price exceeds the configured maximum increase percent.
+Recovery also avoids automatic suggestions when the product price has changed since the active real price-match session was created, when original session price fields are missing, or when the proposed recovery price exceeds the configured maximum increase percent. Group recovery suggestions become manual review when enabled group members have different captured original price states.
 
 The History tab shows the latest active price match sessions. Dry-run sessions can be ended manually without changing WooCommerce prices. Real sessions are ended only through the guarded restore/update path.
 
@@ -160,7 +162,7 @@ Restore suggestion types use captured price match session state. Previous regula
 
 This service is present for future controlled use. Defaults keep real updates blocked.
 
-Group real updates remain intentionally conservative. The approval inbox does not expose a real-update button for group suggestions in this version; dry-run approval records workflow state and logs affected members. Future group real updates must validate every member, use WooCommerce CRUD per product, respect `allow_partial_group_price_updates`, and avoid partial updates by default.
+Group real updates remain intentionally conservative but now have a guarded foundation. If real updates are enabled and the admin opens the explicit confirmation page, `PriceUpdateService::apply_group_suggestion()` validates every enabled group member through `GroupSuggestionService`, applies the same suggested price to eligible products using WooCommerce CRUD, logs old/new state per product, creates real active price match sessions for successful `price_match_down` updates, and records `group_action_status` as `completed`, `partial`, or `failed`. Partial group updates are disabled by default and only occur when `allow_partial_group_price_updates = 1`.
 
 ### Frontend Price-Match Box And Coupon Exclusion
 

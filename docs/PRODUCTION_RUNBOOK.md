@@ -11,7 +11,7 @@ Lilleprinsen Price Monitor should be launched as an admin-only, dry-run monitori
 5. Add direct competitor links for those selected products only.
 6. Run manual "Test check" actions and review History, Logs, and Approvals.
 7. Keep approved suggestions as dry-run records until the team trusts parser results, margins, and recovery behavior.
-8. Keep product groups in dry-run review until group member safety rules have been checked on staging.
+8. Keep product groups in dry-run review until group member safety rules and the explicit group confirmation page have been checked on staging.
 9. Keep the frontend price-match box disabled until active match state and coupon behavior have been verified on staging.
 10. Keep webhook/WhatsApp action links disabled until token expiry, one-time use, and dry-run-only behavior have been tested.
 
@@ -72,6 +72,16 @@ Real updates are blocked by default. To pause all possible real update behavior:
 Approvals can still be recorded as dry-run workflow state. WooCommerce prices are not changed while the guards above are active.
 
 Webhook action links also remain dry-run-only. They can adjust the stored suggestion price, approve dry-run, or reject depending on settings, but they do not perform WooCommerce price updates. Match-price actions are blocked before changing the suggestion if the requested price violates positive-price, max drop/increase, monitored min-price, or group member min-price checks.
+
+## Group Price Updates
+
+Group real updates are opt-in and require the same real-update safety settings as single-product updates plus explicit admin confirmation. Before enabling on production:
+
+1. Keep `allow_partial_group_price_updates = no` until the team has reviewed staging behavior.
+2. Confirm every group member shows old price, new price, and safety status on the confirmation page.
+3. Confirm blocked members stop the whole update while partial updates are disabled.
+4. Confirm successful group updates create real active sessions only for products actually updated.
+5. Review logs for per-product old/new state after every staging group update.
 
 ## Frontend Price-Match Box
 

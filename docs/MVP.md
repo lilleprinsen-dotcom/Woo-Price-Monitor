@@ -155,10 +155,12 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 
 - Add `lpm_product_groups` and `lpm_product_group_members`.
 - Add a Groups tab for creating groups, managing members, setting a primary member, and choosing pricing mode.
+- Add `GroupSuggestionService` to centralize group pricing-mode rules and safety reports.
 - Extend suggestions with `group_id`, `applies_to_group`, and `group_action_status`.
 - Create group-aware dry-run suggestions for shared-price groups.
 - Respect primary-controlled and manual-review-only group modes.
 - Keep group real updates out of the automatic/token path; dry-run approval logs affected members only.
+- Add guarded explicit-admin group real update foundation with WooCommerce CRUD, member validation, per-product logging, and `completed`/`partial`/`failed` group action status.
 - Add optional lightweight frontend price-match box settings and CSS.
 - Use cached/simple real price-match state for frontend display and coupon exclusion; dry-run sessions do not trigger storefront display.
 - Exclude real price-matched cart lines from coupon discounts when enabled.

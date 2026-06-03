@@ -13,6 +13,7 @@ TESTS=(
 	"$ROOT_DIR/tools/test-price-parser.php"
 	"$ROOT_DIR/tools/test-pricing-rules.php"
 	"$ROOT_DIR/tools/test-price-recovery.php"
+	"$ROOT_DIR/tools/test-group-suggestions.php"
 	"$ROOT_DIR/tools/test-approval-tokens.php"
 	"$ROOT_DIR/tools/test-price-match-display.php"
 )

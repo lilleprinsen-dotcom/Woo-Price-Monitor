@@ -18,9 +18,12 @@ final class PriceUpdateService {
 
 	private PriceRecoveryService $recovery_service;
 
-	public function __construct( Repository $repository, ?PriceRecoveryService $recovery_service = null ) {
-		$this->repository       = $repository;
-		$this->recovery_service = $recovery_service ?? new PriceRecoveryService();
+	private GroupSuggestionService $group_suggestion_service;
+
+	public function __construct( Repository $repository, ?PriceRecoveryService $recovery_service = null, ?GroupSuggestionService $group_suggestion_service = null ) {
+		$this->repository               = $repository;
+		$this->recovery_service         = $recovery_service ?? new PriceRecoveryService();
+		$this->group_suggestion_service = $group_suggestion_service ?? new GroupSuggestionService( $repository );
 	}
 
 	/**
@@ -32,6 +35,10 @@ final class PriceUpdateService {
 
 		if ( ! $suggestion ) {
 			return $this->failure( __( 'Suggestion was not found.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( ! empty( $suggestion['applies_to_group'] ) ) {
+			return $this->failure( __( 'Group suggestions require the guarded group update confirmation flow.', 'lilleprinsen-price-monitor' ) );
 		}
 
 		$validation = $this->validate_update_allowed( $suggestion, $settings );
@@ -99,6 +106,160 @@ final class PriceUpdateService {
 		return array(
 			'success' => true,
 			'message' => __( 'WooCommerce price was updated after explicit approval.', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array<string, mixed>
+	 */
+	public function apply_group_suggestion( int $suggestion_id, array $settings, int $user_id ): array {
+		$suggestion = $this->repository->get_price_suggestion( $suggestion_id );
+
+		if ( ! $suggestion ) {
+			return $this->failure( __( 'Suggestion was not found.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( empty( $suggestion['applies_to_group'] ) || empty( $suggestion['group_id'] ) ) {
+			return $this->failure( __( 'This suggestion is not a group suggestion.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		$validation = $this->validate_group_update_allowed( $suggestion, $settings );
+
+		if ( ! $validation['success'] ) {
+			$this->repository->update_suggestion_group_action_status( $suggestion_id, 'failed' );
+			return $validation;
+		}
+
+		$group = $this->repository->get_product_group( (int) $suggestion['group_id'] );
+
+		if ( ! $group ) {
+			$this->repository->update_suggestion_group_action_status( $suggestion_id, 'failed' );
+			return $this->failure( __( 'Product group was not found.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		$members = $this->repository->get_product_group_members( (int) $suggestion['group_id'], true );
+		$report  = $this->group_suggestion_service->validate_group_members(
+			$group,
+			$members,
+			(float) $suggestion['suggested_price'],
+			$settings,
+			array(
+				'real_update'              => true,
+				'check_product_exists'     => true,
+				'block_conflicting_sessions' => 'price_match_down' === (string) $suggestion['suggestion_type'],
+				'current_suggestion_id'    => (int) $suggestion['id'],
+				'expected_current_prices'  => array( (int) $suggestion['product_id'] => (float) $suggestion['current_price'] ),
+			)
+		);
+		$allow_partial = ! empty( $settings['allow_partial_group_price_updates'] );
+
+		if ( empty( $report['success'] ) && ! $allow_partial ) {
+			$this->repository->update_suggestion_group_action_status( $suggestion_id, 'failed' );
+			$this->repository->mark_suggestion_failed( $suggestion_id, (string) $report['reason'] );
+
+			return $this->failure( (string) $report['reason'], true );
+		}
+
+		$eligible_products = $allow_partial ? (array) $report['eligible_products'] : (array) $report['affected_products'];
+
+		if ( empty( $eligible_products ) ) {
+			$this->repository->update_suggestion_group_action_status( $suggestion_id, 'failed' );
+			return $this->failure( __( 'No eligible group products passed safety checks.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		$members_by_product = array();
+
+		foreach ( $members as $member ) {
+			$members_by_product[ (int) $member['product_id'] ] = $member;
+		}
+
+		$write_mode = sanitize_key( (string) ( $settings['price_match_write_mode'] ?? 'sale_price' ) );
+		$price      = round( (float) $suggestion['suggested_price'], 4 );
+		$succeeded  = array();
+		$failed     = array();
+
+		foreach ( $eligible_products as $product_id ) {
+			$product_id = absint( $product_id );
+			$product    = wc_get_product( $product_id );
+
+			if ( ! is_object( $product ) ) {
+				$failed[] = array( 'product_id' => $product_id, 'reason' => __( 'WooCommerce product was not found.', 'lilleprinsen-price-monitor' ) );
+
+				if ( ! $allow_partial ) {
+					break;
+				}
+
+				continue;
+			}
+
+			$old_state = $this->capture_product_state( $product );
+
+			try {
+				$this->apply_price_to_product( $product, $price, $write_mode );
+				$product->save();
+			} catch ( \Throwable $throwable ) {
+				$failed[] = array( 'product_id' => $product_id, 'reason' => $throwable->getMessage() );
+
+				if ( ! $allow_partial ) {
+					break;
+				}
+
+				continue;
+			}
+
+			$new_state = $this->capture_product_state( $product );
+			$succeeded[] = $product_id;
+
+			$this->maybe_update_group_price_match_session( $suggestion, $members_by_product[ $product_id ] ?? array(), $old_state, $price, $write_mode, $settings, $user_id, $product_id );
+			$this->repository->write_log(
+				'info',
+				'group_real_price_update_product_applied',
+				__( 'Group WooCommerce price update applied for one product after explicit admin approval.', 'lilleprinsen-price-monitor' ),
+				array(
+					'suggestion_id' => $suggestion_id,
+					'group_id'      => (int) $suggestion['group_id'],
+					'product_id'    => $product_id,
+					'write_mode'    => $write_mode,
+					'old_state'     => $old_state,
+					'new_state'     => $new_state,
+				),
+				$product_id
+			);
+		}
+
+		$group_status = empty( $failed ) ? 'completed' : ( empty( $succeeded ) ? 'failed' : 'partial' );
+		$this->repository->update_suggestion_group_action_status( $suggestion_id, $group_status );
+
+		if ( 'failed' === $group_status ) {
+			$this->repository->mark_suggestion_failed( $suggestion_id, __( 'Group update failed before any products were updated.', 'lilleprinsen-price-monitor' ) );
+			return $this->failure( __( 'Group update failed before any products were updated.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		$this->repository->approve_suggestion_real_update( $suggestion_id, $user_id );
+		$this->repository->write_log(
+			'info',
+			'group_real_price_update_applied',
+			__( 'Group WooCommerce price update completed after explicit admin approval.', 'lilleprinsen-price-monitor' ),
+			array(
+				'suggestion_id' => $suggestion_id,
+				'group_id'      => (int) $suggestion['group_id'],
+				'status'        => $group_status,
+				'succeeded'     => $succeeded,
+				'failed'        => $failed,
+				'blocked_products' => $report['blocked_products'],
+			),
+			(int) $suggestion['product_id']
+		);
+
+		return array(
+			'success' => true,
+			'message' => 'partial' === $group_status
+				? __( 'Group prices were partially updated after explicit approval. Review logs for skipped products.', 'lilleprinsen-price-monitor' )
+				: __( 'Group prices were updated after explicit approval.', 'lilleprinsen-price-monitor' ),
+			'group_action_status' => $group_status,
+			'succeeded' => $succeeded,
+			'failed'    => $failed,
 		);
 	}
 
@@ -171,6 +332,55 @@ final class PriceUpdateService {
 			if ( $drop_percent > $max_drop_percent ) {
 				return $this->failure( __( 'Suggested price drop exceeds the configured safety limit.', 'lilleprinsen-price-monitor' ), true );
 			}
+		}
+
+		return array( 'success' => true );
+	}
+
+	/**
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array<string, mixed>
+	 */
+	private function validate_group_update_allowed( array $suggestion, array $settings ): array {
+		if ( ! empty( $settings['dry_run_mode'] ) ) {
+			return $this->failure( __( 'Dry-run mode is enabled.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( ! empty( $settings['disable_all_price_updates'] ) ) {
+			return $this->failure( __( 'Emergency price update disable is enabled.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( empty( $settings['allow_real_price_updates'] ) ) {
+			return $this->failure( __( 'Real price updates are not enabled.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( empty( $settings['require_manual_approval'] ) ) {
+			return $this->failure( __( 'Manual approval is required for real price updates.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( 'pending' !== (string) $suggestion['status'] ) {
+			return $this->failure( __( 'Only pending suggestions can update prices.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( 'manual_review_only' === (string) ( $suggestion['group_action_status'] ?? '' ) ) {
+			return $this->failure( __( 'Manual-review-only group suggestions cannot update prices without a future dedicated review flow.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		$allowed_types = isset( $settings['real_update_allowed_suggestion_types'] ) && is_array( $settings['real_update_allowed_suggestion_types'] )
+			? $settings['real_update_allowed_suggestion_types']
+			: array();
+
+		if ( ! in_array( (string) $suggestion['suggestion_type'], $allowed_types, true ) ) {
+			return $this->failure( __( 'Suggestion type is not allowed for real updates.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( (float) $suggestion['suggested_price'] <= 0 ) {
+			return $this->failure( __( 'Suggested price must be positive.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		if ( ! function_exists( 'wc_get_product' ) ) {
+			return $this->failure( __( 'WooCommerce is unavailable.', 'lilleprinsen-price-monitor' ) );
 		}
 
 		return array( 'success' => true );
@@ -346,6 +556,51 @@ final class PriceUpdateService {
 
 		if ( in_array( $type, array( 'restore_previous_regular_price', 'restore_previous_sale_price', 'restore_previous_active_price' ), true ) ) {
 			$session = $this->repository->get_active_price_match_session_for_product( (int) $suggestion['product_id'] );
+
+			if ( $session ) {
+				$this->repository->end_price_match_session( (int) $session['id'], 'restored' );
+			}
+		}
+	}
+
+	/**
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @param array<string, mixed> $member Group member row.
+	 * @param array<string, mixed> $old_state Previous product state.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 */
+	private function maybe_update_group_price_match_session( array $suggestion, array $member, array $old_state, float $matched_price, string $write_mode, array $settings, int $user_id, int $product_id ): void {
+		$type = (string) $suggestion['suggestion_type'];
+
+		if ( 'price_match_down' === $type ) {
+			$this->repository->create_price_match_session(
+				array(
+					'product_id'              => $product_id,
+					'monitored_product_id'    => absint( $member['monitored_product_id'] ?? $suggestion['monitored_product_id'] ?? 0 ),
+					'suggestion_id'           => (int) $suggestion['id'],
+					'status'                  => 'active',
+					'original_regular_price'  => $old_state['regular_price'] ?? null,
+					'original_sale_price'     => $old_state['sale_price'] ?? null,
+					'original_active_price'   => $old_state['active_price'] ?? null,
+					'original_sale_start'     => $old_state['sale_start'] ?? null,
+					'original_sale_end'       => $old_state['sale_end'] ?? null,
+					'matched_price'           => $matched_price,
+					'matched_regular_price'   => 'regular_price' === $write_mode ? $matched_price : null,
+					'matched_sale_price'      => 'regular_price' === $write_mode ? null : $matched_price,
+					'matched_at'              => current_time( 'mysql' ),
+					'matched_by'              => $user_id,
+					'restore_strategy'        => 'previous_active_price',
+					'recovery_strategy'       => (string) ( $settings['recovery_when_competitor_increases'] ?? 'suggest_only' ),
+					'last_competitor_price'   => (float) $suggestion['competitor_price'],
+					'last_lowest_competitor_price' => (float) $suggestion['competitor_price'],
+					'last_checked_at'         => current_time( 'mysql' ),
+				)
+			);
+			return;
+		}
+
+		if ( in_array( $type, array( 'restore_previous_regular_price', 'restore_previous_sale_price', 'restore_previous_active_price' ), true ) ) {
+			$session = $this->repository->get_active_price_match_session_for_product( $product_id );
 
 			if ( $session ) {
 				$this->repository->end_price_match_session( (int) $session['id'], 'restored' );

@@ -26,7 +26,7 @@ Implemented foundation:
 - Bounded WP-CLI commands for check batches, cleanup, and operational status.
 - Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
 - Optional one-time token links for webhook dry-run approval, match-price dry-run actions, and rejection. Token links are disabled by default and can never update WooCommerce prices.
-- Product groups for related monitored products that should share pricing decisions, with group-aware dry-run suggestions.
+- Product groups for related monitored products that should share pricing decisions, with group-aware suggestions, dry-run group approval, and a guarded explicit-admin group real-update foundation.
 - Optional lightweight frontend price-match box in Norwegian and coupon-discount exclusion for real actively price-matched products. Dry-run sessions do not trigger customer-facing display or coupon exclusion.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 

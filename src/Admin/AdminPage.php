@@ -14,6 +14,7 @@ use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Plugin;
+use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
@@ -53,6 +54,8 @@ final class AdminPage {
 
 	private PriceUpdateService $price_update_service;
 
+	private GroupSuggestionService $group_suggestion_service;
+
 	private ProductSearchService $product_search_service;
 
 	private AdminNoticeStore $notice_store;
@@ -69,15 +72,16 @@ final class AdminPage {
 
 	private LogsTab $logs_tab;
 
-	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null, ?RetentionService $retention_service = null ) {
+	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null, ?RetentionService $retention_service = null, ?GroupSuggestionService $group_suggestion_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
 		$this->price_check_service    = $price_check_service ?? new PriceCheckService( null, $repository );
 		$this->price_recovery_service = $price_recovery_service ?? new PriceRecoveryService();
-		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service );
+		$this->group_suggestion_service = $group_suggestion_service ?? new GroupSuggestionService( $repository );
+		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service, null, $this->group_suggestion_service );
 		$this->notification_service   = $notification_service ?? new NotificationService( array( new LogNotificationChannel( $repository ), new WebhookNotificationChannel( $repository ) ) );
 		$this->job_scheduler          = $job_scheduler ?? new JobScheduler( $settings, new \Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob( $repository, $settings, $this->price_check_service, $this->suggestion_service, $this->notification_service ), $repository );
-		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service );
+		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service, $this->group_suggestion_service );
 		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
 		$this->notice_store           = $notice_store ?? new AdminNoticeStore();
 		$this->csv_import_service     = $csv_import_service ?? new CsvImportService( $repository );
@@ -1520,7 +1524,7 @@ final class AdminPage {
 
 		$session_id = 0;
 
-		if ( 'price_match_down' === (string) $suggestion['suggestion_type'] ) {
+		if ( 'price_match_down' === (string) $suggestion['suggestion_type'] && empty( $suggestion['applies_to_group'] ) ) {
 			$active_session = $this->repository->get_active_price_match_session_for_product( (int) $suggestion['product_id'] );
 
 			if ( ! $active_session ) {
@@ -1562,6 +1566,43 @@ final class AdminPage {
 
 		if ( ! empty( $suggestion['applies_to_group'] ) && ! empty( $suggestion['group_id'] ) ) {
 			$members = $this->repository->get_product_group_members( (int) $suggestion['group_id'], true );
+			$session_ids = array();
+
+			if ( 'price_match_down' === (string) $suggestion['suggestion_type'] ) {
+				foreach ( $members as $member ) {
+					$product_id = absint( $member['product_id'] ?? 0 );
+
+					if ( $product_id <= 0 || $this->repository->get_active_price_match_session_for_product( $product_id ) ) {
+						continue;
+					}
+
+					$original_state = $this->price_recovery_service->get_original_price_state( $product_id );
+					$member_session_id = $this->repository->create_price_match_session(
+						array_merge(
+							$original_state,
+							array(
+								'product_id'                   => $product_id,
+								'monitored_product_id'         => absint( $member['monitored_product_id'] ?? 0 ),
+								'suggestion_id'                => (int) $suggestion['id'],
+								'status'                       => 'active_dry_run',
+								'matched_price'                => (float) $suggestion['suggested_price'],
+								'matched_at'                   => current_time( 'mysql' ),
+								'matched_by'                   => $user_id,
+								'restore_strategy'             => 'previous_active_price',
+								'recovery_strategy'            => (string) $this->settings->get( 'recovery_when_competitor_increases', 'suggest_only' ),
+								'last_competitor_price'        => (float) $suggestion['competitor_price'],
+								'last_lowest_competitor_price' => (float) $suggestion['competitor_price'],
+								'last_checked_at'              => current_time( 'mysql' ),
+							)
+						)
+					);
+
+					if ( $member_session_id > 0 ) {
+						$session_ids[] = $member_session_id;
+					}
+				}
+			}
+
 			$this->repository->write_log(
 				'info',
 				'group_suggestion_approved_dry_run',
@@ -1570,6 +1611,7 @@ final class AdminPage {
 					'suggestion_id' => (int) $suggestion['id'],
 					'group_id'      => (int) $suggestion['group_id'],
 					'member_product_ids' => wp_list_pluck( $members, 'product_id' ),
+					'dry_run_session_ids' => $session_ids,
 				),
 				(int) $suggestion['product_id']
 			);
@@ -1758,14 +1800,16 @@ final class AdminPage {
 			$this->redirect_to_approvals( 'real_update_confirmation_required', 'error' );
 		}
 
-		$result = $this->price_update_service->apply_suggestion( (int) $suggestion['id'], $this->settings->get_all(), get_current_user_id() );
+		$result = ! empty( $suggestion['applies_to_group'] )
+			? $this->price_update_service->apply_group_suggestion( (int) $suggestion['id'], $this->settings->get_all(), get_current_user_id() )
+			: $this->price_update_service->apply_suggestion( (int) $suggestion['id'], $this->settings->get_all(), get_current_user_id() );
 
 		if ( empty( $result['success'] ) ) {
 			$this->set_admin_notice( (string) $result['message'], 'error' );
 			$this->redirect_to_approvals( 'real_price_update_failed', 'error' );
 		}
 
-		$this->set_admin_notice( (string) $result['message'] );
+		$this->set_admin_notice( (string) $result['message'], ! empty( $result['group_action_status'] ) && 'partial' === (string) $result['group_action_status'] ? 'warning' : 'success' );
 		$this->redirect_to_approvals( 'real_price_update_applied', 'success', 'approved_real_update' );
 	}
 
@@ -2161,17 +2205,29 @@ final class AdminPage {
 				<th scope="col"><?php esc_html_e( 'Pricing mode', 'lilleprinsen-price-monitor' ); ?></th>
 				<th scope="col"><?php esc_html_e( 'Primary product', 'lilleprinsen-price-monitor' ); ?></th>
 				<th scope="col"><?php esc_html_e( 'Products', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Health', 'lilleprinsen-price-monitor' ); ?></th>
 				<th scope="col"><?php esc_html_e( 'Last suggestion', 'lilleprinsen-price-monitor' ); ?></th>
 				<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
 			</tr></thead>
 			<tbody>
 				<?php foreach ( $groups as $group ) : ?>
+					<?php $health = $this->repository->get_product_group_health( (int) $group['id'] ); ?>
 					<tr>
 						<td><strong><?php echo esc_html( (string) $group['name'] ); ?></strong><?php if ( ! empty( $group['description'] ) ) : ?><small><?php echo esc_html( $this->shorten_text( (string) $group['description'], 80 ) ); ?></small><?php endif; ?></td>
 						<td><?php $this->render_status_pill( ! empty( $group['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $group['enabled'] ) ? 'ok' : 'muted' ); ?></td>
 						<td><?php echo esc_html( $this->get_group_pricing_mode_label( (string) $group['pricing_mode'] ) ); ?></td>
 						<td><?php echo esc_html( ! empty( $group['primary_product_id'] ) ? (string) $group['primary_product_id'] : '—' ); ?></td>
 						<td><?php echo esc_html( number_format_i18n( (int) ( $group['member_count'] ?? 0 ) ) ); ?></td>
+						<td>
+							<div class="lpm-inline-meta">
+								<?php $this->render_status_pill( sprintf( __( '%d real', 'lilleprinsen-price-monitor' ), (int) $health['active_real'] ), (int) $health['active_real'] > 0 ? 'ok' : 'muted' ); ?>
+								<?php $this->render_status_pill( sprintf( __( '%d dry-run', 'lilleprinsen-price-monitor' ), (int) $health['active_dry_run'] ), (int) $health['active_dry_run'] > 0 ? 'warning' : 'muted' ); ?>
+								<?php $this->render_status_pill( sprintf( __( '%d warnings', 'lilleprinsen-price-monitor' ), (int) $health['safety_warnings'] ), (int) $health['safety_warnings'] > 0 ? 'danger' : 'ok' ); ?>
+							</div>
+							<?php if ( ! empty( $health['warnings'] ) ) : ?>
+								<small><?php echo esc_html( implode( ' ', array_map( 'strval', (array) $health['warnings'] ) ) ); ?></small>
+							<?php endif; ?>
+						</td>
 						<td><?php echo esc_html( $this->format_datetime( $group['last_suggestion'] ?? null ) ); ?></td>
 						<td><div class="lpm-actions">
 							<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'groups', 'manage_group_id' => (int) $group['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Manage members', 'lilleprinsen-price-monitor' ); ?></a>
@@ -2983,7 +3039,7 @@ final class AdminPage {
 					<?php
 					$product    = $this->get_product( (int) $suggestion['product_id'] );
 					$can_review = in_array( (string) $suggestion['status'], array( 'pending', 'blocked' ), true );
-					$can_real_update = $can_review && empty( $suggestion['applies_to_group'] ) && 'pending' === (string) $suggestion['status'] && $real_updates_enabled && $this->suggestion_type_allows_real_update( (string) $suggestion['suggestion_type'], $settings );
+					$can_real_update = $can_review && 'pending' === (string) $suggestion['status'] && $real_updates_enabled && $this->suggestion_type_allows_real_update( (string) $suggestion['suggestion_type'], $settings ) && ( empty( $suggestion['applies_to_group'] ) || 'manual_review_only' !== (string) ( $suggestion['group_action_status'] ?? '' ) );
 					?>
 					<tr>
 						<td>
@@ -3034,7 +3090,7 @@ final class AdminPage {
 								<?php if ( $can_review ) : ?>
 									<?php $this->render_suggestion_price_form( $suggestion ); ?>
 									<?php if ( $can_real_update ) : ?>
-										<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_confirm_update' => (int) $suggestion['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Approve and update price', 'lilleprinsen-price-monitor' ); ?></a>
+										<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_confirm_update' => (int) $suggestion['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php echo esc_html( ! empty( $suggestion['applies_to_group'] ) ? __( 'Approve and update group prices', 'lilleprinsen-price-monitor' ) : __( 'Approve and update price', 'lilleprinsen-price-monitor' ) ); ?></a>
 									<?php else : ?>
 										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', ! empty( $suggestion['applies_to_group'] ) ? __( 'Approve dry-run for group', 'lilleprinsen-price-monitor' ) : __( 'Approve dry-run', 'lilleprinsen-price-monitor' ), '', 'data-lpm-approve-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
 									<?php endif; ?>
@@ -3067,6 +3123,11 @@ final class AdminPage {
 
 		if ( ! $suggestion ) {
 			$this->render_empty_card( __( 'Suggestion not found', 'lilleprinsen-price-monitor' ), __( 'Choose a pending suggestion from the inbox.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+
+		if ( ! empty( $suggestion['applies_to_group'] ) ) {
+			$this->render_group_real_update_confirmation( $suggestion, $settings );
 			return;
 		}
 
@@ -3114,6 +3175,113 @@ final class AdminPage {
 			</form>
 		</section>
 		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $suggestion Suggestion row.
+	 * @param array<string, mixed> $settings Current settings.
+	 */
+	private function render_group_real_update_confirmation( array $suggestion, array $settings ): void {
+		$currency = (string) ( $settings['default_currency'] ?? 'NOK' );
+		$group    = $this->repository->get_product_group( (int) $suggestion['group_id'] );
+		$members  = $this->repository->get_product_group_members( (int) $suggestion['group_id'], true );
+		$report   = $group ? $this->group_suggestion_service->validate_group_members(
+			$group,
+			$members,
+			(float) $suggestion['suggested_price'],
+			$settings,
+			array(
+				'real_update'              => true,
+				'check_product_exists'     => true,
+				'block_conflicting_sessions' => 'price_match_down' === (string) $suggestion['suggestion_type'],
+				'current_suggestion_id'    => (int) $suggestion['id'],
+				'expected_current_prices'  => array( (int) $suggestion['product_id'] => (float) $suggestion['current_price'] ),
+			)
+		) : array( 'success' => false, 'warnings' => array( __( 'Product group was not found.', 'lilleprinsen-price-monitor' ) ), 'blocked_products' => array(), 'affected_products' => array() );
+		$allow_partial = ! empty( $settings['allow_partial_group_price_updates'] );
+		$can_submit    = ! empty( $report['success'] ) || ( $allow_partial && ! empty( $report['eligible_products'] ) );
+		?>
+		<section class="lpm-card lpm-card-spaced lpm-confirm-update">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Confirm group WooCommerce price update', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php echo esc_html( $group ? (string) $group['name'] : __( 'Unknown group', 'lilleprinsen-price-monitor' ) ); ?></p>
+				</div>
+				<?php $this->render_status_pill( __( 'Changes multiple product prices', 'lilleprinsen-price-monitor' ), 'danger' ); ?>
+			</div>
+			<p class="lpm-danger-note"><?php esc_html_e( 'This approval will update every eligible enabled group member using WooCommerce CRUD APIs. No automatic checks or token links can perform this action.', 'lilleprinsen-price-monitor' ); ?></p>
+			<?php if ( count( $members ) >= 5 ) : ?>
+				<p class="lpm-danger-note"><?php esc_html_e( 'This group has many products. Review every row before confirming.', 'lilleprinsen-price-monitor' ); ?></p>
+			<?php endif; ?>
+			<table class="lpm-compact-table">
+				<thead>
+					<tr>
+						<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'Current price', 'lilleprinsen-price-monitor' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'New price', 'lilleprinsen-price-monitor' ); ?></th>
+						<th scope="col"><?php esc_html_e( 'Safety', 'lilleprinsen-price-monitor' ); ?></th>
+					</tr>
+				</thead>
+				<tbody>
+					<?php foreach ( $members as $member ) : ?>
+						<?php
+						$product_id = absint( $member['product_id'] ?? 0 );
+						$product    = $this->get_product( $product_id );
+						$current    = $product && method_exists( $product, 'get_price' ) ? (float) $product->get_price() : null;
+						$blocked    = $this->get_group_block_reasons_for_product( (array) ( $report['blocked_products'] ?? array() ), $product_id );
+						?>
+						<tr>
+							<td>
+								<?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), $product_id ) ); ?>
+								<small><?php printf( esc_html__( 'ID %d', 'lilleprinsen-price-monitor' ), $product_id ); ?></small>
+							</td>
+							<td><?php echo esc_html( null === $current ? '—' : $this->format_price_amount( $current, $currency ) ); ?></td>
+							<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['suggested_price'], $currency ) ); ?></td>
+							<td>
+								<?php if ( empty( $blocked ) ) : ?>
+									<?php $this->render_status_pill( __( 'Eligible', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+								<?php else : ?>
+									<?php $this->render_status_pill( __( 'Blocked', 'lilleprinsen-price-monitor' ), 'danger' ); ?>
+									<small><?php echo esc_html( implode( ' ', $blocked ) ); ?></small>
+								<?php endif; ?>
+							</td>
+						</tr>
+					<?php endforeach; ?>
+				</tbody>
+			</table>
+			<p class="lpm-field-description">
+				<?php
+				printf(
+					/* translators: %s: partial update setting. */
+					esc_html__( 'Partial group updates: %s.', 'lilleprinsen-price-monitor' ),
+					$allow_partial ? esc_html__( 'allowed by settings', 'lilleprinsen-price-monitor' ) : esc_html__( 'disabled; any blocked member stops the whole group update', 'lilleprinsen-price-monitor' )
+				);
+				?>
+			</p>
+			<form method="post" class="lpm-form-actions">
+				<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+				<?php wp_nonce_field( 'lpm_real_price_update_' . (int) $suggestion['id'], 'lpm_real_update_nonce' ); ?>
+				<input type="hidden" name="lpm_action" value="approve_and_update_price" />
+				<input type="hidden" name="suggestion_id" value="<?php echo esc_attr( (string) $suggestion['id'] ); ?>" />
+				<button type="submit" class="button button-primary" <?php disabled( ! $can_submit ); ?>><?php esc_html_e( 'Confirm and update group prices', 'lilleprinsen-price-monitor' ); ?></button>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Cancel', 'lilleprinsen-price-monitor' ); ?></a>
+			</form>
+		</section>
+		<?php
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $blocked_products Blocked products.
+	 * @return array<int, string>
+	 */
+	private function get_group_block_reasons_for_product( array $blocked_products, int $product_id ): array {
+		foreach ( $blocked_products as $blocked ) {
+			if ( is_array( $blocked ) && absint( $blocked['product_id'] ?? 0 ) === $product_id ) {
+				return array_map( 'strval', (array) ( $blocked['reasons'] ?? array() ) );
+			}
+		}
+
+		return array();
 	}
 
 	private function render_log_filters( array $filters ): void {

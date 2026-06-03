@@ -25,6 +25,7 @@ use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
+use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
@@ -61,23 +62,24 @@ final class Plugin {
 		$repository           = new Repository();
 		$price_recovery       = new PriceRecoveryService();
 		$pricing_rules        = new PricingRuleService();
+		$group_suggestions    = new GroupSuggestionService( $repository, $pricing_rules );
 		$price_check          = new PriceCheckService( null, $repository );
 		$approval_tokens      = new ApprovalTokenService( $repository );
-		$suggestion_service   = new SuggestionService( $repository, $price_recovery, $pricing_rules );
+		$suggestion_service   = new SuggestionService( $repository, $price_recovery, $pricing_rules, $group_suggestions );
 		$notification_service = new NotificationService(
 			array(
 				new LogNotificationChannel( $repository ),
 				new WebhookNotificationChannel( $repository, null, $approval_tokens ),
 			)
 		);
-		$price_update         = new PriceUpdateService( $repository, $price_recovery );
+		$price_update         = new PriceUpdateService( $repository, $price_recovery, $group_suggestions );
 		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
 		$job_scheduler        = new JobScheduler( $settings, $check_job, $repository );
 		$retention_service    = new RetentionService( $repository, $settings );
 		$product_search       = new ProductSearchService( $repository );
 		$notice_store         = new AdminNoticeStore();
 		$csv_import           = new CsvImportService( $repository );
-		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service );
+		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service, $group_suggestions );
 		$token_handler        = new TokenActionHandler( $repository, $settings, $approval_tokens );
 		$ajax_controller      = new AdminAjaxController( $repository, $settings, $product_search, $price_check, $suggestion_service, $notification_service );
 
