@@ -324,14 +324,14 @@ final class PriceParser {
 	 */
 	private function detect_stock_status( string $html, array $rules ): string {
 		$selector  = (string) $rules['stock_selector'];
-		$in_text   = trim( strtolower( (string) $rules['stock_in_text'] ) );
-		$out_text  = trim( strtolower( (string) $rules['stock_out_text'] ) );
+		$in_text   = $this->normalize_match_text( (string) $rules['stock_in_text'] );
+		$out_text  = $this->normalize_match_text( (string) $rules['stock_out_text'] );
 
 		if ( '' === $selector || ( '' === $in_text && '' === $out_text ) ) {
 			return '';
 		}
 
-		$text = strtolower( $this->get_selector_text( $html, $selector ) );
+		$text = $this->normalize_match_text( $this->get_selector_text( $html, $selector ) );
 
 		if ( '' === $text ) {
 			return 'unknown';
@@ -349,6 +349,12 @@ final class PriceParser {
 	}
 
 	private function get_selector_text( string $html, string $selector ): string {
+		$fallback_text = $this->get_selector_text_fallback( $html, $selector );
+
+		if ( '' !== $fallback_text ) {
+			return $fallback_text;
+		}
+
 		$xpath_expression = $this->selector_to_xpath( $selector );
 
 		if ( null === $xpath_expression || ! class_exists( '\DOMDocument' ) || ! class_exists( '\DOMXPath' ) ) {
@@ -402,6 +408,138 @@ final class PriceParser {
 		}
 
 		return trim( implode( ' ', $text_parts ) );
+	}
+
+	private function get_selector_text_fallback( string $html, string $selector ): string {
+		$matcher = $this->simple_selector_matcher( $selector );
+
+		if ( null === $matcher ) {
+			return '';
+		}
+
+		if ( ! preg_match_all( '#<([A-Za-z][A-Za-z0-9:-]*)(\s[^>]*)?>(.*?)</\1>#is', $html, $matches, PREG_SET_ORDER ) ) {
+			return '';
+		}
+
+		$text_parts = array();
+
+		foreach ( $matches as $match ) {
+			if ( count( $text_parts ) >= 5 ) {
+				break;
+			}
+
+			$attributes = $this->parse_html_attributes( (string) ( $match[2] ?? '' ) );
+
+			if ( ! $this->attributes_match_selector( $attributes, $matcher ) ) {
+				continue;
+			}
+
+			$text = $this->extract_fallback_node_text( (string) ( $match[3] ?? '' ), $attributes );
+
+			if ( '' !== $text ) {
+				$text_parts[] = $text;
+			}
+		}
+
+		return trim( implode( ' ', $text_parts ) );
+	}
+
+	/**
+	 * @return array{type: string, name: string, value: string}|null
+	 */
+	private function simple_selector_matcher( string $selector ): ?array {
+		$selector = trim( $selector );
+
+		if ( preg_match( '/^\.([A-Za-z0-9_-]+)$/', $selector, $match ) ) {
+			return array(
+				'type'  => 'class',
+				'name'  => 'class',
+				'value' => $match[1],
+			);
+		}
+
+		if ( preg_match( '/^#([A-Za-z0-9_-]+)$/', $selector, $match ) ) {
+			return array(
+				'type'  => 'id',
+				'name'  => 'id',
+				'value' => $match[1],
+			);
+		}
+
+		if ( preg_match( '/^\[([A-Za-z0-9_:-]+)=["\']([^"\']+)["\']\]$/', $selector, $match ) ) {
+			return array(
+				'type'  => 'attribute',
+				'name'  => strtolower( $match[1] ),
+				'value' => $match[2],
+			);
+		}
+
+		return null;
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function parse_html_attributes( string $raw_attributes ): array {
+		$attributes = array();
+
+		if ( ! preg_match_all( '/([A-Za-z_:][A-Za-z0-9_.:-]*)\s*=\s*(["\'])(.*?)\2/s', $raw_attributes, $matches, PREG_SET_ORDER ) ) {
+			return $attributes;
+		}
+
+		foreach ( $matches as $match ) {
+			$attributes[ strtolower( $match[1] ) ] = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5 );
+		}
+
+		return $attributes;
+	}
+
+	/**
+	 * @param array<string, string> $attributes Parsed attributes.
+	 * @param array{type: string, name: string, value: string} $matcher Selector matcher.
+	 */
+	private function attributes_match_selector( array $attributes, array $matcher ): bool {
+		if ( 'class' === $matcher['type'] ) {
+			$classes = preg_split( '/\s+/', trim( (string) ( $attributes['class'] ?? '' ) ) );
+
+			return is_array( $classes ) && in_array( $matcher['value'], $classes, true );
+		}
+
+		if ( 'id' === $matcher['type'] ) {
+			return (string) ( $attributes['id'] ?? '' ) === $matcher['value'];
+		}
+
+		return array_key_exists( $matcher['name'], $attributes ) && (string) $attributes[ $matcher['name'] ] === $matcher['value'];
+	}
+
+	/**
+	 * @param array<string, string> $attributes Parsed attributes.
+	 */
+	private function extract_fallback_node_text( string $inner_html, array $attributes ): string {
+		foreach ( array( 'content', 'data-price', 'aria-label', 'title' ) as $attribute ) {
+			if ( ! empty( $attributes[ $attribute ] ) ) {
+				return $this->normalize_extracted_text( $attributes[ $attribute ] );
+			}
+		}
+
+		return $this->normalize_extracted_text( wp_strip_all_tags( $inner_html ) );
+	}
+
+	private function normalize_extracted_text( string $text ): string {
+		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5 );
+		$text = preg_replace( '/\s+/u', ' ', $text );
+
+		return trim( is_string( $text ) ? $text : '' );
+	}
+
+	private function normalize_match_text( string $text ): string {
+		$text = $this->normalize_extracted_text( $text );
+
+		if ( function_exists( 'mb_strtolower' ) ) {
+			return mb_strtolower( $text, 'UTF-8' );
+		}
+
+		return strtolower( $text );
 	}
 
 	private function selector_to_xpath( string $selector ): ?string {

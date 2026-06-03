@@ -91,6 +91,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm the webhook payload includes `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `competitor_url`, `review_url`, `action_link_expires_at`, and `action_warning_text`.
 - [ ] Use the Match price action link in dry-run mode and confirm the suggestion price is set to competitor price, status becomes approved dry-run, and WooCommerce price is unchanged.
 - [ ] Use the Match price -1 kr action link in dry-run mode and confirm the suggestion price is set to competitor price minus 1, status becomes approved dry-run, and WooCommerce price is unchanged.
+- [ ] Try a Match price action that violates max drop/increase, monitored min price, or group member min price and confirm it is blocked without changing `suggested_price`.
 - [ ] Use the Reject action link and confirm the suggestion is rejected and WooCommerce price is unchanged.
 - [ ] Reuse a webhook action token and confirm reuse is blocked and logged.
 - [ ] Let a webhook action token expire and confirm expiry is blocked and logged.
@@ -158,12 +159,14 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Keep `price_match_box_enabled` off and confirm no price-match box CSS is enqueued on product pages.
 - [ ] Create or approve a dry-run price match session for a staging product.
 - [ ] Enable `price_match_box_enabled` and `price_match_box_show_on_product_page`.
-- [ ] Open that product page and confirm the Norwegian price-match box appears near the configured position.
+- [ ] Open that product page and confirm the Norwegian price-match box does not appear for dry-run-only match state.
+- [ ] Create or simulate a real active price-match session on staging and confirm the Norwegian price-match box appears near the configured position.
 - [ ] Open a normal product without active match state and confirm the box does not show.
 - [ ] Update text, subtext, emoji, colors, and border radius settings and confirm the frontend box reflects the changes.
 - [ ] Enable loop display on staging and confirm loop boxes are compact and do not trigger product scans or external requests.
 - [ ] Enable `disable_coupons_for_price_matched_products`.
-- [ ] Add a price-matched product and a normal product to cart, apply a coupon, and confirm the matched line receives no coupon discount while the normal line behavior is acceptable.
+- [ ] Add a dry-run-only matched product to cart, apply a coupon, and confirm dry-run state does not exclude coupon discounts.
+- [ ] Add a real active price-matched product and a normal product to cart, apply a coupon, and confirm the matched line receives no coupon discount while the normal line behavior is acceptable.
 - [ ] Confirm the cart/checkout notice says `Rabattkoder kan ikke brukes på prismatch.`
 - [ ] Confirm no product prices are changed directly in cart by the coupon restriction.
 

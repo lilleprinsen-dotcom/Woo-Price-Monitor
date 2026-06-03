@@ -71,18 +71,19 @@ Real updates are blocked by default. To pause all possible real update behavior:
 
 Approvals can still be recorded as dry-run workflow state. WooCommerce prices are not changed while the guards above are active.
 
-Webhook action links also remain dry-run-only. They can adjust the stored suggestion price, approve dry-run, or reject depending on settings, but they do not perform WooCommerce price updates.
+Webhook action links also remain dry-run-only. They can adjust the stored suggestion price, approve dry-run, or reject depending on settings, but they do not perform WooCommerce price updates. Match-price actions are blocked before changing the suggestion if the requested price violates positive-price, max drop/increase, monitored min-price, or group member min-price checks.
 
 ## Frontend Price-Match Box
 
-The frontend box is optional and disabled by default. When enabled, it should only display for products with stored active match state. It must not run competitor checks, external HTTP requests, product scans, or price calculations on storefront traffic.
+The frontend box is optional and disabled by default. When enabled, it should only display for products with stored real active match state. Dry-run sessions are workflow records only and must not show the customer-facing box or exclude coupons. The storefront path must not run competitor checks, external HTTP requests, product scans, or price calculations.
 
 Before enabling on production:
 
-1. Verify `_lpm_price_matched_active` state is set and cleared correctly for staging sessions.
+1. Verify `_lpm_price_matched_active = real` state is set and cleared correctly for real staging sessions.
 2. Confirm normal products do not show the box.
-3. Confirm CSS is lightweight and only enqueued when the box setting is enabled.
-4. Confirm coupon discounts are removed from price-matched cart lines only when `disable_coupons_for_price_matched_products` is enabled.
+3. Confirm dry-run-only sessions do not show the box and do not exclude coupon discounts.
+4. Confirm CSS is lightweight and only enqueued when the box setting is enabled.
+5. Confirm coupon discounts are removed from real price-matched cart lines only when `disable_coupons_for_price_matched_products` is enabled.
 
 ## Webhook Action Links
 

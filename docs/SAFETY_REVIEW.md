@@ -32,6 +32,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Notification review links point to normal authenticated WordPress admin URLs.
 - Tokenized approve/reject links are disabled by default, expire, are one-time use, and store only token hashes.
 - Tokenized links can approve dry-run suggestions, reject suggestions, or record webhook action-link choices that adjust the stored suggested price before dry-run approval.
+- Match-price token actions validate positive price, max drop/increase limits, monitored minimum price, and enabled group member minimum prices before changing the stored suggestion price.
 - Tokenized action links cannot approve real WooCommerce price updates.
 - Real WooCommerce price updates are blocked by default.
 - Real updates require dry-run mode off, emergency disable off, explicit allow setting on, manual approval, explicit confirmation, allowed suggestion type, positive price, unchanged product snapshot, and max-drop validation.
@@ -39,6 +40,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Real updates use WooCommerce CRUD APIs, not direct SQL price metadata writes.
 - Retention cleanup is manual/admin-only or WP-CLI-invoked. It deletes old debug/operational logs, observations, and old used/expired token rows while preserving approval/update audit logs.
 - Coupon exclusion for price-matched products filters coupon discount amounts only; it does not change product prices in the cart.
+- Frontend price-match display and coupon exclusion use real active match state only. Dry-run sessions are ignored and must not set the cached real-match product flags.
 
 ## Review Notes
 
@@ -54,6 +56,7 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Action Scheduler duplicate scheduling should be reviewed before scheduled checks are enabled in production at high volume; batch execution now has a shared transient lock.
 - Parser behavior is MVP-level and can misread complex competitor pages; suggestions should stay manual-review/dry-run until parsing confidence improves.
 - Selector rules support only simple `.class`, `#id`, and `[attr="value"]` patterns for now.
+- Token dry-run action validation currently uses a conservative subset of full pricing rules. Full group cost/margin validation should be centralized before any future real group action flow.
 - JavaScript-rendered competitor pages require a future, explicit external worker design; the internal checker does not render JavaScript.
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.

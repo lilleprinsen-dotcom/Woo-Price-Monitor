@@ -14,6 +14,7 @@ TESTS=(
 	"$ROOT_DIR/tools/test-pricing-rules.php"
 	"$ROOT_DIR/tools/test-price-recovery.php"
 	"$ROOT_DIR/tools/test-approval-tokens.php"
+	"$ROOT_DIR/tools/test-price-match-display.php"
 )
 
 for test_file in "${TESTS[@]}"; do

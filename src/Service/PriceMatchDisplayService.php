@@ -73,7 +73,7 @@ final class PriceMatchDisplayService {
 			return false;
 		}
 
-		return 'yes' === (string) get_post_meta( $product_id, '_lpm_price_matched_active', true )
-			|| 'yes' === (string) get_post_meta( $product_id, '_lpm_price_matched_group_active', true );
+		return 'real' === (string) get_post_meta( $product_id, '_lpm_price_matched_active', true )
+			|| 'real' === (string) get_post_meta( $product_id, '_lpm_price_matched_group_active', true );
 	}
 }
