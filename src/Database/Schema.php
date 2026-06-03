@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.5.0';
+	public const VERSION = '1.6.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -24,6 +24,7 @@ final class Schema {
 
 		return array(
 			'monitored_products' => $wpdb->prefix . 'lpm_monitored_products',
+			'competitors'        => $wpdb->prefix . 'lpm_competitors',
 			'competitor_links'   => $wpdb->prefix . 'lpm_competitor_links',
 			'price_observations' => $wpdb->prefix . 'lpm_price_observations',
 			'price_suggestions'  => $wpdb->prefix . 'lpm_price_suggestions',
@@ -73,9 +74,38 @@ final class Schema {
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
 
+		$sql[] = "CREATE TABLE {$tables['competitors']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			name varchar(191) NOT NULL,
+			domain varchar(191) DEFAULT NULL,
+			enabled tinyint(1) NOT NULL DEFAULT 1,
+			default_currency varchar(10) NOT NULL DEFAULT 'NOK',
+			request_delay_seconds int(10) unsigned NOT NULL DEFAULT 2,
+			request_timeout_seconds int(10) unsigned DEFAULT NULL,
+			price_extraction_mode varchar(50) NOT NULL DEFAULT 'auto',
+			price_selector varchar(255) DEFAULT NULL,
+			sale_price_selector varchar(255) DEFAULT NULL,
+			stock_selector varchar(255) DEFAULT NULL,
+			stock_in_text varchar(255) DEFAULT NULL,
+			stock_out_text varchar(255) DEFAULT NULL,
+			json_ld_enabled tinyint(1) NOT NULL DEFAULT 1,
+			meta_tags_enabled tinyint(1) NOT NULL DEFAULT 1,
+			visible_regex_enabled tinyint(1) NOT NULL DEFAULT 1,
+			requires_javascript tinyint(1) NOT NULL DEFAULT 0,
+			notes text NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY name (name),
+			KEY domain (domain),
+			KEY enabled (enabled),
+			KEY requires_javascript (requires_javascript)
+		) {$charset_collate};";
+
 		$sql[] = "CREATE TABLE {$tables['competitor_links']} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			monitored_product_id bigint(20) unsigned NOT NULL,
+			competitor_id bigint(20) unsigned DEFAULT NULL,
 			competitor_name varchar(191) NOT NULL,
 			competitor_url text NOT NULL,
 			match_type varchar(50) NOT NULL DEFAULT 'unknown',
@@ -89,6 +119,7 @@ final class Schema {
 			updated_at datetime NOT NULL,
 			PRIMARY KEY  (id),
 			KEY monitored_product_id (monitored_product_id),
+			KEY competitor_id (competitor_id),
 			KEY competitor_name (competitor_name),
 			KEY enabled (enabled),
 			KEY enabled_last_checked_at (enabled, last_checked_at),

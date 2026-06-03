@@ -74,17 +74,32 @@ final class CheckCompetitorLinkJob {
 			'skipped'   => 0,
 			'suggested' => 0,
 		);
+		$processed_competitors = array();
 
 		$this->repository->write_log( 'info', 'check_batch_started', __( 'Competitor check batch started.', 'lilleprinsen-price-monitor' ), array( 'source' => $source, 'limit' => $limit ) );
 
 		foreach ( $links as $link ) {
+			$competitor_id = absint( $link['competitor_id'] ?? 0 );
+			$delay_seconds = absint( $link['competitor_request_delay_seconds'] ?? 0 );
+
+			if ( $competitor_id > 0 && $delay_seconds > 0 && isset( $processed_competitors[ $competitor_id ] ) ) {
+				$result['skipped']++;
+				$this->repository->write_log( 'info', 'check_batch_link_skipped_for_delay', __( 'Competitor link skipped to respect profile request delay within this batch.', 'lilleprinsen-price-monitor' ), array( 'competitor_id' => $competitor_id, 'competitor_link_id' => (int) $link['id'], 'delay_seconds' => $delay_seconds ), (int) $link['product_id'] );
+				continue;
+			}
+
+			if ( $competitor_id > 0 && $delay_seconds > 0 ) {
+				$processed_competitors[ $competitor_id ] = true;
+			}
+
 			$result['processed']++;
 			$check = $this->price_check_service->test_check( $link, $settings );
 			$this->repository->update_competitor_check_result(
 				(int) $link['id'],
 				$check['success'] ? (float) $check['price'] : null,
 				(string) $check['currency'],
-				$check['success'] ? null : (string) $check['error']
+				$check['success'] ? null : (string) $check['error'],
+				$check['success'] ? (string) $check['stock_status'] : null
 			);
 
 			if ( empty( $check['success'] ) ) {
@@ -96,6 +111,7 @@ final class CheckCompetitorLinkJob {
 
 			$link['last_price']    = $check['price'];
 			$link['last_currency'] = $check['currency'];
+			$link['last_stock_status'] = $check['stock_status'];
 
 			if ( empty( $settings['create_suggestions_from_scheduled_checks'] ) ) {
 				$result['skipped']++;

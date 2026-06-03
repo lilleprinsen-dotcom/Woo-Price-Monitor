@@ -13,40 +13,40 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class PriceParser {
 	/**
-	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
+	 * @param array<string, mixed> $rules Optional competitor extraction rules.
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
-	public function parse( string $html ): array {
-		$html = $this->trim_html( $html );
+	public function parse( string $html, array $rules = array() ): array {
+		$html  = $this->trim_html( $html );
+		$rules = $this->normalize_rules( $rules );
 
 		if ( '' === trim( $html ) ) {
 			return $this->failure( __( 'The competitor page did not return any HTML.', 'lilleprinsen-price-monitor' ) );
 		}
 
-		$json_ld_result = $this->parse_json_ld( $html );
+		foreach ( $this->get_extraction_order( $rules ) as $method ) {
+			if ( 'selector' === $method ) {
+				$result = $this->parse_selector_prices( $html, $rules );
+			} elseif ( 'json_ld' === $method ) {
+				$result = $this->parse_json_ld( $html, (string) $rules['default_currency'] );
+			} elseif ( 'meta_tags' === $method ) {
+				$result = $this->parse_meta_tags( $html, (string) $rules['default_currency'] );
+			} else {
+				$result = $this->parse_visible_price( $html, (string) $rules['default_currency'] );
+			}
 
-		if ( null !== $json_ld_result['price'] ) {
-			return $json_ld_result;
+			if ( null !== $result['price'] ) {
+				return $this->with_stock_status( $result, $html, $rules );
+			}
 		}
 
-		$meta_result = $this->parse_meta_tags( $html );
-
-		if ( null !== $meta_result['price'] ) {
-			return $meta_result;
-		}
-
-		$visible_result = $this->parse_visible_price( $html );
-
-		if ( null !== $visible_result['price'] ) {
-			return $visible_result;
-		}
-
-		return $this->failure( __( 'No recognizable price was found in JSON-LD, meta tags, or visible NOK/kr text.', 'lilleprinsen-price-monitor' ) );
+		return $this->failure( __( 'No recognizable price was found with the enabled extraction rules.', 'lilleprinsen-price-monitor' ) );
 	}
 
 	/**
-	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
-	private function parse_json_ld( string $html ): array {
+	private function parse_json_ld( string $html, string $default_currency ): array {
 		if ( ! preg_match_all( '#<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>#is', $html, $matches ) ) {
 			return $this->failure( '' );
 		}
@@ -73,8 +73,9 @@ final class PriceParser {
 			return array(
 				'success'           => true,
 				'price'             => $price,
-				'currency'          => $this->normalize_currency( $offer['priceCurrency'] ?? ( $offer['currency'] ?? 'NOK' ) ),
+				'currency'          => $this->normalize_currency( $offer['priceCurrency'] ?? ( $offer['currency'] ?? $default_currency ) ),
 				'extraction_method' => 'json_ld_offer',
+				'stock_status'      => '',
 				'error'             => '',
 			);
 		}
@@ -115,12 +116,12 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
-	private function parse_meta_tags( string $html ): array {
+	private function parse_meta_tags( string $html, string $default_currency ): array {
 		$price_keys    = array( 'product:price:amount', 'og:price:amount', 'twitter:price:amount', 'price', 'product_price', 'amount' );
 		$currency_keys = array( 'product:price:currency', 'og:price:currency', 'twitter:price:currency', 'pricecurrency', 'currency' );
-		$currency      = 'NOK';
+		$currency      = $this->normalize_currency( $default_currency );
 
 		foreach ( $currency_keys as $key ) {
 			$value = $this->get_meta_content( $html, $key );
@@ -141,6 +142,7 @@ final class PriceParser {
 					'price'             => $price,
 					'currency'          => $currency,
 					'extraction_method' => 'meta_' . sanitize_key( $key ),
+					'stock_status'      => '',
 					'error'             => '',
 				);
 			}
@@ -167,9 +169,9 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
-	private function parse_visible_price( string $html ): array {
+	private function parse_visible_price( string $html, string $default_currency ): array {
 		$text = wp_strip_all_tags( $html );
 		$text = html_entity_decode( $text, ENT_QUOTES | ENT_HTML5 );
 		$text = preg_replace( '/\s+/', ' ', $text );
@@ -195,14 +197,247 @@ final class PriceParser {
 				return array(
 					'success'           => true,
 					'price'             => $price,
-					'currency'          => 'NOK',
+					'currency'          => $this->normalize_currency( $default_currency ),
 					'extraction_method' => 'visible_nok_regex',
+					'stock_status'      => '',
 					'error'             => '',
 				);
 			}
 		}
 
 		return $this->failure( '' );
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Normalized extraction rules.
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
+	 */
+	private function parse_selector_prices( string $html, array $rules ): array {
+		$selectors = array(
+			'selector_sale_price' => (string) $rules['sale_price_selector'],
+			'selector_price'      => (string) $rules['price_selector'],
+		);
+
+		foreach ( $selectors as $method => $selector ) {
+			if ( '' === $selector ) {
+				continue;
+			}
+
+			$text = $this->get_selector_text( $html, $selector );
+
+			if ( '' === $text ) {
+				continue;
+			}
+
+			$price = $this->normalize_price( $text );
+
+			if ( null !== $price ) {
+				return array(
+					'success'           => true,
+					'price'             => $price,
+					'currency'          => (string) $rules['default_currency'],
+					'extraction_method' => $method,
+					'stock_status'      => '',
+					'error'             => '',
+				);
+			}
+		}
+
+		return $this->failure( '' );
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Extraction rules.
+	 * @return array<string, mixed>
+	 */
+	private function normalize_rules( array $rules ): array {
+		$mode = isset( $rules['price_extraction_mode'] ) ? sanitize_key( (string) $rules['price_extraction_mode'] ) : 'auto';
+
+		if ( ! in_array( $mode, array( 'auto', 'json_ld', 'meta_tags', 'selector', 'visible_regex' ), true ) ) {
+			$mode = 'auto';
+		}
+
+		return array(
+			'price_extraction_mode' => $mode,
+			'price_selector'        => isset( $rules['price_selector'] ) ? sanitize_text_field( (string) $rules['price_selector'] ) : '',
+			'sale_price_selector'   => isset( $rules['sale_price_selector'] ) ? sanitize_text_field( (string) $rules['sale_price_selector'] ) : '',
+			'stock_selector'        => isset( $rules['stock_selector'] ) ? sanitize_text_field( (string) $rules['stock_selector'] ) : '',
+			'stock_in_text'         => isset( $rules['stock_in_text'] ) ? sanitize_text_field( (string) $rules['stock_in_text'] ) : '',
+			'stock_out_text'        => isset( $rules['stock_out_text'] ) ? sanitize_text_field( (string) $rules['stock_out_text'] ) : '',
+			'json_ld_enabled'       => ! array_key_exists( 'json_ld_enabled', $rules ) || ! empty( $rules['json_ld_enabled'] ),
+			'meta_tags_enabled'     => ! array_key_exists( 'meta_tags_enabled', $rules ) || ! empty( $rules['meta_tags_enabled'] ),
+			'visible_regex_enabled' => ! array_key_exists( 'visible_regex_enabled', $rules ) || ! empty( $rules['visible_regex_enabled'] ),
+			'default_currency'      => $this->normalize_currency( $rules['default_currency'] ?? 'NOK' ),
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Normalized extraction rules.
+	 * @return array<int, string>
+	 */
+	private function get_extraction_order( array $rules ): array {
+		$order = array();
+		$mode  = (string) $rules['price_extraction_mode'];
+
+		if ( 'selector' === $mode && ( '' !== (string) $rules['price_selector'] || '' !== (string) $rules['sale_price_selector'] ) ) {
+			$order[] = 'selector';
+		} elseif ( 'json_ld' === $mode && ! empty( $rules['json_ld_enabled'] ) ) {
+			$order[] = 'json_ld';
+		} elseif ( 'meta_tags' === $mode && ! empty( $rules['meta_tags_enabled'] ) ) {
+			$order[] = 'meta_tags';
+		} elseif ( 'visible_regex' === $mode && ! empty( $rules['visible_regex_enabled'] ) ) {
+			$order[] = 'visible_regex';
+		}
+
+		if ( ! empty( $rules['json_ld_enabled'] ) ) {
+			$order[] = 'json_ld';
+		}
+
+		if ( ! empty( $rules['meta_tags_enabled'] ) ) {
+			$order[] = 'meta_tags';
+		}
+
+		if ( ! empty( $rules['visible_regex_enabled'] ) ) {
+			$order[] = 'visible_regex';
+		}
+
+		if ( '' !== (string) $rules['price_selector'] || '' !== (string) $rules['sale_price_selector'] ) {
+			$order[] = 'selector';
+		}
+
+		return array_values( array_unique( $order ) );
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Normalized extraction rules.
+	 * @param array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string} $result Result.
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
+	 */
+	private function with_stock_status( array $result, string $html, array $rules ): array {
+		$result['stock_status'] = $this->detect_stock_status( $html, $rules );
+
+		return $result;
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Normalized extraction rules.
+	 */
+	private function detect_stock_status( string $html, array $rules ): string {
+		$selector  = (string) $rules['stock_selector'];
+		$in_text   = trim( strtolower( (string) $rules['stock_in_text'] ) );
+		$out_text  = trim( strtolower( (string) $rules['stock_out_text'] ) );
+
+		if ( '' === $selector || ( '' === $in_text && '' === $out_text ) ) {
+			return '';
+		}
+
+		$text = strtolower( $this->get_selector_text( $html, $selector ) );
+
+		if ( '' === $text ) {
+			return 'unknown';
+		}
+
+		if ( '' !== $out_text && str_contains( $text, $out_text ) ) {
+			return 'out_of_stock';
+		}
+
+		if ( '' !== $in_text && str_contains( $text, $in_text ) ) {
+			return 'in_stock';
+		}
+
+		return 'unknown';
+	}
+
+	private function get_selector_text( string $html, string $selector ): string {
+		$xpath_expression = $this->selector_to_xpath( $selector );
+
+		if ( null === $xpath_expression || ! class_exists( '\DOMDocument' ) || ! class_exists( '\DOMXPath' ) ) {
+			return '';
+		}
+
+		$previous = libxml_use_internal_errors( true );
+		$document = new \DOMDocument();
+		$options  = defined( 'LIBXML_NONET' ) ? LIBXML_NONET : 0;
+		$loaded   = $document->loadHTML( '<?xml encoding="utf-8" ?>' . $html, $options );
+		libxml_clear_errors();
+		libxml_use_internal_errors( $previous );
+
+		if ( ! $loaded ) {
+			return '';
+		}
+
+		$xpath = new \DOMXPath( $document );
+		$nodes = $xpath->query( $xpath_expression );
+
+		if ( ! $nodes || 0 === $nodes->length ) {
+			return '';
+		}
+
+		$text_parts = array();
+
+		foreach ( $nodes as $node ) {
+			if ( count( $text_parts ) >= 5 ) {
+				break;
+			}
+
+			$text = '';
+
+			if ( $node instanceof \DOMElement ) {
+				$text = $node->getAttribute( 'content' );
+
+				if ( '' === $text ) {
+					$text = $node->getAttribute( 'data-price' );
+				}
+			}
+
+			if ( '' === $text ) {
+				$text = $node->textContent;
+			}
+
+			$text = trim( preg_replace( '/\s+/', ' ', html_entity_decode( $text, ENT_QUOTES | ENT_HTML5 ) ) ?? '' );
+
+			if ( '' !== $text ) {
+				$text_parts[] = $text;
+			}
+		}
+
+		return trim( implode( ' ', $text_parts ) );
+	}
+
+	private function selector_to_xpath( string $selector ): ?string {
+		$selector = trim( $selector );
+
+		if ( '' === $selector ) {
+			return null;
+		}
+
+		if ( preg_match( '/^\.([A-Za-z0-9_-]+)$/', $selector, $match ) ) {
+			return "//*[contains(concat(' ', normalize-space(@class), ' '), ' " . $match[1] . " ')]";
+		}
+
+		if ( preg_match( '/^#([A-Za-z0-9_-]+)$/', $selector, $match ) ) {
+			return "//*[@id='" . $match[1] . "']";
+		}
+
+		if ( preg_match( '/^\[([A-Za-z0-9_:-]+)=["\']([^"\']+)["\']\]$/', $selector, $match ) ) {
+			return '//*[@' . $match[1] . '=' . $this->xpath_literal( $match[2] ) . ']';
+		}
+
+		return null;
+	}
+
+	private function xpath_literal( string $value ): string {
+		if ( ! str_contains( $value, "'" ) ) {
+			return "'" . $value . "'";
+		}
+
+		if ( ! str_contains( $value, '"' ) ) {
+			return '"' . $value . '"';
+		}
+
+		$parts = explode( "'", $value );
+
+		return "concat('" . implode( "', \"'\", '", $parts ) . "')";
 	}
 
 	/**
@@ -260,7 +495,7 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
 	private function failure( string $error ): array {
 		return array(
@@ -268,6 +503,7 @@ final class PriceParser {
 			'price'             => null,
 			'currency'          => '',
 			'extraction_method' => '',
+			'stock_status'      => '',
 			'error'             => $error,
 		);
 	}

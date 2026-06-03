@@ -107,6 +107,17 @@ final class AdminPage {
 			case 'bulk_competitor_links':
 				$this->handle_bulk_competitor_links();
 				break;
+			case 'add_competitor_profile':
+			case 'update_competitor_profile':
+				$this->handle_save_competitor_profile( $action );
+				break;
+			case 'enable_competitor_profile':
+			case 'disable_competitor_profile':
+				$this->handle_competitor_profile_status_action( $action );
+				break;
+			case 'test_competitor_profile_url':
+				$this->handle_test_competitor_profile_url();
+				break;
 			case 'test_competitor_check':
 				$this->handle_test_competitor_check();
 				break;
@@ -414,6 +425,7 @@ final class AdminPage {
 		$monitored_product_id = $this->get_positive_query_arg( 'monitored_product_id', 0 );
 
 		if ( 0 >= $monitored_product_id ) {
+			$this->render_competitor_profiles();
 			$this->render_competitor_picker();
 			return;
 		}
@@ -428,6 +440,7 @@ final class AdminPage {
 		$product       = $this->get_product( (int) $monitored_product['product_id'] );
 		$links         = $this->repository->get_competitor_links_for_monitored_product( $monitored_product_id );
 		$editing_link  = $this->get_editing_competitor_link( $monitored_product_id );
+		$profiles      = $this->repository->get_competitor_profile_options();
 		$recent_checks = $this->repository->get_price_observations( array( 'monitored_product_id' => $monitored_product_id ), 1, 5 );
 		?>
 		<div class="lpm-grid lpm-grid-two">
@@ -443,7 +456,7 @@ final class AdminPage {
 				<div class="lpm-card-header">
 					<h2><?php echo esc_html( $editing_link ? __( 'Edit competitor link', 'lilleprinsen-price-monitor' ) : __( 'Add competitor link', 'lilleprinsen-price-monitor' ) ); ?></h2>
 				</div>
-				<?php $this->render_competitor_form( $monitored_product_id, $editing_link ); ?>
+				<?php $this->render_competitor_form( $monitored_product_id, $editing_link, $profiles ); ?>
 			</section>
 		</div>
 
@@ -1247,6 +1260,120 @@ final class AdminPage {
 		$this->redirect_to_tab( 'competitors', 'bulk_action_completed' );
 	}
 
+	private function handle_save_competitor_profile( string $action ): void {
+		$data = $this->get_competitor_profile_data_from_post();
+
+		if ( '' === $data['name'] ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_name_required', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		if ( 'update_competitor_profile' === $action ) {
+			$profile_id = isset( $_POST['competitor_profile_id'] ) ? absint( wp_unslash( $_POST['competitor_profile_id'] ) ) : 0;
+			$profile    = $this->repository->get_competitor( $profile_id );
+
+			if ( ! $profile ) {
+				$this->redirect_to_tab( 'competitors', 'competitor_profile_not_found', array( 'lpm_notice_type' => 'error' ) );
+			}
+
+			$updated = $this->repository->update_competitor( $profile_id, $data );
+
+			if ( $updated ) {
+				$this->repository->write_log( 'info', 'competitor_profile_updated', __( 'Competitor profile updated.', 'lilleprinsen-price-monitor' ), array( 'competitor_id' => $profile_id ) );
+				$this->redirect_to_tab( 'competitors', 'competitor_profile_updated' );
+			}
+
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_update_failed', array( 'lpm_notice_type' => 'error', 'competitor_profile_id' => $profile_id ) );
+		}
+
+		$profile_id = $this->repository->add_competitor( $data );
+
+		if ( $profile_id > 0 ) {
+			$this->repository->write_log( 'info', 'competitor_profile_added', __( 'Competitor profile added.', 'lilleprinsen-price-monitor' ), array( 'competitor_id' => $profile_id ) );
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_added' );
+		}
+
+		$this->redirect_to_tab( 'competitors', 'competitor_profile_add_failed', array( 'lpm_notice_type' => 'error' ) );
+	}
+
+	private function handle_competitor_profile_status_action( string $action ): void {
+		$profile_id = isset( $_POST['competitor_profile_id'] ) ? absint( wp_unslash( $_POST['competitor_profile_id'] ) ) : 0;
+		$profile    = $this->repository->get_competitor( $profile_id );
+
+		if ( ! $profile ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$enabled = 'enable_competitor_profile' === $action;
+		$updated = $this->repository->set_competitor_enabled( $profile_id, $enabled );
+
+		if ( $updated ) {
+			$this->repository->write_log( 'info', $enabled ? 'competitor_profile_enabled' : 'competitor_profile_disabled', __( 'Competitor profile status changed.', 'lilleprinsen-price-monitor' ), array( 'competitor_id' => $profile_id ) );
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_status_updated' );
+		}
+
+		$this->redirect_to_tab( 'competitors', 'competitor_profile_status_failed', array( 'lpm_notice_type' => 'error' ) );
+	}
+
+	private function handle_test_competitor_profile_url(): void {
+		$profile_id = isset( $_POST['competitor_profile_id'] ) ? absint( wp_unslash( $_POST['competitor_profile_id'] ) ) : 0;
+		$profile    = $this->repository->get_competitor( $profile_id );
+		$url        = isset( $_POST['test_url'] ) ? esc_url_raw( wp_unslash( $_POST['test_url'] ) ) : '';
+
+		if ( ! $profile ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		if ( ! $this->is_valid_http_url( $url ) ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_test_url_invalid', array( 'lpm_notice_type' => 'error', 'competitor_profile_id' => $profile_id ) );
+		}
+
+		$result = $this->price_check_service->test_url_with_profile( $url, $profile, $this->settings->get_all() );
+		$token  = $this->store_competitor_profile_test_result( $profile_id, $url, $result );
+		$success = ! empty( $result['success'] );
+
+		$this->repository->write_log(
+			$success ? 'info' : 'warning',
+			$success ? 'competitor_profile_test_succeeded' : 'competitor_profile_test_failed',
+			$success ? __( 'Competitor profile test detected a price.', 'lilleprinsen-price-monitor' ) : __( 'Competitor profile test did not detect a price.', 'lilleprinsen-price-monitor' ),
+			array(
+				'competitor_id'     => $profile_id,
+				'url'               => $url,
+				'price'             => $result['price'],
+				'currency'          => $result['currency'],
+				'stock_status'      => $result['stock_status'],
+				'extraction_method' => $result['extraction_method'],
+				'http_status'       => $result['http_status'],
+				'error'             => $result['error'],
+			)
+		);
+
+		$this->set_admin_notice(
+			$success
+				? sprintf(
+					/* translators: 1: price, 2: method. */
+					__( 'Profile test detected %1$s using %2$s. No product data was saved.', 'lilleprinsen-price-monitor' ),
+					$this->format_price_amount( (float) $result['price'], (string) $result['currency'] ),
+					(string) $result['extraction_method']
+				)
+				: sprintf(
+					/* translators: %s: error message. */
+					__( 'Profile test failed: %s', 'lilleprinsen-price-monitor' ),
+					(string) $result['error']
+				),
+			$success ? 'success' : 'warning'
+		);
+
+		$this->redirect_to_tab(
+			'competitors',
+			$success ? 'competitor_profile_test_succeeded' : 'competitor_profile_test_failed',
+			array(
+				'lpm_notice_type'       => $success ? 'success' : 'warning',
+				'competitor_profile_id' => $profile_id,
+				'profile_test_token'    => $token,
+			)
+		);
+	}
+
 	private function handle_preview_csv_import(): void {
 		$file    = isset( $_FILES['lpm_csv_file'] ) && is_array( $_FILES['lpm_csv_file'] ) ? $_FILES['lpm_csv_file'] : array();
 		$preview = $this->csv_import_service->preview_upload( $file );
@@ -1337,10 +1464,20 @@ final class AdminPage {
 			$this->redirect_to_tab( 'competitors', 'monitored_not_found', array( 'lpm_notice_type' => 'error' ) );
 		}
 
-		$name       = isset( $_POST['competitor_name'] ) ? sanitize_text_field( wp_unslash( $_POST['competitor_name'] ) ) : '';
-		$url        = isset( $_POST['competitor_url'] ) ? esc_url_raw( wp_unslash( $_POST['competitor_url'] ) ) : '';
-		$match_type = isset( $_POST['match_type'] ) ? sanitize_key( wp_unslash( $_POST['match_type'] ) ) : 'unknown';
-		$enabled    = ! empty( $_POST['enabled'] );
+		$competitor_id = isset( $_POST['competitor_id'] ) ? absint( wp_unslash( $_POST['competitor_id'] ) ) : 0;
+		$profile       = $competitor_id > 0 ? $this->repository->get_competitor( $competitor_id ) : null;
+		$name          = isset( $_POST['competitor_name'] ) ? sanitize_text_field( wp_unslash( $_POST['competitor_name'] ) ) : '';
+		$url           = isset( $_POST['competitor_url'] ) ? esc_url_raw( wp_unslash( $_POST['competitor_url'] ) ) : '';
+		$match_type    = isset( $_POST['match_type'] ) ? sanitize_key( wp_unslash( $_POST['match_type'] ) ) : 'unknown';
+		$enabled       = ! empty( $_POST['enabled'] );
+
+		if ( $competitor_id > 0 && ! $profile ) {
+			$this->redirect_to_competitors( $monitored_product_id, 'competitor_profile_not_found', 'error' );
+		}
+
+		if ( '' === $name && $profile ) {
+			$name = (string) $profile['name'];
+		}
 
 		if ( '' === $name ) {
 			$this->redirect_to_competitors( $monitored_product_id, 'competitor_name_required', 'error' );
@@ -1352,6 +1489,7 @@ final class AdminPage {
 
 		$data = array(
 			'monitored_product_id' => $monitored_product_id,
+			'competitor_id'        => $competitor_id,
 			'competitor_name'      => $name,
 			'competitor_url'       => $url,
 			'match_type'           => $match_type,
@@ -1441,7 +1579,8 @@ final class AdminPage {
 			$link_id,
 			$result['success'] ? (float) $result['price'] : null,
 			(string) $result['currency'],
-			$result['success'] ? null : (string) $result['error']
+			$result['success'] ? null : (string) $result['error'],
+			$result['success'] ? (string) $result['stock_status'] : null
 		);
 
 		if ( ! empty( $result['success'] ) && $updated ) {
@@ -1454,6 +1593,7 @@ final class AdminPage {
 					'price'              => (float) $result['price'],
 					'currency'           => (string) $result['currency'],
 					'extraction_method'  => (string) $result['extraction_method'],
+					'stock_status'       => (string) $result['stock_status'],
 					'http_status'        => (int) $result['http_status'],
 					'response_time_ms'   => (int) $result['response_time_ms'],
 				),
@@ -1773,6 +1913,72 @@ final class AdminPage {
 		}
 
 		return is_numeric( $value ) ? max( 0, round( (float) $value, 4 ) ) : '';
+	}
+
+	/**
+	 * @return array<string, mixed>
+	 */
+	private function get_competitor_profile_data_from_post(): array {
+		$request_timeout_seconds = isset( $_POST['request_timeout_seconds'] ) ? sanitize_text_field( wp_unslash( $_POST['request_timeout_seconds'] ) ) : '';
+
+		return array(
+			'name'                    => isset( $_POST['name'] ) ? sanitize_text_field( wp_unslash( $_POST['name'] ) ) : '',
+			'domain'                  => isset( $_POST['domain'] ) ? sanitize_text_field( wp_unslash( $_POST['domain'] ) ) : '',
+			'enabled'                 => ! empty( $_POST['enabled'] ) ? 1 : 0,
+			'default_currency'        => isset( $_POST['default_currency'] ) ? sanitize_text_field( wp_unslash( $_POST['default_currency'] ) ) : 'NOK',
+			'request_delay_seconds'   => isset( $_POST['request_delay_seconds'] ) ? absint( wp_unslash( $_POST['request_delay_seconds'] ) ) : 2,
+			'request_timeout_seconds' => '' !== $request_timeout_seconds ? absint( $request_timeout_seconds ) : '',
+			'price_extraction_mode'   => isset( $_POST['price_extraction_mode'] ) ? sanitize_key( wp_unslash( $_POST['price_extraction_mode'] ) ) : 'auto',
+			'price_selector'          => isset( $_POST['price_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['price_selector'] ) ) : '',
+			'sale_price_selector'     => isset( $_POST['sale_price_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['sale_price_selector'] ) ) : '',
+			'stock_selector'          => isset( $_POST['stock_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_selector'] ) ) : '',
+			'stock_in_text'           => isset( $_POST['stock_in_text'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_in_text'] ) ) : '',
+			'stock_out_text'          => isset( $_POST['stock_out_text'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_out_text'] ) ) : '',
+			'json_ld_enabled'         => ! empty( $_POST['json_ld_enabled'] ) ? 1 : 0,
+			'meta_tags_enabled'       => ! empty( $_POST['meta_tags_enabled'] ) ? 1 : 0,
+			'visible_regex_enabled'   => ! empty( $_POST['visible_regex_enabled'] ) ? 1 : 0,
+			'requires_javascript'     => ! empty( $_POST['requires_javascript'] ) ? 1 : 0,
+			'notes'                   => isset( $_POST['notes'] ) ? sanitize_textarea_field( wp_unslash( $_POST['notes'] ) ) : '',
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $result Test check result.
+	 */
+	private function store_competitor_profile_test_result( int $profile_id, string $url, array $result ): string {
+		$token = wp_generate_password( 20, false, false );
+		set_transient(
+			$this->get_competitor_profile_test_transient_key( $token ),
+			array_merge(
+				$result,
+				array(
+					'competitor_id' => $profile_id,
+					'url'           => $url,
+				)
+			),
+			15 * MINUTE_IN_SECONDS
+		);
+
+		return $token;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	private function get_competitor_profile_test_result(): ?array {
+		$token = isset( $_GET['profile_test_token'] ) ? sanitize_key( wp_unslash( $_GET['profile_test_token'] ) ) : '';
+
+		if ( '' === $token ) {
+			return null;
+		}
+
+		$result = get_transient( $this->get_competitor_profile_test_transient_key( $token ) );
+
+		return is_array( $result ) ? $result : null;
+	}
+
+	private function get_competitor_profile_test_transient_key( string $token ): string {
+		return 'lpm_profile_test_' . get_current_user_id() . '_' . sanitize_key( $token );
 	}
 
 	/**
@@ -2117,6 +2323,351 @@ final class AdminPage {
 		<?php
 	}
 
+	private function render_competitor_profiles(): void {
+		$page              = $this->get_positive_query_arg( 'lpm_competitor_profiles_page', 1 );
+		$per_page          = (int) $this->settings->get( 'rows_per_page', 25 );
+		$profiles          = $this->repository->get_competitors( $page, $per_page );
+		$total             = $this->repository->count_competitors();
+		$editing_profile   = $this->get_editing_competitor_profile();
+		$linked_profile_id = $this->get_positive_query_arg( 'linked_competitor_id', 0 );
+		$test_result       = $this->get_competitor_profile_test_result();
+		?>
+		<div class="lpm-grid lpm-grid-two">
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<div>
+						<h2><?php echo esc_html( $editing_profile ? __( 'Edit competitor profile', 'lilleprinsen-price-monitor' ) : __( 'Add competitor profile', 'lilleprinsen-price-monitor' ) ); ?></h2>
+						<p class="lpm-card-subtitle"><?php esc_html_e( 'Profiles define reusable domain, timing, and extraction rules for competitor links.', 'lilleprinsen-price-monitor' ); ?></p>
+					</div>
+					<?php $this->render_status_pill( __( 'Admin only', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+				</div>
+				<?php $this->render_competitor_profile_form( $editing_profile ); ?>
+			</section>
+
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<h2><?php esc_html_e( 'Extraction guardrails', 'lilleprinsen-price-monitor' ); ?></h2>
+					<?php $this->render_status_pill( __( 'Bounded', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+				</div>
+				<ul class="lpm-check-list">
+					<li><?php esc_html_e( 'The internal checker fetches one admin-triggered URL with WordPress HTTP and a capped response body.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php esc_html_e( 'Selectors are intentionally limited to .class, #id, and [attr="value"] patterns.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php esc_html_e( 'Profiles marked as requiring JavaScript return a clear warning. No browser scraper is implemented here.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php esc_html_e( 'Request delay is respected in scheduled batch selection and within each small batch.', 'lilleprinsen-price-monitor' ); ?></li>
+				</ul>
+				<?php if ( $editing_profile ) : ?>
+					<?php $this->render_competitor_profile_test_form( $editing_profile ); ?>
+				<?php endif; ?>
+				<?php if ( $test_result ) : ?>
+					<?php $this->render_competitor_profile_test_result( $test_result ); ?>
+				<?php endif; ?>
+			</section>
+		</div>
+
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Competitor profiles', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'Global profile settings can be attached to many direct product URLs.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
+			</div>
+			<?php $this->render_competitor_profiles_table( $profiles ); ?>
+			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_competitor_profiles_page', array( 'tab' => 'competitors' ) ); ?>
+		</section>
+
+		<?php if ( $linked_profile_id > 0 ) : ?>
+			<?php $this->render_competitor_profile_linked_products( $linked_profile_id ); ?>
+		<?php endif; ?>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed>|null $profile Competitor profile row.
+	 */
+	private function render_competitor_profile_form( ?array $profile ): void {
+		$is_edit = is_array( $profile );
+		$profile = $profile ?? array(
+			'id'                      => 0,
+			'name'                    => '',
+			'domain'                  => '',
+			'enabled'                 => 1,
+			'default_currency'        => 'NOK',
+			'request_delay_seconds'   => 2,
+			'request_timeout_seconds' => '',
+			'price_extraction_mode'   => 'auto',
+			'price_selector'          => '',
+			'sale_price_selector'     => '',
+			'stock_selector'          => '',
+			'stock_in_text'           => '',
+			'stock_out_text'          => '',
+			'json_ld_enabled'         => 1,
+			'meta_tags_enabled'       => 1,
+			'visible_regex_enabled'   => 1,
+			'requires_javascript'     => 0,
+			'notes'                   => '',
+		);
+		?>
+		<form method="post" class="lpm-stacked-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $is_edit ? 'update_competitor_profile' : 'add_competitor_profile' ); ?>" />
+			<?php if ( $is_edit ) : ?>
+				<input type="hidden" name="competitor_profile_id" value="<?php echo esc_attr( (string) $profile['id'] ); ?>" />
+			<?php endif; ?>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Name', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="name" maxlength="191" required value="<?php echo esc_attr( (string) $profile['name'] ); ?>" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Domain', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="domain" maxlength="191" value="<?php echo esc_attr( (string) ( $profile['domain'] ?? '' ) ); ?>" placeholder="example.no" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Default currency', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="default_currency" maxlength="10" value="<?php echo esc_attr( (string) ( $profile['default_currency'] ?? 'NOK' ) ); ?>" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Request delay seconds', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="0" max="3600" step="1" name="request_delay_seconds" value="<?php echo esc_attr( (string) ( $profile['request_delay_seconds'] ?? 2 ) ); ?>" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Request timeout seconds', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="1" max="30" step="1" name="request_timeout_seconds" value="<?php echo esc_attr( $this->format_decimal_for_optional_input( $profile['request_timeout_seconds'] ?? null ) ); ?>" />
+				<small><?php esc_html_e( 'Leave empty to use the global monitoring timeout.', 'lilleprinsen-price-monitor' ); ?></small>
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Extraction mode', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="price_extraction_mode">
+					<?php foreach ( $this->get_extraction_mode_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( (string) ( $profile['price_extraction_mode'] ?? 'auto' ), $value ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Price selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="price_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['price_selector'] ?? '' ) ); ?>" placeholder=".price" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Sale price selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="sale_price_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['sale_price_selector'] ?? '' ) ); ?>" placeholder="[itemprop=&quot;price&quot;]" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Stock selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="stock_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['stock_selector'] ?? '' ) ); ?>" placeholder="#stock-status" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Stock in text', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="stock_in_text" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['stock_in_text'] ?? '' ) ); ?>" placeholder="<?php esc_attr_e( 'På lager', 'lilleprinsen-price-monitor' ); ?>" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Stock out text', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="stock_out_text" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['stock_out_text'] ?? '' ) ); ?>" placeholder="<?php esc_attr_e( 'Utsolgt', 'lilleprinsen-price-monitor' ); ?>" />
+			</label>
+
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="enabled" value="0" />
+				<input type="checkbox" name="enabled" value="1" <?php checked( ! empty( $profile['enabled'] ) ); ?> />
+				<span><strong><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="json_ld_enabled" value="0" />
+				<input type="checkbox" name="json_ld_enabled" value="1" <?php checked( ! empty( $profile['json_ld_enabled'] ) ); ?> />
+				<span><strong><?php esc_html_e( 'Enable JSON-LD', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="meta_tags_enabled" value="0" />
+				<input type="checkbox" name="meta_tags_enabled" value="1" <?php checked( ! empty( $profile['meta_tags_enabled'] ) ); ?> />
+				<span><strong><?php esc_html_e( 'Enable meta tags', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="visible_regex_enabled" value="0" />
+				<input type="checkbox" name="visible_regex_enabled" value="1" <?php checked( ! empty( $profile['visible_regex_enabled'] ) ); ?> />
+				<span><strong><?php esc_html_e( 'Enable visible regex fallback', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="requires_javascript" value="0" />
+				<input type="checkbox" name="requires_javascript" value="1" <?php checked( ! empty( $profile['requires_javascript'] ) ); ?> />
+				<span><strong><?php esc_html_e( 'Requires JavaScript', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Notes', 'lilleprinsen-price-monitor' ); ?></span>
+				<textarea name="notes" rows="3"><?php echo esc_textarea( (string) ( $profile['notes'] ?? '' ) ); ?></textarea>
+			</label>
+
+			<div class="lpm-form-actions">
+				<button type="submit" class="button button-primary"><?php echo esc_html( $is_edit ? __( 'Save competitor profile', 'lilleprinsen-price-monitor' ) : __( 'Add competitor profile', 'lilleprinsen-price-monitor' ) ); ?></button>
+				<?php if ( $is_edit ) : ?>
+					<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Cancel edit', 'lilleprinsen-price-monitor' ); ?></a>
+				<?php endif; ?>
+			</div>
+		</form>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $profile Competitor profile row.
+	 */
+	private function render_competitor_profile_test_form( array $profile ): void {
+		?>
+		<form method="post" class="lpm-stacked-form lpm-card-spaced">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="test_competitor_profile_url" />
+			<input type="hidden" name="competitor_profile_id" value="<?php echo esc_attr( (string) $profile['id'] ); ?>" />
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Test URL', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="url" name="test_url" required placeholder="https://example.no/product" />
+			</label>
+			<div class="lpm-form-actions">
+				<button type="submit" class="button"><?php esc_html_e( 'Test extraction rule', 'lilleprinsen-price-monitor' ); ?></button>
+			</div>
+		</form>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $result Profile test result.
+	 */
+	private function render_competitor_profile_test_result( array $result ): void {
+		?>
+		<div class="lpm-card-spaced">
+			<h3><?php esc_html_e( 'Last profile test', 'lilleprinsen-price-monitor' ); ?></h3>
+			<table class="lpm-status-table">
+				<tbody>
+					<tr><th scope="row"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->shorten_text( (string) ( $result['url'] ?? '' ), 80 ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Result', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->render_status_pill( ! empty( $result['success'] ) ? __( 'Success', 'lilleprinsen-price-monitor' ) : __( 'Failed', 'lilleprinsen-price-monitor' ), ! empty( $result['success'] ) ? 'ok' : 'danger' ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Price', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['price'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Currency', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['currency'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Stock status', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['stock_status'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Extraction method', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['extraction_method'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'HTTP status', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['http_status'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Error / warning', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['error'] ?? null ) ); ?></td></tr>
+				</tbody>
+			</table>
+		</div>
+		<?php
+	}
+
+	private function render_competitor_profiles_table( array $profiles ): void {
+		if ( empty( $profiles ) ) {
+			$this->render_empty_state( __( 'No competitor profiles have been added yet.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Name', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Domain', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Request delay', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Extraction mode', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Requires JavaScript', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Links', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Success rate', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Last check', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $profiles as $profile ) : ?>
+					<?php
+					$observations = (int) ( $profile['observation_count'] ?? 0 );
+					$successes    = (int) ( $profile['successful_observation_count'] ?? 0 );
+					$success_rate = $observations > 0 ? sprintf( '%d%%', (int) round( ( $successes / $observations ) * 100 ) ) : '—';
+					?>
+					<tr>
+						<td><?php echo esc_html( (string) $profile['name'] ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $profile['domain'] ?? null ) ); ?></td>
+						<td><?php $this->render_status_pill( ! empty( $profile['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $profile['enabled'] ) ? 'ok' : 'muted' ); ?></td>
+						<td><?php printf( esc_html__( '%d s', 'lilleprinsen-price-monitor' ), (int) ( $profile['request_delay_seconds'] ?? 0 ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $profile['price_extraction_mode'] ?? 'auto' ) ); ?></td>
+						<td><?php $this->render_status_pill( ! empty( $profile['requires_javascript'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $profile['requires_javascript'] ) ? 'warning' : 'muted' ); ?></td>
+						<td><?php echo esc_html( number_format_i18n( (int) ( $profile['link_count'] ?? 0 ) ) ); ?></td>
+						<td><?php echo esc_html( $success_rate ); ?></td>
+						<td><?php echo esc_html( $this->format_datetime( $profile['last_check'] ?? null ) ); ?></td>
+						<td>
+							<div class="lpm-actions">
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'competitor_profile_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit/test', 'lilleprinsen-price-monitor' ); ?></a>
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'linked_competitor_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'View linked products', 'lilleprinsen-price-monitor' ); ?></a>
+								<?php $this->render_competitor_profile_action_form( (int) $profile['id'], ! empty( $profile['enabled'] ) ? 'disable_competitor_profile' : 'enable_competitor_profile', ! empty( $profile['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
+							</div>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_competitor_profile_linked_products( int $competitor_id ): void {
+		$profile  = $this->repository->get_competitor( $competitor_id );
+		$page     = $this->get_positive_query_arg( 'lpm_linked_products_page', 1 );
+		$per_page = (int) $this->settings->get( 'rows_per_page', 25 );
+		$rows     = $this->repository->get_competitor_linked_products( $competitor_id, $page, $per_page );
+		$total    = $this->repository->count_competitor_linked_products( $competitor_id );
+
+		if ( ! $profile ) {
+			return;
+		}
+		?>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php printf( esc_html__( 'Linked products: %s', 'lilleprinsen-price-monitor' ), esc_html( (string) $profile['name'] ) ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'Direct competitor links attached to this profile.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
+			</div>
+			<?php if ( empty( $rows ) ) : ?>
+				<?php $this->render_empty_state( __( 'No links are attached to this profile yet.', 'lilleprinsen-price-monitor' ) ); ?>
+			<?php else : ?>
+				<table class="lpm-compact-table">
+					<thead>
+						<tr>
+							<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Competitor URL', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Last price', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Last checked', 'lilleprinsen-price-monitor' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach ( $rows as $row ) : ?>
+							<?php $product = $this->get_product( (int) $row['product_id'] ); ?>
+							<tr>
+								<td><?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $row['product_id'] ) ); ?></td>
+								<td><?php echo esc_html( (string) $row['product_id'] ); ?></td>
+								<td><?php echo esc_html( (string) ( $row['sku'] ?? '' ) ); ?></td>
+								<td><a href="<?php echo esc_url( (string) $row['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $this->shorten_text( (string) $row['competitor_url'], 56 ) ); ?></a></td>
+								<td><?php echo esc_html( $this->format_nullable_value( $row['last_price'] ?? null ) ); ?></td>
+								<td><?php echo esc_html( $this->format_datetime( $row['last_checked_at'] ?? null ) ); ?></td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+				<?php $this->render_pagination( $total, $page, $per_page, 'lpm_linked_products_page', array( 'tab' => 'competitors', 'linked_competitor_id' => $competitor_id ) ); ?>
+			<?php endif; ?>
+		</section>
+		<?php
+	}
+
 	private function render_competitor_picker(): void {
 		$page        = $this->get_positive_query_arg( 'lpm_competitor_picker_page', 1 );
 		$per_page    = (int) $this->settings->get( 'rows_per_page', 25 );
@@ -2165,8 +2716,9 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_competitor_form( int $monitored_product_id, ?array $editing_link ): void {
+	private function render_competitor_form( int $monitored_product_id, ?array $editing_link, array $profiles ): void {
 		$is_edit = is_array( $editing_link );
+		$selected_profile_id = $is_edit ? absint( $editing_link['competitor_id'] ?? 0 ) : 0;
 		?>
 		<form method="post" class="lpm-stacked-form">
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
@@ -2177,8 +2729,32 @@ final class AdminPage {
 			<?php endif; ?>
 
 			<label class="lpm-field">
+				<span><?php esc_html_e( 'Competitor profile', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="competitor_id">
+					<option value="0"><?php esc_html_e( 'No profile / custom name', 'lilleprinsen-price-monitor' ); ?></option>
+					<?php foreach ( $profiles as $profile ) : ?>
+						<option value="<?php echo esc_attr( (string) $profile['id'] ); ?>" <?php selected( $selected_profile_id, (int) $profile['id'] ); ?>>
+							<?php
+							echo esc_html(
+								trim(
+									(string) $profile['name'] . (
+										! empty( $profile['domain'] )
+											? ' (' . (string) $profile['domain'] . ')'
+											: ''
+									)
+								)
+							);
+							?>
+						</option>
+					<?php endforeach; ?>
+				</select>
+				<small><?php esc_html_e( 'Choose a profile to reuse domain, timeout, selector, and JavaScript requirements. Leave custom for one-off links.', 'lilleprinsen-price-monitor' ); ?></small>
+			</label>
+
+			<label class="lpm-field">
 				<span><?php esc_html_e( 'Competitor name', 'lilleprinsen-price-monitor' ); ?></span>
-				<input type="text" name="competitor_name" required maxlength="191" value="<?php echo esc_attr( $is_edit ? (string) $editing_link['competitor_name'] : '' ); ?>" />
+				<input type="text" name="competitor_name" maxlength="191" value="<?php echo esc_attr( $is_edit ? (string) $editing_link['competitor_name'] : '' ); ?>" />
+				<small><?php esc_html_e( 'Required for custom links. If a profile is selected and this is blank, the profile name is used.', 'lilleprinsen-price-monitor' ); ?></small>
 			</label>
 
 			<label class="lpm-field">
@@ -2222,6 +2798,7 @@ final class AdminPage {
 				<tr>
 					<th scope="col"><?php esc_html_e( 'Select', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Competitor name', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Profile', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Match type', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
@@ -2238,6 +2815,16 @@ final class AdminPage {
 					<tr>
 						<td><input form="lpm-competitors-bulk-form" type="checkbox" name="competitor_link_ids[]" value="<?php echo esc_attr( (string) $link['id'] ); ?>" /></td>
 						<td><?php echo esc_html( (string) $link['competitor_name'] ); ?></td>
+						<td>
+							<?php if ( ! empty( $link['competitor_profile_name'] ) ) : ?>
+								<?php echo esc_html( (string) $link['competitor_profile_name'] ); ?>
+								<?php if ( ! empty( $link['competitor_requires_javascript'] ) ) : ?>
+									<?php $this->render_status_pill( __( 'JS', 'lilleprinsen-price-monitor' ), 'warning' ); ?>
+								<?php endif; ?>
+							<?php else : ?>
+								<?php echo esc_html( __( 'Custom', 'lilleprinsen-price-monitor' ) ); ?>
+							<?php endif; ?>
+						</td>
 						<td><a href="<?php echo esc_url( (string) $link['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $this->shorten_text( (string) $link['competitor_url'], 48 ) ); ?></a></td>
 						<td><?php echo esc_html( (string) $link['match_type'] ); ?></td>
 						<td><?php $this->render_status_pill( ! empty( $link['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $link['enabled'] ) ? 'ok' : 'muted' ); ?></td>
@@ -2611,6 +3198,17 @@ final class AdminPage {
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
 			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
 			<input type="hidden" name="competitor_link_id" value="<?php echo esc_attr( (string) $competitor_link_id ); ?>" />
+			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_competitor_profile_action_form( int $competitor_id, string $action, string $label, string $class = '' ): void {
+		?>
+		<form method="post" class="lpm-inline-action">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
+			<input type="hidden" name="competitor_profile_id" value="<?php echo esc_attr( (string) $competitor_id ); ?>" />
 			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
 		</form>
 		<?php
@@ -3057,6 +3655,16 @@ final class AdminPage {
 		return $link;
 	}
 
+	private function get_editing_competitor_profile(): ?array {
+		$profile_id = $this->get_positive_query_arg( 'competitor_profile_id', 0 );
+
+		if ( 0 >= $profile_id ) {
+			return null;
+		}
+
+		return $this->repository->get_competitor( $profile_id );
+	}
+
 	private function get_editing_monitored_product_rules(): ?array {
 		$monitored_product_id = $this->get_positive_query_arg( 'edit_rules_id', 0 );
 
@@ -3078,6 +3686,19 @@ final class AdminPage {
 			'different_variant' => __( 'Different variant', 'lilleprinsen-price-monitor' ),
 			'bundle'            => __( 'Bundle', 'lilleprinsen-price-monitor' ),
 			'not_comparable'    => __( 'Not comparable', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_extraction_mode_options(): array {
+		return array(
+			'auto'          => __( 'Auto', 'lilleprinsen-price-monitor' ),
+			'json_ld'       => __( 'JSON-LD', 'lilleprinsen-price-monitor' ),
+			'meta_tags'     => __( 'Meta tags', 'lilleprinsen-price-monitor' ),
+			'selector'      => __( 'Selector', 'lilleprinsen-price-monitor' ),
+			'visible_regex' => __( 'Visible regex', 'lilleprinsen-price-monitor' ),
 		);
 	}
 
@@ -3521,6 +4142,17 @@ final class AdminPage {
 			'csv_import_preview_missing'      => __( 'CSV import preview expired or was not found.', 'lilleprinsen-price-monitor' ),
 			'csv_import_confirmed'            => __( 'CSV import confirmed.', 'lilleprinsen-price-monitor' ),
 			'export_type_invalid'             => __( 'Export type is invalid.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_name_required' => __( 'Competitor profile name is required.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_added'        => __( 'Competitor profile added.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_add_failed'   => __( 'Could not add competitor profile.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_updated'      => __( 'Competitor profile updated.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_update_failed' => __( 'Could not update competitor profile.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_not_found'    => __( 'Competitor profile was not found.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_status_updated' => __( 'Competitor profile status updated.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_status_failed' => __( 'Could not update competitor profile status.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_test_url_invalid' => __( 'Profile test URL must be a valid http or https URL.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_test_succeeded' => __( 'Competitor profile test completed.', 'lilleprinsen-price-monitor' ),
+			'competitor_profile_test_failed'  => __( 'Competitor profile test failed.', 'lilleprinsen-price-monitor' ),
 			'competitor_name_required'        => __( 'Competitor name is required.', 'lilleprinsen-price-monitor' ),
 			'competitor_url_invalid'          => __( 'Competitor URL must be a valid http or https URL.', 'lilleprinsen-price-monitor' ),
 			'competitor_link_added'           => __( 'Competitor link added.', 'lilleprinsen-price-monitor' ),

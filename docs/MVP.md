@@ -97,7 +97,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add dashboard metrics for checks and failed checks in the last 24 hours plus last successful check time.
 - Add retention settings for successful and failed observations without automatic cleanup yet.
 
-## Current Milestone: Pricing Rule Engine
+### Milestone 12: Pricing Rule Engine
 
 - Add `PricingRuleService` for explainable dry-run suggestion calculations.
 - Add global settings for pricing strategy, beat/stay-above amounts, rounding, cost lookup, minimum profit, VAT mode, max increase, and sale/out-of-stock safety.
@@ -107,9 +107,32 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Show margin after, warnings, and a compact rule summary in the Approvals inbox.
 - Keep WooCommerce price updates guarded and disabled by default.
 
+### Milestone 13: Import / Export And Bulk Actions
+
+- Add an Import / Export tab.
+- Add bounded CSV upload, preview, and confirm import for monitored products and competitor links.
+- Match import products only by `product_id` or `sku`.
+- Reject oversized CSV files and cap preview rows.
+- Add CSV exports for monitored products/links, pending suggestions, recent failed checks, and price observations.
+- Add selected-row bulk actions for monitored products and competitor links.
+- Keep all import/export and bulk workflows admin-only and nonce-protected.
+
+## Current Milestone: Competitor Profiles And Extraction Rules
+
+- Add `lpm_competitors` for global competitor profiles.
+- Add nullable `competitor_id` on `lpm_competitor_links` so existing custom-name links keep working.
+- Add competitor profile management in the Competitors tab.
+- Allow direct competitor links to attach an existing profile or remain custom.
+- Add configurable extraction mode, selectors, stock text, timeout, request delay, default currency, JavaScript requirement, and notes.
+- Extend `PriceParser` with optional profile rules and limited selector support.
+- Return a clear warning for JavaScript-required profiles because the internal checker does not render JavaScript.
+- Add a profile-only Test URL action that does not save product/link/observation data.
+- Keep all scraping respectful, bounded, admin-only, and dependency-free.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
+- Add focused tests for limited selector parsing and JavaScript-required profile behavior.
 - Add focused tests for `PricingRuleService` rounding, min price, cost, and margin outcomes once a lightweight WordPress test harness exists.
 - Add more structured logging around parser extraction methods.
 - Add table migration tests where possible.
