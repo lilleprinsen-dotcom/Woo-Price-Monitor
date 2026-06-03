@@ -14,6 +14,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class ApprovalTokenService {
 	public const ACTION_APPROVE_DRY_RUN = 'approve_dry_run';
 	public const ACTION_REJECT          = 'reject';
+	public const ACTION_MATCH_PRICE     = 'match_price';
+	public const ACTION_MATCH_PRICE_MINUS_1 = 'match_price_minus_1';
 
 	/**
 	 * Repository-like storage. Kept untyped so local CLI tests can use a tiny fake.
@@ -43,14 +45,15 @@ final class ApprovalTokenService {
 			);
 		}
 
-		if ( empty( $settings['allow_token_dry_run_approval_links'] ) ) {
+		if ( ! $this->settings_allow_action( $action, $settings ) ) {
 			return array(
 				'success' => false,
 				'error'   => __( 'Token links are disabled.', 'lilleprinsen-price-monitor' ),
 			);
 		}
 
-		$hours      = min( 168, max( 1, absint( $settings['token_link_expiry_hours'] ?? 24 ) ) );
+		$hours_key  = $this->is_whatsapp_action( $action ) ? 'whatsapp_action_link_expiry_hours' : 'token_link_expiry_hours';
+		$hours      = min( 168, max( 1, absint( $settings[ $hours_key ] ?? 24 ) ) );
 		$expires_at = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) + ( $hours * HOUR_IN_SECONDS ) );
 		$token      = $this->generate_token();
 		$token_hash = $this->hash_token( $token );
@@ -76,8 +79,8 @@ final class ApprovalTokenService {
 
 		$this->repository->write_log(
 			'info',
-			'token_created',
-			__( 'Dry-run approval token created.', 'lilleprinsen-price-monitor' ),
+			$this->is_whatsapp_action( $action ) ? 'notification_action_link_created' : 'token_created',
+			__( 'One-time suggestion token created.', 'lilleprinsen-price-monitor' ),
 			array(
 				'suggestion_id' => $suggestion_id,
 				'action'        => $action,
@@ -179,7 +182,34 @@ final class ApprovalTokenService {
 	private function sanitize_action( string $action ): string {
 		$action = sanitize_key( $action );
 
-		return in_array( $action, array( self::ACTION_APPROVE_DRY_RUN, self::ACTION_REJECT ), true ) ? $action : '';
+		return in_array( $action, array( self::ACTION_APPROVE_DRY_RUN, self::ACTION_REJECT, self::ACTION_MATCH_PRICE, self::ACTION_MATCH_PRICE_MINUS_1 ), true ) ? $action : '';
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 */
+	private function settings_allow_action( string $action, array $settings ): bool {
+		if ( self::ACTION_APPROVE_DRY_RUN === $action ) {
+			return ! empty( $settings['allow_token_dry_run_approval_links'] );
+		}
+
+		if ( self::ACTION_REJECT === $action ) {
+			return ! empty( $settings['allow_token_dry_run_approval_links'] ) || ( ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_reject'] ) );
+		}
+
+		if ( self::ACTION_MATCH_PRICE === $action ) {
+			return ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_match_price_dry_run'] );
+		}
+
+		if ( self::ACTION_MATCH_PRICE_MINUS_1 === $action ) {
+			return ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_match_price_minus_1_dry_run'] );
+		}
+
+		return false;
+	}
+
+	private function is_whatsapp_action( string $action ): bool {
+		return in_array( $action, array( self::ACTION_MATCH_PRICE, self::ACTION_MATCH_PRICE_MINUS_1, self::ACTION_REJECT ), true );
 	}
 
 	/**

@@ -38,10 +38,6 @@ final class TokenActionHandler {
 	public function handle(): void {
 		$settings = $this->settings->get_all();
 
-		if ( empty( $settings['allow_token_dry_run_approval_links'] ) ) {
-			$this->render_confirmation( __( 'Token links are disabled.', 'lilleprinsen-price-monitor' ), __( 'Use the WordPress admin approval inbox to review this suggestion.', 'lilleprinsen-price-monitor' ), 403 );
-		}
-
 		$token  = isset( $_GET['lpm_token'] ) ? sanitize_text_field( rawurldecode( (string) wp_unslash( $_GET['lpm_token'] ) ) ) : '';
 		$action = isset( $_GET['lpm_token_action'] ) ? sanitize_key( wp_unslash( $_GET['lpm_token_action'] ) ) : '';
 
@@ -88,6 +84,27 @@ final class TokenActionHandler {
 			$updated = $this->repository->approve_suggestion_dry_run( $suggestion_id, 0 );
 			$title   = __( 'Dry-run approval recorded', 'lilleprinsen-price-monitor' );
 			$message = __( 'Dry-run approval recorded. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' );
+		} elseif ( ApprovalTokenService::ACTION_MATCH_PRICE === $action || ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 === $action ) {
+			if ( 'pending' !== $status ) {
+				$this->token_service->mark_used( $token_id );
+				return $this->blocked_response( $suggestion_id, $action, __( 'Only pending suggestions can use match-price token actions.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			$new_price = (float) ( $suggestion['competitor_price'] ?? 0 );
+
+			if ( ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 === $action ) {
+				$new_price -= 1;
+			}
+
+			if ( $new_price <= 0 ) {
+				$this->token_service->mark_used( $token_id );
+				return $this->blocked_response( $suggestion_id, $action, __( 'The requested token action would create an invalid suggested price.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			$price_updated = $this->repository->update_suggested_price( $suggestion_id, round( $new_price, 4 ) );
+			$updated       = $price_updated && $this->repository->approve_suggestion_dry_run( $suggestion_id, 0 );
+			$title         = ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 === $action ? __( 'Match price -1 kr recorded', 'lilleprinsen-price-monitor' ) : __( 'Match price recorded', 'lilleprinsen-price-monitor' );
+			$message       = __( 'Dry-run match action recorded. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' );
 		} elseif ( ApprovalTokenService::ACTION_REJECT === $action ) {
 			if ( ! in_array( $status, array( 'pending', 'blocked' ), true ) ) {
 				$this->token_service->mark_used( $token_id );
@@ -113,7 +130,7 @@ final class TokenActionHandler {
 		}
 
 		$this->token_service->mark_used( $token_id );
-		$this->repository->write_log( 'info', 'token_used', __( 'Dry-run token action completed.', 'lilleprinsen-price-monitor' ), array( 'suggestion_id' => $suggestion_id, 'action' => $action ) );
+		$this->repository->write_log( 'info', $this->get_success_log_event( $action ), __( 'Dry-run token action completed.', 'lilleprinsen-price-monitor' ), array( 'suggestion_id' => $suggestion_id, 'action' => $action ) );
 
 		return array(
 			'title'       => $title,
@@ -126,13 +143,29 @@ final class TokenActionHandler {
 	 * @return array<string, mixed>
 	 */
 	private function blocked_response( int $suggestion_id, string $action, string $message ): array {
-		$this->repository->write_log( 'warning', 'token_action_blocked', $message, array( 'suggestion_id' => $suggestion_id, 'action' => $action ) );
+		$this->repository->write_log( 'warning', str_starts_with( $action, 'match_price' ) ? 'notification_action_blocked' : 'token_action_blocked', $message, array( 'suggestion_id' => $suggestion_id, 'action' => $action ) );
 
 		return array(
 			'title'       => __( 'Token action blocked', 'lilleprinsen-price-monitor' ),
 			'message'     => $message . ' ' . __( 'WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
 			'status_code' => 403,
 		);
+	}
+
+	private function get_success_log_event( string $action ): string {
+		if ( ApprovalTokenService::ACTION_MATCH_PRICE === $action ) {
+			return 'notification_action_match_price_used';
+		}
+
+		if ( ApprovalTokenService::ACTION_MATCH_PRICE_MINUS_1 === $action ) {
+			return 'notification_action_match_price_minus_1_used';
+		}
+
+		if ( ApprovalTokenService::ACTION_REJECT === $action ) {
+			return 'notification_action_reject_used';
+		}
+
+		return 'token_used';
 	}
 
 	private function render_confirmation( string $title, string $message, int $status_code ): void {

@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.9.0';
+	public const VERSION = '2.0.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -26,6 +26,8 @@ final class Schema {
 			'monitored_products' => $wpdb->prefix . 'lpm_monitored_products',
 			'competitors'        => $wpdb->prefix . 'lpm_competitors',
 			'competitor_links'   => $wpdb->prefix . 'lpm_competitor_links',
+			'product_groups'     => $wpdb->prefix . 'lpm_product_groups',
+			'product_group_members' => $wpdb->prefix . 'lpm_product_group_members',
 			'price_observations' => $wpdb->prefix . 'lpm_price_observations',
 			'price_suggestions'  => $wpdb->prefix . 'lpm_price_suggestions',
 			'price_match_sessions' => $wpdb->prefix . 'lpm_price_match_sessions',
@@ -132,6 +134,38 @@ final class Schema {
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
 
+		$sql[] = "CREATE TABLE {$tables['product_groups']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			name varchar(191) NOT NULL,
+			description text NULL,
+			enabled tinyint(1) NOT NULL DEFAULT 1,
+			pricing_mode varchar(50) NOT NULL DEFAULT 'shared_price',
+			primary_product_id bigint(20) unsigned DEFAULT NULL,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY name (name),
+			KEY enabled (enabled),
+			KEY primary_product_id (primary_product_id)
+		) {$charset_collate};";
+
+		$sql[] = "CREATE TABLE {$tables['product_group_members']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			group_id bigint(20) unsigned NOT NULL,
+			monitored_product_id bigint(20) unsigned NOT NULL,
+			product_id bigint(20) unsigned NOT NULL,
+			role varchar(30) NOT NULL DEFAULT 'member',
+			enabled tinyint(1) NOT NULL DEFAULT 1,
+			created_at datetime NOT NULL,
+			updated_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			UNIQUE KEY group_product (group_id, product_id),
+			KEY group_id (group_id),
+			KEY monitored_product_id (monitored_product_id),
+			KEY product_id (product_id),
+			KEY enabled (enabled)
+		) {$charset_collate};";
+
 		$sql[] = "CREATE TABLE {$tables['price_observations']} (
 			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
 			competitor_link_id bigint(20) unsigned NOT NULL,
@@ -171,6 +205,9 @@ final class Schema {
 			margin_after_change decimal(10,2) DEFAULT NULL,
 			rule_details longtext NULL,
 			warnings text NULL,
+			group_id bigint(20) unsigned DEFAULT NULL,
+			applies_to_group tinyint(1) NOT NULL DEFAULT 0,
+			group_action_status varchar(30) DEFAULT NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			approved_at datetime DEFAULT NULL,
@@ -181,6 +218,8 @@ final class Schema {
 			KEY monitored_product_id (monitored_product_id),
 			KEY competitor_link_id (competitor_link_id),
 			KEY product_id (product_id),
+			KEY group_id (group_id),
+			KEY applies_to_group (applies_to_group),
 			KEY suggestion_type (suggestion_type),
 			KEY status (status),
 			KEY status_type (status, suggestion_type),

@@ -4,8 +4,9 @@ Lilleprinsen Price Monitor is an admin-only WooCommerce competitor price monitor
 
 ## Runtime Boundaries
 
-- The main plugin bootstrap only initializes during `is_admin()`, `wp_doing_cron()`, or `WP_CLI`.
-- Normal frontend requests should not load the plugin coordinator, admin screens, admin assets, product search, price checks, or job scheduling.
+- The main admin/check plugin coordinator only initializes during `is_admin()`, `wp_doing_cron()`, or `WP_CLI`.
+- Normal frontend requests do not load admin screens, admin assets, product search, price checks, job scheduling, competitor links, observations, or suggestion workflows.
+- An optional lightweight frontend module may initialize for the price-match box and coupon exclusion when settings enable those features. It uses cached product flags or one indexed active-session lookup on single product pages only; it never checks competitors, fetches URLs, scans products, or calculates suggestions on storefront requests.
 - Manual competitor checks are admin-triggered and use `wp_remote_get()` with the configured timeout.
 - Scheduled checks are disabled by default and only use the Action Scheduler path when explicitly enabled.
 - Scheduled checks never update WooCommerce prices.
@@ -30,6 +31,8 @@ Current custom tables:
 - `lpm_monitored_products`
 - `lpm_competitors`
 - `lpm_competitor_links`
+- `lpm_product_groups`
+- `lpm_product_group_members`
 - `lpm_price_observations`
 - `lpm_price_suggestions`
 - `lpm_price_match_sessions`
@@ -78,6 +81,8 @@ The Competitors tab has two layers:
 
 The admin JS in `assets/admin.js` progressively enhances the existing forms with debounced async product search, a lazy-loaded monitored product side drawer, drawer competitor actions, pricing inbox suggestion details, and async dry-run approve/reject. Existing forms and paginated pages remain the non-JavaScript fallback.
 
+The Groups tab manages product groups in `lpm_product_groups` and `lpm_product_group_members`. It supports creating/editing groups, enabling/disabling groups, bounded monitored-product search for members, primary member assignment, and member enable/remove actions. Product groups support `shared_price`, `primary_product_controls_group`, and `manual_review_only` modes. Real multi-product group updates are not automatic in this version; group-aware suggestions are shown in the inbox and dry-run group approval logs affected members.
+
 `src/Admin/CsvImportService.php` provides bounded CSV import preview and commit behavior. It accepts CSV files up to 512 KB and previews up to 500 non-empty rows. Product matching uses `product_id` first, then `sku`; no title search, full catalog scan, or broad WooCommerce query is used during import.
 
 `src/Assets/AdminAssets.php` loads `assets/admin.css` and `assets/admin.js` only on the plugin admin page.
@@ -119,6 +124,8 @@ Current rule controls include:
 
 `src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price, asks `PricingRuleService` for the final dry-run decision, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes. Manual-review outcomes are stored as approval-inbox suggestions with `suggestion_type = manual_review` and workflow status `pending`.
 
+When the monitored product belongs to an enabled product group, `SuggestionService` marks the suggestion with `group_id`, `applies_to_group`, and `group_action_status`. `shared_price` groups create group-aware suggestions, `primary_product_controls_group` only allows the primary product to drive group suggestions, and `manual_review_only` forces a manual-review suggestion. Group member warnings are stored in `rule_details`.
+
 Suggestion rows also store `margin_after_change`, `rule_details`, and `warnings` when available so the Approvals inbox can explain why a suggestion was made or blocked.
 
 Suggestion types include:
@@ -153,6 +160,18 @@ Restore suggestion types use captured price match session state. Previous regula
 
 This service is present for future controlled use. Defaults keep real updates blocked.
 
+Group real updates remain intentionally conservative. The approval inbox does not expose a real-update button for group suggestions in this version; dry-run approval records workflow state and logs affected members. Future group real updates must validate every member, use WooCommerce CRUD per product, respect `allow_partial_group_price_updates`, and avoid partial updates by default.
+
+### Frontend Price-Match Box And Coupon Exclusion
+
+`src/Frontend/FrontendPlugin.php` is the optional frontend module. It registers WooCommerce display and coupon hooks only when the relevant settings are enabled.
+
+`src/Service/PriceMatchDisplayService.php` decides whether a product should show the price-match box. It reads `_lpm_price_matched_active` or `_lpm_price_matched_group_active` product meta first. On single product pages it may use the indexed active price-match session lookup as a fallback; loop display relies on cached/simple state.
+
+`assets/price-match-box.css` contains the lightweight frontend styles. The default customer text is Norwegian and explains that discount codes cannot be combined with price-matched products.
+
+When `disable_coupons_for_price_matched_products = 1`, coupon discounts are filtered to `0` for matched cart lines and a Norwegian notice is shown. The filter does not change product prices directly and does not block discounts for unrelated cart lines.
+
 ### Jobs
 
 `src/Jobs/JobScheduler.php` registers the Action Scheduler action and an admin-only scheduling check. Scheduled checks are disabled by default. When enabled without Action Scheduler, it logs a warning and does not register a fallback job.
@@ -169,7 +188,7 @@ Current notification modules:
 - `src/Notifications/WebhookNotificationChannel.php` posts JSON payloads to Make, Zapier, or another webhook provider when enabled.
 - `src/Notifications/NotificationMessageBuilder.php` builds structured payloads and human-readable `message_text`.
 - `src/Service/ReviewLinkService.php` builds safe WordPress admin review links.
-- `src/Service/ApprovalTokenService.php` creates one-time token links for dry-run approval or rejection only.
+- `src/Service/ApprovalTokenService.php` creates one-time token links for dry-run approval/rejection and webhook action links.
 
 Notifications are disabled by default. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Webhook failures are logged and do not block the admin or batch flow.
 
@@ -177,7 +196,9 @@ Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by tho
 
 Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
-When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. Tokens are stored only as hashes in `lpm_approval_tokens`, expire according to `token_link_expiry_hours`, and are one-time use. Token endpoints can only set suggestion status to `approved_dry_run` or `rejected`; they never call `PriceUpdateService` and never update WooCommerce prices.
+When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. When `whatsapp_action_links_enabled = 1`, suggestion payloads may also include `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `action_link_expires_at`, `competitor_url`, and `review_url` for Make/Zapier/WhatsApp messages. Tokens are stored only as hashes in `lpm_approval_tokens`, expire, and are one-time use.
+
+Token actions can record dry-run approve/reject decisions and can adjust the stored suggested price to competitor price or competitor price minus 1 kr before dry-run approval. They never call `PriceUpdateService` and never update WooCommerce prices. Real updates still require logged-in admin confirmation through the normal admin workflow.
 
 ### Retention Cleanup
 
@@ -215,6 +236,17 @@ Important conservative defaults:
 - `allow_token_dry_run_approval_links = 0`
 - `token_link_expiry_hours = 24`
 - `token_retention_days = 30`
+- `whatsapp_action_links_enabled = 0`
+- `whatsapp_action_link_expiry_hours = 24`
+- `allow_token_match_price_dry_run = 1`
+- `allow_token_match_price_minus_1_dry_run = 1`
+- `allow_token_reject = 1`
+- `allow_unauthenticated_real_price_update_from_token = 0`
+- `allow_partial_group_price_updates = 0`
+- `price_match_box_enabled = 0`
+- `price_match_box_show_on_product_page = 1`
+- `price_match_box_show_on_loop = 0`
+- `disable_coupons_for_price_matched_products = 1`
 - `max_urls_per_batch = 10`
 - `check_batch_lock_minutes = 10`
 - `observation_retention_days = 90`

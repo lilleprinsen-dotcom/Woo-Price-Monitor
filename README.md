@@ -2,15 +2,15 @@
 
 Lilleprinsen Price Monitor is an admin-only WordPress/WooCommerce plugin for selected competitor price monitoring. It lets store admins add specific WooCommerce products to a monitored list, attach direct competitor product URLs, run bounded manual price checks, create dry-run price suggestions, and approve or reject suggestions in an admin pricing inbox.
 
-The plugin is built for a high-traffic WooCommerce store with around 100k products and 100k orders. It is conservative by default: it does not add frontend hooks, does not scan the full catalog, and keeps WooCommerce price updates blocked unless several explicit safety settings are changed and a single-product confirmation flow is used.
+The plugin is built for a high-traffic WooCommerce store with around 100k products and 100k orders. It is conservative by default: it does not run heavy frontend work, does not scan the full catalog, and keeps WooCommerce price updates blocked unless several explicit safety settings are changed and a single-product confirmation flow is used.
 
 ## Current Scope
 
 Implemented foundation:
 
-- Admin page under WooCommerce: Dashboard, Products, Approvals, Competitors, History, Settings, and Logs.
+- Admin page under WooCommerce: Dashboard, Products, Approvals, Competitors, Groups, History, Settings, and Logs.
 - Product search by ID, SKU, or bounded title query, limited to 20 results.
-- Custom database tables for monitoring rows, competitor profiles, competitor links, price observations, suggestions, price match sessions, and logs.
+- Custom database tables for monitoring rows, competitor profiles, competitor links, product groups, price observations, suggestions, price match sessions, approval tokens, and logs.
 - Competitor profile management with reusable domain, timing, extraction, selector, stock text, and JavaScript-requirement settings.
 - Competitor link management with optional profile attachment and manual "Test check" action.
 - Price parsing MVP with JSON-LD, price meta tags, limited selector extraction, stock text detection, and NOK/kr visible text fallback.
@@ -25,13 +25,16 @@ Implemented foundation:
 - Admin-only manual retention cleanup for old operational logs and price observations.
 - Bounded WP-CLI commands for check batches, cleanup, and operational status.
 - Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
-- Optional one-time token links for webhook dry-run approval or rejection only. Token links are disabled by default and can never update WooCommerce prices.
+- Optional one-time token links for webhook dry-run approval, match-price dry-run actions, and rejection. Token links are disabled by default and can never update WooCommerce prices.
+- Product groups for related monitored products that should share pricing decisions, with group-aware dry-run suggestions.
+- Optional lightweight frontend price-match box in Norwegian and coupon-discount exclusion for actively price-matched products.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 
 ## Architecture Principles
 
-- Admin-only behavior unless explicitly changed in a future PR.
-- No competitor checks, external HTTP requests, heavy product queries, or scheduled work on normal frontend requests.
+- Admin-only behavior for monitoring, checks, suggestions, approvals, imports, exports, and updates.
+- Optional frontend behavior is limited to the price-match box and coupon exclusion when enabled.
+- No competitor checks, external HTTP requests, heavy product queries, product scans, suggestion creation, or scheduled work on normal frontend requests.
 - No automatic full-catalog scanning.
 - Custom tables instead of storing monitor state in `wp_postmeta`.
 - Paginated and indexed admin queries.
@@ -47,6 +50,8 @@ The plugin creates these custom tables with the active WordPress table prefix:
 - `lpm_monitored_products`: selected WooCommerce product IDs, SKU snapshots, enabled state, strategy, priority, check cadence, and timestamps.
 - `lpm_competitors`: global competitor profiles, domains, request delay/timeout settings, extraction rules, selector settings, stock text, JavaScript requirement, and notes.
 - `lpm_competitor_links`: direct competitor URLs attached to monitored products, optional `competitor_id`, last detected price/stock data, check timestamps, errors, consecutive failure count, and next eligible check time.
+- `lpm_product_groups`: named groups for monitored products that can share pricing decisions.
+- `lpm_product_group_members`: enabled/disabled group members, primary/member role, and monitored product mapping.
 - `lpm_price_observations`: historical check rows for trust, debugging, recovery behavior, and future reports.
 - `lpm_price_suggestions`: dry-run and real-update workflow suggestions, suggestion type, status, reason, rule details, warnings, margin snapshot, reviewer, and timestamps.
 - `lpm_price_match_sessions`: original price state and recovery context for price-match sessions, including dry-run sessions.
@@ -59,7 +64,7 @@ Schema creation and migrations live in `src/Database/Schema.php`. Repository hel
 
 This project currently does not implement:
 
-- Frontend widgets, storefront notices, cart hooks, checkout hooks, or customer-facing behavior.
+- Frontend competitor checks, frontend scraping, frontend product scans, or frontend price calculations.
 - Full crawling or full catalog scanning.
 - Automatic price checks on normal frontend requests.
 - Direct WhatsApp, SMS, or email provider integrations.
@@ -67,7 +72,7 @@ This project currently does not implement:
 - Direct SQL updates to `_price`, `_regular_price`, or `_sale_price`.
 - Heavy reporting over all products or all orders.
 - JavaScript/browser scraping, anti-bot bypassing, or external scraper workers.
-- Unauthenticated real WooCommerce price update links. Token links can only approve dry-run suggestions or reject suggestions.
+- Unauthenticated real WooCommerce price update links. Token links can only record dry-run match/approve actions or reject suggestions.
 
 ## Development
 

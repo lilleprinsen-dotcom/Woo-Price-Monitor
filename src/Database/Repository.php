@@ -1195,6 +1195,9 @@ final class Repository {
 				'difference'           => $this->decimal( $data['difference'] ?? 0 ),
 				'suggestion_type'      => $this->sanitize_suggestion_type( (string) ( $data['suggestion_type'] ?? 'price_match_down' ) ),
 				'status'               => $this->sanitize_suggestion_status( (string) ( $data['status'] ?? 'pending' ) ),
+				'group_id'             => ! empty( $data['group_id'] ) ? absint( $data['group_id'] ) : null,
+				'applies_to_group'     => ! empty( $data['applies_to_group'] ) ? 1 : 0,
+				'group_action_status'  => isset( $data['group_action_status'] ) ? $this->sanitize_limited_text( (string) $data['group_action_status'], 30, 'pending' ) : null,
 				'reason'               => isset( $data['reason'] ) ? sanitize_textarea_field( (string) $data['reason'] ) : null,
 				'margin_after_change'  => $this->nullable_decimal( $data['margin_after_change'] ?? null ),
 				'rule_details'         => $this->nullable_json_text( $data['rule_details'] ?? null ),
@@ -1202,7 +1205,7 @@ final class Repository {
 				'created_at'           => $now,
 				'updated_at'           => $now,
 			),
-			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -1231,8 +1234,10 @@ final class Repository {
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function get_price_suggestions( array $filters, int $page, int $per_page ): array {
-		$table = $this->tables['price_suggestions'];
-		$links = $this->tables['competitor_links'];
+		$table  = $this->tables['price_suggestions'];
+		$links  = $this->tables['competitor_links'];
+		$groups = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
 
 		if ( ! $this->table_exists( $table ) ) {
 			return array();
@@ -1241,7 +1246,15 @@ final class Repository {
 		$where  = $this->build_suggestion_where( $filters );
 		$limit  = $this->sanitize_per_page( $per_page );
 		$offset = $this->get_offset( $page, $limit );
-		$sql    = "SELECT ps.*, cl.competitor_name, cl.competitor_url FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id {$where['sql']} ORDER BY ps.created_at DESC, ps.id DESC LIMIT %d OFFSET %d";
+		$group_select = '';
+		$group_join   = '';
+
+		if ( $groups && $members && $this->table_exists( $groups ) && $this->table_exists( $members ) ) {
+			$group_select = ", pg.name AS group_name, (SELECT COUNT(*) FROM {$members} pgm WHERE pgm.group_id = ps.group_id AND pgm.enabled = 1) AS group_member_count";
+			$group_join   = " LEFT JOIN {$groups} pg ON ps.group_id = pg.id";
+		}
+
+		$sql    = "SELECT ps.*, cl.competitor_name, cl.competitor_url{$group_select} FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id{$group_join} {$where['sql']} ORDER BY ps.created_at DESC, ps.id DESC LIMIT %d OFFSET %d";
 		$args   = array_merge( $where['args'], array( $limit, $offset ) );
 		$rows   = $this->wpdb->get_results( $this->wpdb->prepare( $sql, $args ), ARRAY_A );
 
@@ -1272,16 +1285,26 @@ final class Repository {
 	 * @return array<string, mixed>|null
 	 */
 	public function get_price_suggestion( int $suggestion_id ): ?array {
-		$table = $this->tables['price_suggestions'];
-		$links = $this->tables['competitor_links'];
+		$table  = $this->tables['price_suggestions'];
+		$links  = $this->tables['competitor_links'];
+		$groups = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
 
 		if ( ! $this->table_exists( $table ) ) {
 			return null;
 		}
 
+		$group_select = '';
+		$group_join   = '';
+
+		if ( $groups && $members && $this->table_exists( $groups ) && $this->table_exists( $members ) ) {
+			$group_select = ", pg.name AS group_name, (SELECT COUNT(*) FROM {$members} pgm WHERE pgm.group_id = ps.group_id AND pgm.enabled = 1) AS group_member_count";
+			$group_join   = " LEFT JOIN {$groups} pg ON ps.group_id = pg.id";
+		}
+
 		$row = $this->wpdb->get_row(
 			$this->wpdb->prepare(
-				"SELECT ps.*, cl.competitor_name, cl.competitor_url FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id WHERE ps.id = %d LIMIT 1",
+				"SELECT ps.*, cl.competitor_name, cl.competitor_url{$group_select} FROM {$table} ps LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id{$group_join} WHERE ps.id = %d LIMIT 1",
 				absint( $suggestion_id )
 			),
 			ARRAY_A
@@ -1463,7 +1486,13 @@ final class Repository {
 			)
 		);
 
-		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+		$session_id = false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+
+		if ( $session_id > 0 && in_array( (string) ( $data['status'] ?? 'active' ), array( 'active', 'active_dry_run' ), true ) && function_exists( 'update_post_meta' ) ) {
+			update_post_meta( absint( $data['product_id'] ?? 0 ), '_lpm_price_matched_active', 'yes' );
+		}
+
+		return $session_id;
 	}
 
 	/**
@@ -1496,6 +1525,7 @@ final class Repository {
 			return false;
 		}
 
+		$session = $this->get_price_match_session( $session_id );
 		$updated = $this->wpdb->update(
 			$table,
 			array(
@@ -1508,11 +1538,32 @@ final class Repository {
 			array( '%d' )
 		);
 
+		if ( false !== $updated && $session && function_exists( 'delete_post_meta' ) ) {
+			delete_post_meta( (int) $session['product_id'], '_lpm_price_matched_active' );
+		}
+
 		return false !== $updated;
 	}
 
 	public function count_active_price_match_sessions(): int {
 		return $this->count_where( 'price_match_sessions', 'status IN (%s, %s)', array( 'active', 'active_dry_run' ) );
+	}
+
+	public function product_has_active_price_match_session( int $product_id ): bool {
+		$table = $this->tables['price_match_sessions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		return (bool) $this->wpdb->get_var(
+			$this->wpdb->prepare(
+				"SELECT id FROM {$table} WHERE product_id = %d AND status IN (%s, %s) LIMIT 1",
+				absint( $product_id ),
+				'active',
+				'active_dry_run'
+			)
+		);
 	}
 
 	/**
@@ -1582,6 +1633,411 @@ final class Repository {
 		return $this->count_price_suggestions( array( 'view' => $view ) );
 	}
 
+	/**
+	 * @param array<string, mixed> $data Group fields.
+	 */
+	public function create_product_group( array $data ): int {
+		$table = $this->tables['product_groups'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$now      = current_time( 'mysql' );
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'name'               => substr( sanitize_text_field( (string) ( $data['name'] ?? '' ) ), 0, 191 ),
+				'description'        => isset( $data['description'] ) ? sanitize_textarea_field( (string) $data['description'] ) : null,
+				'enabled'            => ! empty( $data['enabled'] ) ? 1 : 0,
+				'pricing_mode'       => $this->sanitize_group_pricing_mode( (string) ( $data['pricing_mode'] ?? 'shared_price' ) ),
+				'primary_product_id' => ! empty( $data['primary_product_id'] ) ? absint( $data['primary_product_id'] ) : null,
+				'created_at'         => $now,
+				'updated_at'         => $now,
+			),
+			array( '%s', '%s', '%d', '%s', '%d', '%s', '%s' )
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Group fields.
+	 */
+	public function update_product_group( int $group_id, array $data ): bool {
+		$table = $this->tables['product_groups'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'name'               => substr( sanitize_text_field( (string) ( $data['name'] ?? '' ) ), 0, 191 ),
+				'description'        => isset( $data['description'] ) ? sanitize_textarea_field( (string) $data['description'] ) : null,
+				'enabled'            => ! empty( $data['enabled'] ) ? 1 : 0,
+				'pricing_mode'       => $this->sanitize_group_pricing_mode( (string) ( $data['pricing_mode'] ?? 'shared_price' ) ),
+				'primary_product_id' => ! empty( $data['primary_product_id'] ) ? absint( $data['primary_product_id'] ) : null,
+				'updated_at'         => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $group_id ) ),
+			array( '%s', '%s', '%d', '%s', '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function set_product_group_enabled( int $group_id, bool $enabled ): bool {
+		$table = $this->tables['product_groups'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'    => $enabled ? 1 : 0,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $group_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function delete_empty_product_group( int $group_id ): bool {
+		$groups  = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $groups || ! $members || ! $this->table_exists( $groups ) || ! $this->table_exists( $members ) ) {
+			return false;
+		}
+
+		if ( $this->count_product_group_members( $group_id ) > 0 ) {
+			return $this->set_product_group_enabled( $group_id, false );
+		}
+
+		$deleted = $this->wpdb->delete( $groups, array( 'id' => absint( $group_id ) ), array( '%d' ) );
+
+		return false !== $deleted;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_product_groups( int $page, int $per_page ): array {
+		$groups      = $this->tables['product_groups'] ?? '';
+		$members     = $this->tables['product_group_members'] ?? '';
+		$suggestions = $this->tables['price_suggestions'];
+
+		if ( ! $groups || ! $this->table_exists( $groups ) ) {
+			return array();
+		}
+
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$member_select = $this->table_exists( $members ) ? "(SELECT COUNT(*) FROM {$members} pgm WHERE pgm.group_id = pg.id AND pgm.enabled = 1) AS member_count" : '0 AS member_count';
+		$suggestion_select = $this->table_exists( $suggestions ) ? "(SELECT MAX(ps.created_at) FROM {$suggestions} ps WHERE ps.group_id = pg.id) AS last_suggestion" : 'NULL AS last_suggestion';
+		$rows = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT pg.*, {$member_select}, {$suggestion_select}
+				FROM {$groups} pg
+				ORDER BY pg.updated_at DESC, pg.id DESC
+				LIMIT %d OFFSET %d",
+				$limit,
+				$offset
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_product_groups(): int {
+		return $this->get_table_count( 'product_groups' );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_product_group( int $group_id ): ?array {
+		$table = $this->tables['product_groups'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", absint( $group_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_active_product_group_for_monitored_product( int $monitored_product_id ): ?array {
+		$groups  = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $groups || ! $members || ! $this->table_exists( $groups ) || ! $this->table_exists( $members ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT pg.*, pgm.role AS member_role, pgm.enabled AS member_enabled
+				FROM {$members} pgm
+				INNER JOIN {$groups} pg ON pgm.group_id = pg.id
+				WHERE pgm.monitored_product_id = %d AND pg.enabled = 1 AND pgm.enabled = 1
+				ORDER BY pgm.role = 'primary' DESC, pgm.id DESC
+				LIMIT 1",
+				absint( $monitored_product_id )
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	public function get_group_names_for_monitored_products( array $monitored_product_ids ): array {
+		$groups  = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
+		$ids     = array_values( array_filter( array_map( 'absint', $monitored_product_ids ) ) );
+
+		if ( empty( $ids ) || ! $groups || ! $members || ! $this->table_exists( $groups ) || ! $this->table_exists( $members ) ) {
+			return array();
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$rows = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT pgm.monitored_product_id, pg.name
+				FROM {$members} pgm
+				INNER JOIN {$groups} pg ON pgm.group_id = pg.id
+				WHERE pgm.monitored_product_id IN ({$placeholders}) AND pg.enabled = 1 AND pgm.enabled = 1",
+				$ids
+			),
+			ARRAY_A
+		);
+		$names = array();
+
+		if ( ! is_array( $rows ) ) {
+			return $names;
+		}
+
+		foreach ( $rows as $row ) {
+			$names[ (int) $row['monitored_product_id'] ] = (string) $row['name'];
+		}
+
+		return $names;
+	}
+
+	public function add_product_group_member( int $group_id, int $monitored_product_id, string $role = 'member' ): int {
+		$table     = $this->tables['product_group_members'] ?? '';
+		$monitored = $this->get_monitored_product( $monitored_product_id );
+
+		if ( ! $table || ! $monitored || ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$active_group = $this->get_active_product_group_for_monitored_product( $monitored_product_id );
+
+		if ( $active_group && (int) $active_group['id'] !== absint( $group_id ) ) {
+			return 0;
+		}
+
+		$role = $this->sanitize_group_member_role( $role );
+		$now  = current_time( 'mysql' );
+		$inserted = $this->wpdb->replace(
+			$table,
+			array(
+				'group_id'             => absint( $group_id ),
+				'monitored_product_id' => absint( $monitored_product_id ),
+				'product_id'           => absint( $monitored['product_id'] ?? 0 ),
+				'role'                 => $role,
+				'enabled'              => 1,
+				'created_at'           => $now,
+				'updated_at'           => $now,
+			),
+			array( '%d', '%d', '%d', '%s', '%d', '%s', '%s' )
+		);
+
+		if ( false === $inserted ) {
+			return 0;
+		}
+
+		if ( 'primary' === $role ) {
+			$this->set_product_group_primary_member( $group_id, absint( $monitored['product_id'] ?? 0 ) );
+		}
+
+		return (int) $this->wpdb->insert_id;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_product_group_members( int $group_id, bool $enabled_only = false ): array {
+		$table     = $this->tables['product_group_members'] ?? '';
+		$monitored = $this->tables['monitored_products'];
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$where = $enabled_only ? 'AND pgm.enabled = 1' : '';
+		$join  = $this->table_exists( $monitored ) ? " LEFT JOIN {$monitored} mp ON pgm.monitored_product_id = mp.id" : '';
+		$select = $this->table_exists( $monitored ) ? ', mp.sku, mp.priority, mp.strategy, mp.min_margin_percent, mp.min_price' : '';
+		$rows = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT pgm.*{$select}
+				FROM {$table} pgm{$join}
+				WHERE pgm.group_id = %d {$where}
+				ORDER BY pgm.role = 'primary' DESC, pgm.created_at ASC, pgm.id ASC",
+				absint( $group_id )
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_product_group_members( int $group_id ): int {
+		$table = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		return (int) $this->wpdb->get_var(
+			$this->wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE group_id = %d", absint( $group_id ) )
+		);
+	}
+
+	public function set_product_group_member_enabled( int $member_id, bool $enabled ): bool {
+		$table = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'    => $enabled ? 1 : 0,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $member_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function remove_product_group_member( int $member_id ): bool {
+		$table = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $table || ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$deleted = $this->wpdb->delete( $table, array( 'id' => absint( $member_id ) ), array( '%d' ) );
+
+		return false !== $deleted;
+	}
+
+	public function set_product_group_primary_member( int $group_id, int $product_id ): bool {
+		$groups  = $this->tables['product_groups'] ?? '';
+		$members = $this->tables['product_group_members'] ?? '';
+
+		if ( ! $groups || ! $members || ! $this->table_exists( $groups ) || ! $this->table_exists( $members ) ) {
+			return false;
+		}
+
+		$this->wpdb->query(
+			$this->wpdb->prepare(
+				"UPDATE {$members} SET role = %s, updated_at = %s WHERE group_id = %d",
+				'member',
+				current_time( 'mysql' ),
+				absint( $group_id )
+			)
+		);
+		$member_updated = $this->wpdb->query(
+			$this->wpdb->prepare(
+				"UPDATE {$members} SET role = %s, enabled = 1, updated_at = %s WHERE group_id = %d AND product_id = %d",
+				'primary',
+				current_time( 'mysql' ),
+				absint( $group_id ),
+				absint( $product_id )
+			)
+		);
+		$group_updated = $this->wpdb->update(
+			$groups,
+			array(
+				'primary_product_id' => absint( $product_id ),
+				'updated_at'         => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $group_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $member_updated && false !== $group_updated;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function search_monitored_products_for_group( string $query, int $limit = 20 ): array {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$query = trim( sanitize_text_field( $query ) );
+		$limit = min( 20, max( 1, absint( $limit ) ) );
+
+		if ( '' === $query ) {
+			return array();
+		}
+
+		if ( ctype_digit( $query ) ) {
+			$rows = $this->wpdb->get_results(
+				$this->wpdb->prepare(
+					"SELECT * FROM {$table} WHERE product_id = %d OR id = %d ORDER BY enabled DESC, updated_at DESC LIMIT %d",
+					absint( $query ),
+					absint( $query ),
+					$limit
+				),
+				ARRAY_A
+			);
+		} else {
+			$like = '%' . $this->wpdb->esc_like( $query ) . '%';
+			$rows = $this->wpdb->get_results(
+				$this->wpdb->prepare(
+					"SELECT * FROM {$table} WHERE sku LIKE %s ORDER BY enabled DESC, updated_at DESC LIMIT %d",
+					$like,
+					$limit
+				),
+				ARRAY_A
+			);
+		}
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
 	private function get_next_consecutive_failure_count( int $competitor_link_id ): int {
 		$table = $this->tables['competitor_links'];
 
@@ -1637,7 +2093,7 @@ final class Repository {
 	private function sanitize_approval_token_action( string $action ): string {
 		$action = sanitize_key( $action );
 
-		return in_array( $action, array( 'approve_dry_run', 'reject' ), true ) ? $action : '';
+		return in_array( $action, array( 'approve_dry_run', 'reject', 'match_price', 'match_price_minus_1' ), true ) ? $action : '';
 	}
 
 	private function set_suggestion_review_status( int $suggestion_id, string $status, string $date_column, string $user_column, int $user_id ): bool {
@@ -1994,6 +2450,19 @@ final class Repository {
 		$strategy = sanitize_key( $strategy );
 
 		return in_array( $strategy, $allowed, true ) ? $strategy : 'match_competitor';
+	}
+
+	private function sanitize_group_pricing_mode( string $mode ): string {
+		$allowed = array( 'shared_price', 'primary_product_controls_group', 'manual_review_only' );
+		$mode    = sanitize_key( $mode );
+
+		return in_array( $mode, $allowed, true ) ? $mode : 'shared_price';
+	}
+
+	private function sanitize_group_member_role( string $role ): string {
+		$role = sanitize_key( $role );
+
+		return 'primary' === $role ? 'primary' : 'member';
 	}
 
 	private function sanitize_suggestion_type( string $suggestion_type ): string {

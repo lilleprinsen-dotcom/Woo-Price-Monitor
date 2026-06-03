@@ -160,6 +160,7 @@ final class AdminPage {
 			'products'    => __( 'Products', 'lilleprinsen-price-monitor' ),
 			'approvals'   => __( 'Approvals', 'lilleprinsen-price-monitor' ),
 			'competitors' => __( 'Competitors', 'lilleprinsen-price-monitor' ),
+			'groups'      => __( 'Groups', 'lilleprinsen-price-monitor' ),
 			'history'     => __( 'History', 'lilleprinsen-price-monitor' ),
 			'import_export' => __( 'Import / Export', 'lilleprinsen-price-monitor' ),
 			'settings'    => __( 'Settings', 'lilleprinsen-price-monitor' ),
@@ -223,6 +224,7 @@ final class AdminPage {
 		$rows           = $this->repository->get_monitored_products( $page, $per_page );
 		$total          = $this->repository->count_monitored_products();
 		$link_counts    = $this->repository->count_competitor_links_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
+		$group_names    = $this->repository->get_group_names_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
 		$editing_rules  = $this->get_editing_monitored_product_rules();
 		?>
 		<div class="lpm-grid lpm-grid-two lpm-products-layout">
@@ -274,7 +276,7 @@ final class AdminPage {
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
 			</div>
 			<?php $this->render_monitored_bulk_controls(); ?>
-			<?php $this->render_monitored_products_table( $rows, $link_counts ); ?>
+			<?php $this->render_monitored_products_table( $rows, $link_counts, $group_names ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_products_page', array( 'tab' => 'products' ) ); ?>
 		</section>
 		<?php
@@ -829,6 +831,94 @@ final class AdminPage {
 		$this->redirect_to_tab( 'products', 'bulk_action_completed' );
 	}
 
+	public function handle_save_product_group( string $action ): void {
+		$group_id = isset( $_POST['group_id'] ) ? absint( wp_unslash( $_POST['group_id'] ) ) : 0;
+		$name     = isset( $_POST['group_name'] ) ? sanitize_text_field( wp_unslash( $_POST['group_name'] ) ) : '';
+
+		if ( '' === trim( $name ) ) {
+			$this->redirect_to_tab( 'groups', 'product_group_name_required', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$data = array(
+			'name'               => $name,
+			'description'        => isset( $_POST['description'] ) ? sanitize_textarea_field( wp_unslash( $_POST['description'] ) ) : '',
+			'enabled'            => ! empty( $_POST['enabled'] ),
+			'pricing_mode'       => isset( $_POST['pricing_mode'] ) ? sanitize_key( wp_unslash( $_POST['pricing_mode'] ) ) : 'shared_price',
+			'primary_product_id' => isset( $_POST['primary_product_id'] ) ? absint( wp_unslash( $_POST['primary_product_id'] ) ) : 0,
+		);
+
+		if ( 'update_product_group' === $action ) {
+			if ( $group_id <= 0 || ! $this->repository->get_product_group( $group_id ) ) {
+				$this->redirect_to_tab( 'groups', 'product_group_not_found', array( 'lpm_notice_type' => 'error' ) );
+			}
+
+			$updated = $this->repository->update_product_group( $group_id, $data );
+			$this->repository->write_log( 'info', 'product_group_updated', __( 'Product group updated.', 'lilleprinsen-price-monitor' ), array( 'group_id' => $group_id ) );
+			$this->redirect_to_tab( 'groups', $updated ? 'product_group_updated' : 'product_group_update_failed', array( 'lpm_notice_type' => $updated ? 'success' : 'error', 'manage_group_id' => $group_id ) );
+		}
+
+		$new_id = $this->repository->create_product_group( $data );
+
+		if ( $new_id > 0 ) {
+			$this->repository->write_log( 'info', 'product_group_created', __( 'Product group created.', 'lilleprinsen-price-monitor' ), array( 'group_id' => $new_id ) );
+			$this->redirect_to_tab( 'groups', 'product_group_created', array( 'manage_group_id' => $new_id ) );
+		}
+
+		$this->redirect_to_tab( 'groups', 'product_group_create_failed', array( 'lpm_notice_type' => 'error' ) );
+	}
+
+	public function handle_product_group_action( string $action ): void {
+		$group_id = isset( $_POST['group_id'] ) ? absint( wp_unslash( $_POST['group_id'] ) ) : 0;
+
+		if ( $group_id <= 0 || ! $this->repository->get_product_group( $group_id ) ) {
+			$this->redirect_to_tab( 'groups', 'product_group_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		if ( 'delete_product_group' === $action ) {
+			$updated = $this->repository->delete_empty_product_group( $group_id );
+		} else {
+			$updated = $this->repository->set_product_group_enabled( $group_id, 'enable_product_group' === $action );
+		}
+
+		$this->repository->write_log( 'info', 'product_group_status_changed', __( 'Product group status changed.', 'lilleprinsen-price-monitor' ), array( 'group_id' => $group_id, 'action' => $action ) );
+		$this->redirect_to_tab( 'groups', $updated ? 'product_group_updated' : 'product_group_update_failed', array( 'lpm_notice_type' => $updated ? 'success' : 'error' ) );
+	}
+
+	public function handle_product_group_member_action( string $action ): void {
+		$group_id = isset( $_POST['group_id'] ) ? absint( wp_unslash( $_POST['group_id'] ) ) : 0;
+
+		if ( $group_id <= 0 || ! $this->repository->get_product_group( $group_id ) ) {
+			$this->redirect_to_tab( 'groups', 'product_group_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		if ( 'add_product_group_member' === $action ) {
+			$monitored_product_id = isset( $_POST['monitored_product_id'] ) ? absint( wp_unslash( $_POST['monitored_product_id'] ) ) : 0;
+			$role                 = isset( $_POST['role'] ) ? sanitize_key( wp_unslash( $_POST['role'] ) ) : 'member';
+			$member_id            = $this->repository->add_product_group_member( $group_id, $monitored_product_id, $role );
+
+			$this->repository->write_log( 'info', 'product_group_member_added', __( 'Product added to group.', 'lilleprinsen-price-monitor' ), array( 'group_id' => $group_id, 'monitored_product_id' => $monitored_product_id, 'member_id' => $member_id ) );
+			$this->redirect_to_tab( 'groups', $member_id > 0 ? 'product_group_member_added' : 'product_group_member_add_failed', array( 'lpm_notice_type' => $member_id > 0 ? 'success' : 'error', 'manage_group_id' => $group_id ) );
+		}
+
+		$member_id = isset( $_POST['member_id'] ) ? absint( wp_unslash( $_POST['member_id'] ) ) : 0;
+
+		if ( $member_id <= 0 ) {
+			$this->redirect_to_tab( 'groups', 'product_group_member_not_found', array( 'lpm_notice_type' => 'error', 'manage_group_id' => $group_id ) );
+		}
+
+		if ( 'remove_product_group_member' === $action ) {
+			$updated = $this->repository->remove_product_group_member( $member_id );
+		} elseif ( 'set_product_group_primary_member' === $action ) {
+			$product_id = isset( $_POST['product_id'] ) ? absint( wp_unslash( $_POST['product_id'] ) ) : 0;
+			$updated    = $this->repository->set_product_group_primary_member( $group_id, $product_id );
+		} else {
+			$updated = $this->repository->set_product_group_member_enabled( $member_id, 'enable_product_group_member' === $action );
+		}
+
+		$this->repository->write_log( 'info', 'product_group_member_changed', __( 'Product group member changed.', 'lilleprinsen-price-monitor' ), array( 'group_id' => $group_id, 'member_id' => $member_id, 'action' => $action ) );
+		$this->redirect_to_tab( 'groups', $updated ? 'product_group_member_updated' : 'product_group_member_update_failed', array( 'lpm_notice_type' => $updated ? 'success' : 'error', 'manage_group_id' => $group_id ) );
+	}
+
 	public function handle_bulk_competitor_links(): void {
 		$ids = $this->get_selected_ids_from_post( 'competitor_link_ids' );
 
@@ -1093,6 +1183,52 @@ final class AdminPage {
 			default:
 				$this->redirect_to_tab( 'import_export', 'export_type_invalid', array( 'lpm_notice_type' => 'error' ) );
 		}
+	}
+
+	public function render_groups(): void {
+		$page         = $this->get_positive_query_arg( 'lpm_groups_page', 1 );
+		$per_page     = (int) $this->settings->get( 'rows_per_page', 25 );
+		$groups       = $this->repository->get_product_groups( $page, $per_page );
+		$total        = $this->repository->count_product_groups();
+		$editing_id   = $this->get_positive_query_arg( 'group_id', 0 );
+		$editing      = $editing_id > 0 ? $this->repository->get_product_group( $editing_id ) : null;
+		$manage_id    = $this->get_positive_query_arg( 'manage_group_id', 0 );
+		$manage_group = $manage_id > 0 ? $this->repository->get_product_group( $manage_id ) : null;
+		?>
+		<div class="lpm-grid lpm-grid-two">
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<div>
+						<h2><?php echo esc_html( $editing ? __( 'Edit product group', 'lilleprinsen-price-monitor' ) : __( 'Create product group', 'lilleprinsen-price-monitor' ) ); ?></h2>
+						<p class="lpm-card-subtitle"><?php esc_html_e( 'Groups let related monitored products share pricing decisions without scanning the catalog.', 'lilleprinsen-price-monitor' ); ?></p>
+					</div>
+					<?php $this->render_status_pill( __( 'Admin only', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+				</div>
+				<?php $this->render_product_group_form( $editing ); ?>
+			</section>
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<h2><?php esc_html_e( 'Group safety', 'lilleprinsen-price-monitor' ); ?></h2>
+				</div>
+				<ul class="lpm-check-list">
+					<li><?php esc_html_e( 'A product can belong to one active group in this version.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php esc_html_e( 'Dry-run group approvals log affected products and never change WooCommerce prices.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php esc_html_e( 'Real group updates are intentionally not automatic and remain behind the existing confirmation flow.', 'lilleprinsen-price-monitor' ); ?></li>
+				</ul>
+			</section>
+		</div>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<h2><?php esc_html_e( 'Product groups', 'lilleprinsen-price-monitor' ); ?></h2>
+				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
+			</div>
+			<?php $this->render_product_groups_table( $groups ); ?>
+			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_groups_page', array( 'tab' => 'groups' ) ); ?>
+		</section>
+		<?php if ( $manage_group ) : ?>
+			<?php $this->render_product_group_members_panel( $manage_group ); ?>
+		<?php endif; ?>
+		<?php
 	}
 
 	public function handle_save_competitor_link( string $action ): void {
@@ -1422,6 +1558,21 @@ final class AdminPage {
 					);
 				}
 			}
+		}
+
+		if ( ! empty( $suggestion['applies_to_group'] ) && ! empty( $suggestion['group_id'] ) ) {
+			$members = $this->repository->get_product_group_members( (int) $suggestion['group_id'], true );
+			$this->repository->write_log(
+				'info',
+				'group_suggestion_approved_dry_run',
+				__( 'Dry-run group suggestion approval recorded. WooCommerce prices were not changed.', 'lilleprinsen-price-monitor' ),
+				array(
+					'suggestion_id' => (int) $suggestion['id'],
+					'group_id'      => (int) $suggestion['group_id'],
+					'member_product_ids' => wp_list_pluck( $members, 'product_id' ),
+				),
+				(int) $suggestion['product_id']
+			);
 		}
 
 		$this->repository->write_log(
@@ -1831,7 +1982,7 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_monitored_products_table( array $rows, array $link_counts ): void {
+	private function render_monitored_products_table( array $rows, array $link_counts, array $group_names = array() ): void {
 		if ( empty( $rows ) ) {
 			$this->render_empty_state( __( 'No products are monitored yet.', 'lilleprinsen-price-monitor' ) );
 			return;
@@ -1844,6 +1995,7 @@ final class AdminPage {
 					<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Group', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Priority', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Strategy', 'lilleprinsen-price-monitor' ); ?></th>
@@ -1868,6 +2020,13 @@ final class AdminPage {
 						</td>
 						<td><?php echo esc_html( (string) $row['product_id'] ); ?></td>
 						<td><?php echo esc_html( (string) ( $row['sku'] ?? '' ) ); ?></td>
+						<td>
+							<?php if ( ! empty( $group_names[ (int) $row['id'] ] ) ) : ?>
+								<?php $this->render_status_pill( (string) $group_names[ (int) $row['id'] ], 'ok' ); ?>
+							<?php else : ?>
+								<span class="lpm-muted"><?php esc_html_e( 'None', 'lilleprinsen-price-monitor' ); ?></span>
+							<?php endif; ?>
+						</td>
 						<td><?php $this->render_status_pill( ! empty( $row['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $row['enabled'] ) ? 'ok' : 'muted' ); ?></td>
 						<td><?php echo esc_html( (string) $row['priority'] ); ?></td>
 						<td><?php echo esc_html( (string) $row['strategy'] ); ?></td>
@@ -1881,6 +2040,7 @@ final class AdminPage {
 								<button type="button" class="button button-small" data-lpm-open-product="<?php echo esc_attr( (string) $row['id'] ); ?>"><?php esc_html_e( 'Details', 'lilleprinsen-price-monitor' ); ?></button>
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'monitored_product_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Manage competitors', 'lilleprinsen-price-monitor' ); ?></a>
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'products', 'edit_rules_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit rules', 'lilleprinsen-price-monitor' ); ?></a>
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'groups' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Add to group', 'lilleprinsen-price-monitor' ); ?></a>
 								<?php $this->render_monitored_action_form( (int) $row['id'], ! empty( $row['enabled'] ) ? 'disable_monitored' : 'enable_monitored', ! empty( $row['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
 								<?php $this->render_monitored_action_form( (int) $row['id'], 'remove_monitored', __( 'Remove', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
 							</div>
@@ -1939,6 +2099,207 @@ final class AdminPage {
 				<input type="number" min="0" step="0.01" name="bulk_min_price" />
 			</label>
 			<button type="submit" class="button button-primary"><?php esc_html_e( 'Apply to selected', 'lilleprinsen-price-monitor' ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_product_group_form( ?array $group ): void {
+		$is_edit = is_array( $group );
+		?>
+		<form method="post" class="lpm-stacked-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $is_edit ? 'update_product_group' : 'create_product_group' ); ?>" />
+			<?php if ( $is_edit ) : ?>
+				<input type="hidden" name="group_id" value="<?php echo esc_attr( (string) $group['id'] ); ?>" />
+			<?php endif; ?>
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Group name', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="group_name" required maxlength="191" value="<?php echo esc_attr( $is_edit ? (string) $group['name'] : '' ); ?>" />
+			</label>
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Description', 'lilleprinsen-price-monitor' ); ?></span>
+				<textarea name="description" rows="3"><?php echo esc_textarea( $is_edit ? (string) ( $group['description'] ?? '' ) : '' ); ?></textarea>
+			</label>
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Pricing mode', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="pricing_mode">
+					<?php foreach ( $this->get_group_pricing_mode_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( $is_edit ? (string) $group['pricing_mode'] : 'shared_price', $value ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Primary product ID', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="0" step="1" name="primary_product_id" value="<?php echo esc_attr( $is_edit ? (string) ( $group['primary_product_id'] ?? '' ) : '' ); ?>" />
+				<small><?php esc_html_e( 'Optional. You can also set primary from the members table.', 'lilleprinsen-price-monitor' ); ?></small>
+			</label>
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="enabled" value="0" />
+				<input type="checkbox" name="enabled" value="1" <?php checked( $is_edit ? ! empty( $group['enabled'] ) : true ); ?> />
+				<span><strong><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></strong></span>
+			</label>
+			<div class="lpm-form-actions">
+				<button type="submit" class="button button-primary"><?php echo esc_html( $is_edit ? __( 'Save group', 'lilleprinsen-price-monitor' ) : __( 'Create group', 'lilleprinsen-price-monitor' ) ); ?></button>
+				<?php if ( $is_edit ) : ?>
+					<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'groups' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Cancel edit', 'lilleprinsen-price-monitor' ); ?></a>
+				<?php endif; ?>
+			</div>
+		</form>
+		<?php
+	}
+
+	private function render_product_groups_table( array $groups ): void {
+		if ( empty( $groups ) ) {
+			$this->render_empty_state( __( 'No product groups have been created yet.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead><tr>
+				<th scope="col"><?php esc_html_e( 'Group name', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Pricing mode', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Primary product', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Products', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Last suggestion', 'lilleprinsen-price-monitor' ); ?></th>
+				<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
+			</tr></thead>
+			<tbody>
+				<?php foreach ( $groups as $group ) : ?>
+					<tr>
+						<td><strong><?php echo esc_html( (string) $group['name'] ); ?></strong><?php if ( ! empty( $group['description'] ) ) : ?><small><?php echo esc_html( $this->shorten_text( (string) $group['description'], 80 ) ); ?></small><?php endif; ?></td>
+						<td><?php $this->render_status_pill( ! empty( $group['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $group['enabled'] ) ? 'ok' : 'muted' ); ?></td>
+						<td><?php echo esc_html( $this->get_group_pricing_mode_label( (string) $group['pricing_mode'] ) ); ?></td>
+						<td><?php echo esc_html( ! empty( $group['primary_product_id'] ) ? (string) $group['primary_product_id'] : '—' ); ?></td>
+						<td><?php echo esc_html( number_format_i18n( (int) ( $group['member_count'] ?? 0 ) ) ); ?></td>
+						<td><?php echo esc_html( $this->format_datetime( $group['last_suggestion'] ?? null ) ); ?></td>
+						<td><div class="lpm-actions">
+							<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'groups', 'manage_group_id' => (int) $group['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Manage members', 'lilleprinsen-price-monitor' ); ?></a>
+							<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'groups', 'group_id' => (int) $group['id'], 'manage_group_id' => (int) $group['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit', 'lilleprinsen-price-monitor' ); ?></a>
+							<?php $this->render_product_group_action_form( (int) $group['id'], ! empty( $group['enabled'] ) ? 'disable_product_group' : 'enable_product_group', ! empty( $group['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
+							<?php $this->render_product_group_action_form( (int) $group['id'], 'delete_product_group', __( 'Delete if empty', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
+						</div></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_product_group_members_panel( array $group ): void {
+		$members  = $this->repository->get_product_group_members( (int) $group['id'] );
+		$query    = isset( $_GET['lpm_group_member_search'] ) ? sanitize_text_field( wp_unslash( $_GET['lpm_group_member_search'] ) ) : '';
+		$products = '' !== $query ? $this->product_search_service->search( $query, 20 ) : array();
+		?>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php printf( esc_html__( 'Members: %s', 'lilleprinsen-price-monitor' ), esc_html( (string) $group['name'] ) ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'Search monitored products by name, SKU or ID. Results are limited to 20.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->render_status_pill( $this->get_group_pricing_mode_label( (string) $group['pricing_mode'] ), 'muted' ); ?>
+			</div>
+			<form method="get" class="lpm-inline-form">
+				<input type="hidden" name="page" value="<?php echo esc_attr( self::SLUG ); ?>" />
+				<input type="hidden" name="tab" value="groups" />
+				<input type="hidden" name="manage_group_id" value="<?php echo esc_attr( (string) $group['id'] ); ?>" />
+				<input type="search" name="lpm_group_member_search" value="<?php echo esc_attr( $query ); ?>" placeholder="<?php esc_attr_e( 'Product name, SKU or ID', 'lilleprinsen-price-monitor' ); ?>" />
+				<button type="submit" class="button"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button>
+			</form>
+			<?php $this->render_product_group_member_search_results( (int) $group['id'], $products, $query ); ?>
+			<?php $this->render_product_group_members_table( (int) $group['id'], $members ); ?>
+		</section>
+		<?php
+	}
+
+	private function render_product_group_member_search_results( int $group_id, array $products, string $query ): void {
+		if ( '' === $query ) {
+			return;
+		}
+
+		$rows = array();
+		foreach ( $products as $product ) {
+			$monitored = $this->repository->get_monitored_product_by_product_id( (int) ( $product['id'] ?? 0 ) );
+			if ( $monitored ) {
+				$rows[] = array( 'product' => $product, 'monitored' => $monitored );
+			}
+		}
+		?>
+		<div class="lpm-results">
+			<h3><?php esc_html_e( 'Monitored product results', 'lilleprinsen-price-monitor' ); ?></h3>
+			<?php if ( empty( $rows ) ) : ?>
+				<p class="lpm-empty"><?php esc_html_e( 'No monitored products matched this search. Add the product to monitoring first.', 'lilleprinsen-price-monitor' ); ?></p>
+			<?php else : ?>
+				<table class="lpm-compact-table">
+					<thead><tr><th><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Price', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Action', 'lilleprinsen-price-monitor' ); ?></th></tr></thead>
+					<tbody>
+						<?php foreach ( $rows as $row ) : ?>
+							<tr>
+								<td><?php echo esc_html( (string) ( $row['product']['name'] ?? '' ) ); ?> <small><?php printf( esc_html__( 'ID %d', 'lilleprinsen-price-monitor' ), (int) $row['product']['id'] ); ?></small></td>
+								<td><?php echo esc_html( (string) ( $row['product']['sku'] ?? '' ) ); ?></td>
+								<td><?php echo wp_kses_post( (string) ( $row['product']['price_html'] ?? '—' ) ); ?></td>
+								<td><?php $this->render_product_group_member_action_form( $group_id, 0, 'add_product_group_member', __( 'Add member', 'lilleprinsen-price-monitor' ), '', (int) $row['monitored']['id'], (int) $row['monitored']['product_id'] ); ?></td>
+							</tr>
+						<?php endforeach; ?>
+					</tbody>
+				</table>
+			<?php endif; ?>
+		</div>
+		<?php
+	}
+
+	private function render_product_group_members_table( int $group_id, array $members ): void {
+		if ( empty( $members ) ) {
+			$this->render_empty_state( __( 'No products have been added to this group yet.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead><tr><th><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Role', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Min price', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th></tr></thead>
+			<tbody>
+				<?php foreach ( $members as $member ) : ?>
+					<?php $product = $this->get_product( (int) $member['product_id'] ); ?>
+					<tr>
+						<td><?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $member['product_id'] ) ); ?> <small><?php echo esc_html( (string) $member['product_id'] ); ?></small></td>
+						<td><?php echo esc_html( (string) ( $member['sku'] ?? '' ) ); ?></td>
+						<td><?php $this->render_status_pill( 'primary' === (string) $member['role'] ? __( 'Primary', 'lilleprinsen-price-monitor' ) : __( 'Member', 'lilleprinsen-price-monitor' ), 'primary' === (string) $member['role'] ? 'ok' : 'muted' ); ?></td>
+						<td><?php $this->render_status_pill( ! empty( $member['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $member['enabled'] ) ? 'ok' : 'muted' ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $member['min_price'] ?? null ) ); ?></td>
+						<td><div class="lpm-actions">
+							<?php if ( 'primary' !== (string) $member['role'] ) : ?>
+								<?php $this->render_product_group_member_action_form( $group_id, (int) $member['id'], 'set_product_group_primary_member', __( 'Set primary', 'lilleprinsen-price-monitor' ), '', 0, (int) $member['product_id'] ); ?>
+							<?php endif; ?>
+							<?php $this->render_product_group_member_action_form( $group_id, (int) $member['id'], ! empty( $member['enabled'] ) ? 'disable_product_group_member' : 'enable_product_group_member', ! empty( $member['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
+							<?php $this->render_product_group_member_action_form( $group_id, (int) $member['id'], 'remove_product_group_member', __( 'Remove', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
+						</div></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_product_group_action_form( int $group_id, string $action, string $label, string $class = '' ): void {
+		?>
+		<form method="post" class="lpm-inline-action">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
+			<input type="hidden" name="group_id" value="<?php echo esc_attr( (string) $group_id ); ?>" />
+			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_product_group_member_action_form( int $group_id, int $member_id, string $action, string $label, string $class = '', int $monitored_product_id = 0, int $product_id = 0 ): void {
+		?>
+		<form method="post" class="lpm-inline-action">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
+			<input type="hidden" name="group_id" value="<?php echo esc_attr( (string) $group_id ); ?>" />
+			<?php if ( $member_id > 0 ) : ?><input type="hidden" name="member_id" value="<?php echo esc_attr( (string) $member_id ); ?>" /><?php endif; ?>
+			<?php if ( $monitored_product_id > 0 ) : ?><input type="hidden" name="monitored_product_id" value="<?php echo esc_attr( (string) $monitored_product_id ); ?>" /><input type="hidden" name="role" value="member" /><?php endif; ?>
+			<?php if ( $product_id > 0 ) : ?><input type="hidden" name="product_id" value="<?php echo esc_attr( (string) $product_id ); ?>" /><?php endif; ?>
+			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
 		</form>
 		<?php
 	}
@@ -2622,7 +2983,7 @@ final class AdminPage {
 					<?php
 					$product    = $this->get_product( (int) $suggestion['product_id'] );
 					$can_review = in_array( (string) $suggestion['status'], array( 'pending', 'blocked' ), true );
-					$can_real_update = $can_review && 'pending' === (string) $suggestion['status'] && $real_updates_enabled && $this->suggestion_type_allows_real_update( (string) $suggestion['suggestion_type'], $settings );
+					$can_real_update = $can_review && empty( $suggestion['applies_to_group'] ) && 'pending' === (string) $suggestion['status'] && $real_updates_enabled && $this->suggestion_type_allows_real_update( (string) $suggestion['suggestion_type'], $settings );
 					?>
 					<tr>
 						<td>
@@ -2634,7 +2995,24 @@ final class AdminPage {
 								</span>
 							</div>
 						</td>
-						<td><?php echo esc_html( $this->get_suggestion_type_label( (string) $suggestion['suggestion_type'] ) ); ?></td>
+						<td>
+							<?php echo esc_html( $this->get_suggestion_type_label( (string) $suggestion['suggestion_type'] ) ); ?>
+							<?php if ( ! empty( $suggestion['applies_to_group'] ) ) : ?>
+								<div class="lpm-inline-meta">
+									<?php $this->render_status_pill( __( 'Group', 'lilleprinsen-price-monitor' ), 'warning' ); ?>
+									<small>
+										<?php
+										printf(
+											/* translators: 1: group name, 2: member count. */
+											esc_html__( '%1$s, %2$d products', 'lilleprinsen-price-monitor' ),
+											esc_html( (string) ( $suggestion['group_name'] ?? __( 'Price group', 'lilleprinsen-price-monitor' ) ) ),
+											(int) ( $suggestion['group_member_count'] ?? 0 )
+										);
+										?>
+									</small>
+								</div>
+							<?php endif; ?>
+						</td>
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['current_price'], $currency ) ); ?></td>
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['competitor_price'], $currency ) ); ?></td>
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['suggested_price'], $currency ) ); ?></td>
@@ -2658,7 +3036,7 @@ final class AdminPage {
 									<?php if ( $can_real_update ) : ?>
 										<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_confirm_update' => (int) $suggestion['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Approve and update price', 'lilleprinsen-price-monitor' ); ?></a>
 									<?php else : ?>
-										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ), '', 'data-lpm-approve-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
+										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', ! empty( $suggestion['applies_to_group'] ) ? __( 'Approve dry-run for group', 'lilleprinsen-price-monitor' ) : __( 'Approve dry-run', 'lilleprinsen-price-monitor' ), '', 'data-lpm-approve-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
 									<?php endif; ?>
 									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'reject_suggestion', __( 'Reject', 'lilleprinsen-price-monitor' ), 'link-delete', 'data-lpm-reject-suggestion="' . esc_attr( (string) $suggestion['id'] ) . '"' ); ?>
 								<?php endif; ?>
@@ -3594,6 +3972,23 @@ final class AdminPage {
 	/**
 	 * @return array<string, string>
 	 */
+	private function get_group_pricing_mode_options(): array {
+		return array(
+			'shared_price'                   => __( 'Shared price', 'lilleprinsen-price-monitor' ),
+			'primary_product_controls_group' => __( 'Primary product controls group', 'lilleprinsen-price-monitor' ),
+			'manual_review_only'             => __( 'Manual review only', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	private function get_group_pricing_mode_label( string $mode ): string {
+		$options = $this->get_group_pricing_mode_options();
+
+		return $options[ $mode ] ?? $options['shared_price'];
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
 	private function get_rounding_mode_options(): array {
 		return array(
 			'none'        => __( 'None', 'lilleprinsen-price-monitor' ),
@@ -4064,6 +4459,17 @@ final class AdminPage {
 			'bulk_no_selection'               => __( 'Select at least one row before applying a bulk action.', 'lilleprinsen-price-monitor' ),
 			'bulk_action_invalid'             => __( 'Bulk action is invalid.', 'lilleprinsen-price-monitor' ),
 			'bulk_action_completed'           => __( 'Bulk action completed.', 'lilleprinsen-price-monitor' ),
+			'product_group_name_required'     => __( 'Product group name is required.', 'lilleprinsen-price-monitor' ),
+			'product_group_created'           => __( 'Product group created.', 'lilleprinsen-price-monitor' ),
+			'product_group_create_failed'     => __( 'Could not create product group.', 'lilleprinsen-price-monitor' ),
+			'product_group_updated'           => __( 'Product group updated.', 'lilleprinsen-price-monitor' ),
+			'product_group_update_failed'     => __( 'Could not update product group.', 'lilleprinsen-price-monitor' ),
+			'product_group_not_found'         => __( 'Product group was not found.', 'lilleprinsen-price-monitor' ),
+			'product_group_member_added'      => __( 'Product added to group.', 'lilleprinsen-price-monitor' ),
+			'product_group_member_add_failed' => __( 'Could not add product to group. It may already belong to another active group.', 'lilleprinsen-price-monitor' ),
+			'product_group_member_not_found'  => __( 'Product group member was not found.', 'lilleprinsen-price-monitor' ),
+			'product_group_member_updated'    => __( 'Product group member updated.', 'lilleprinsen-price-monitor' ),
+			'product_group_member_update_failed' => __( 'Could not update product group member.', 'lilleprinsen-price-monitor' ),
 			'csv_import_preview_failed'       => __( 'Could not preview CSV import.', 'lilleprinsen-price-monitor' ),
 			'csv_import_preview_ready'        => __( 'CSV import preview is ready.', 'lilleprinsen-price-monitor' ),
 			'csv_import_preview_missing'      => __( 'CSV import preview expired or was not found.', 'lilleprinsen-price-monitor' ),

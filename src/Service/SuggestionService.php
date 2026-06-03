@@ -81,9 +81,23 @@ final class SuggestionService {
 		$reason          = $this->merge_reasons( (string) $base_plan['reason'], (string) $rule['reason'] );
 		$suggested_price = (float) $rule['suggested_price'];
 		$rule_details    = $rule['rule_details'];
+		$group_context   = $this->get_group_context( $monitored_product, $suggested_price );
 
 		if ( $active_session && $this->is_recovery_suggestion_type( $suggestion_type ) ) {
 			$rule_details['recovery_session'] = $this->get_recovery_session_summary( $active_session );
+		}
+
+		if ( $group_context ) {
+			if ( ! empty( $group_context['skip'] ) ) {
+				return $this->skipped( (string) $group_context['reason'] );
+			}
+
+			$rule_details['product_group'] = $group_context['details'];
+			$reason = $this->merge_reasons( $reason, (string) $group_context['reason'] );
+
+			if ( 'manual_review_only' === (string) $group_context['pricing_mode'] ) {
+				$suggestion_type = 'manual_review';
+			}
 		}
 
 		$suggestion      = array(
@@ -101,6 +115,12 @@ final class SuggestionService {
 			'rule_details'         => $rule_details,
 			'warnings'             => $rule['warnings'],
 		);
+
+		if ( $group_context ) {
+			$suggestion['group_id']            = (int) $group_context['group_id'];
+			$suggestion['applies_to_group']    = 1;
+			$suggestion['group_action_status'] = 'pending';
+		}
 
 		$suggestion_id = $this->repository->create_price_suggestion( $suggestion );
 
@@ -233,6 +253,68 @@ final class SuggestionService {
 			'matched_at'                 => $session['matched_at'] ?? null,
 			'recovery_strategy'          => $session['recovery_strategy'] ?? null,
 			'last_lowest_competitor_price' => $session['last_lowest_competitor_price'] ?? null,
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $monitored_product Monitored product row.
+	 * @return array<string, mixed>|null
+	 */
+	private function get_group_context( array $monitored_product, float $suggested_price ): ?array {
+		$group = $this->repository->get_active_product_group_for_monitored_product( (int) $monitored_product['id'] );
+
+		if ( ! $group ) {
+			return null;
+		}
+
+		$members      = $this->repository->get_product_group_members( (int) $group['id'], true );
+		$pricing_mode = (string) ( $group['pricing_mode'] ?? 'shared_price' );
+
+		if ( 'primary_product_controls_group' === $pricing_mode && ! empty( $group['primary_product_id'] ) && (int) $group['primary_product_id'] !== (int) $monitored_product['product_id'] ) {
+			return array(
+				'skip'         => true,
+				'reason'       => __( 'This product belongs to a primary-controlled group, and only the primary product may drive group suggestions.', 'lilleprinsen-price-monitor' ),
+				'group_id'     => (int) $group['id'],
+				'pricing_mode' => $pricing_mode,
+			);
+		}
+
+		$warnings = array();
+
+		foreach ( $members as $member ) {
+			if ( $suggested_price <= 0 ) {
+				$warnings[] = sprintf(
+					/* translators: %d: product ID. */
+					__( 'Product %d has an invalid suggested price.', 'lilleprinsen-price-monitor' ),
+					(int) $member['product_id']
+				);
+			}
+
+			if ( isset( $member['min_price'] ) && '' !== (string) $member['min_price'] && $suggested_price < (float) $member['min_price'] ) {
+				$warnings[] = sprintf(
+					/* translators: 1: product ID, 2: minimum price. */
+					__( 'Product %1$d has a minimum price of %2$s.', 'lilleprinsen-price-monitor' ),
+					(int) $member['product_id'],
+					(string) $member['min_price']
+				);
+			}
+		}
+
+		return array(
+			'skip'         => false,
+			'group_id'     => (int) $group['id'],
+			'pricing_mode' => $pricing_mode,
+			'reason'       => 'manual_review_only' === $pricing_mode
+				? __( 'This product belongs to a manual-review-only group. The suggestion is marked for manual review before any group action.', 'lilleprinsen-price-monitor' )
+				: __( 'This product belongs to a price group. The suggestion is marked as group-aware and should be reviewed for all enabled members.', 'lilleprinsen-price-monitor' ),
+			'details'      => array(
+				'group_id'       => (int) $group['id'],
+				'group_name'     => (string) ( $group['name'] ?? '' ),
+				'pricing_mode'   => $pricing_mode,
+				'member_count'   => count( $members ),
+				'primary_product_id' => isset( $group['primary_product_id'] ) ? (int) $group['primary_product_id'] : 0,
+				'warnings'       => $warnings,
+			),
 		);
 	}
 

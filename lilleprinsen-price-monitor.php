@@ -73,4 +73,12 @@ if ( ( function_exists( 'is_admin' ) && is_admin() ) || ( function_exists( 'wp_d
 			Lilleprinsen\PriceMonitor\Plugin::instance()->init();
 		}
 	);
+} else {
+	add_action(
+		'plugins_loaded',
+		static function (): void {
+			$frontend = new Lilleprinsen\PriceMonitor\Frontend\FrontendPlugin();
+			$frontend->init();
+		}
+	);
 }

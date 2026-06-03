@@ -51,6 +51,22 @@ final class AdminActionHandler {
 			case 'bulk_monitored_products':
 				$this->page->handle_bulk_monitored_products();
 				break;
+			case 'create_product_group':
+			case 'update_product_group':
+				$this->page->handle_save_product_group( $action );
+				break;
+			case 'enable_product_group':
+			case 'disable_product_group':
+			case 'delete_product_group':
+				$this->page->handle_product_group_action( $action );
+				break;
+			case 'add_product_group_member':
+			case 'enable_product_group_member':
+			case 'disable_product_group_member':
+			case 'remove_product_group_member':
+			case 'set_product_group_primary_member':
+				$this->page->handle_product_group_member_action( $action );
+				break;
 			case 'add_competitor_link':
 			case 'update_competitor_link':
 				$this->page->handle_save_competitor_link( $action );

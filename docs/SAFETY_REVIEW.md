@@ -4,13 +4,16 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 
 ## Current Guardrails
 
-- No frontend hooks are registered. The plugin coordinator initializes only in admin, cron, or WP-CLI contexts.
+- The heavy plugin coordinator initializes only in admin, cron, or WP-CLI contexts.
+- Optional frontend hooks exist only for the settings-gated price-match box and coupon exclusion. They do not run competitor checks, external HTTP requests, product scans, observation queries, suggestion creation, or price calculations.
+- Frontend display uses cached product flags first and only a simple indexed active-session lookup as fallback on single product pages.
 - Admin assets load only when `page=lilleprinsen-price-monitor`.
 - WooCommerce product search runs only after an admin submits a search query.
 - Product search is bounded to 20 results and uses exact ID lookup, SKU lookup, or a limited title query.
 - No full product catalog or order catalog scan is performed.
 - Admin lists are paginated and use repository methods with explicit limits.
 - Monitoring data is stored in custom `lpm_*` tables instead of `wp_postmeta`.
+- Product groups are stored in `lpm_product_groups` and `lpm_product_group_members`; group-aware suggestion metadata is stored in `lpm_price_suggestions`.
 - Manual competitor checks fetch one admin-selected competitor URL at a time.
 - Competitor profiles can configure extraction rules, but selector support is limited and dependency-free.
 - Profiles marked as requiring JavaScript return a clear warning; no browser scraper or anti-bot bypass is implemented.
@@ -28,12 +31,14 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - WhatsApp settings are placeholders only. No direct Meta/Twilio WhatsApp provider call is implemented.
 - Notification review links point to normal authenticated WordPress admin URLs.
 - Tokenized approve/reject links are disabled by default, expire, are one-time use, and store only token hashes.
-- Tokenized links can only approve dry-run suggestions or reject suggestions. They cannot approve real WooCommerce price updates.
+- Tokenized links can approve dry-run suggestions, reject suggestions, or record webhook action-link choices that adjust the stored suggested price before dry-run approval.
+- Tokenized action links cannot approve real WooCommerce price updates.
 - Real WooCommerce price updates are blocked by default.
 - Real updates require dry-run mode off, emergency disable off, explicit allow setting on, manual approval, explicit confirmation, allowed suggestion type, positive price, unchanged product snapshot, and max-drop validation.
 - Unauthenticated links cannot perform real WooCommerce price updates.
 - Real updates use WooCommerce CRUD APIs, not direct SQL price metadata writes.
 - Retention cleanup is manual/admin-only or WP-CLI-invoked. It deletes old debug/operational logs, observations, and old used/expired token rows while preserving approval/update audit logs.
+- Coupon exclusion for price-matched products filters coupon discount amounts only; it does not change product prices in the cart.
 
 ## Review Notes
 
@@ -41,7 +46,7 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 
 `PriceCheckService` uses external HTTP only for manual checks or bounded job batches. There is no crawler, link discovery, or automatic all-product scan.
 
-`PriceUpdateService` contains real update code, but it is guarded by settings and confirmation. The default settings keep it unavailable.
+`PriceUpdateService` contains real update code, but it is guarded by settings and confirmation. The default settings keep it unavailable. Group suggestions are excluded from the real-update button path in this version; dry-run group approval logs affected members only.
 
 ## Known Risks And TODOs
 
@@ -53,4 +58,6 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
 - Direct WhatsApp delivery remains future work; webhook payloads can be forwarded by Make/Zapier.
+- Real multi-product group update confirmation is future work. Any future implementation must validate every member, use WooCommerce CRUD, and keep partial updates disabled by default.
+- Price-match frontend display depends on cached product flags or active session rows. Staging should confirm cache state is set/cleared as expected before enabling the customer-facing box.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.

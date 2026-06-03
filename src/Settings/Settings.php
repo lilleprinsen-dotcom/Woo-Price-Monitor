@@ -53,6 +53,7 @@ final class Settings {
 			'max_allowed_price_increase_percent' => 50,
 			'block_suggestions_for_sale_products' => 0,
 			'block_suggestions_for_out_of_stock_products' => 0,
+			'allow_partial_group_price_updates' => 0,
 			'require_manual_approval'         => 1,
 			'disable_all_price_updates'       => 1,
 			'allow_real_price_updates'        => 0,
@@ -86,6 +87,27 @@ final class Settings {
 			'allow_token_dry_run_approval_links' => 0,
 			'token_link_expiry_hours'         => 24,
 			'token_retention_days'            => 30,
+			'whatsapp_action_links_enabled'   => 0,
+			'whatsapp_action_link_expiry_hours' => 24,
+			'allow_token_match_price_dry_run' => 1,
+			'allow_token_match_price_minus_1_dry_run' => 1,
+			'allow_token_reject'              => 1,
+			'allow_unauthenticated_real_price_update_from_token' => 0,
+			'price_match_box_enabled'         => 0,
+			'price_match_box_show_on_product_page' => 1,
+			'price_match_box_show_on_loop'    => 0,
+			'price_match_box_position'        => 'below_price',
+			'price_match_box_text'            => '⭐ Prismatch: Denne varen er matchet mot våre nærmeste konkurrenter.',
+			'price_match_box_subtext'         => 'Rabattkoder kan ikke brukes på prismatch.',
+			'price_match_box_emoji'           => '⭐',
+			'price_match_box_use_theme_color' => 1,
+			'price_match_box_background_color' => '',
+			'price_match_box_text_color'      => '',
+			'price_match_box_border_color'    => '',
+			'price_match_box_border_radius'   => 10,
+			'price_match_box_hide_if_no_active_match' => 1,
+			'price_match_box_show_for_group_matches' => 1,
+			'disable_coupons_for_price_matched_products' => 1,
 			'rows_per_page'                   => 25,
 		);
 	}
@@ -185,6 +207,7 @@ final class Settings {
 			'max_allowed_price_increase_percent' => $this->sanitize_decimal_between( $settings['max_allowed_price_increase_percent'] ?? $defaults['max_allowed_price_increase_percent'], 0, 1000, (float) $defaults['max_allowed_price_increase_percent'] ),
 			'block_suggestions_for_sale_products' => $this->sanitize_bool( $settings['block_suggestions_for_sale_products'] ?? $defaults['block_suggestions_for_sale_products'] ),
 			'block_suggestions_for_out_of_stock_products' => $this->sanitize_bool( $settings['block_suggestions_for_out_of_stock_products'] ?? $defaults['block_suggestions_for_out_of_stock_products'] ),
+			'allow_partial_group_price_updates' => $this->sanitize_bool( $settings['allow_partial_group_price_updates'] ?? $defaults['allow_partial_group_price_updates'] ),
 			'require_manual_approval'         => $this->sanitize_bool( $settings['require_manual_approval'] ?? $defaults['require_manual_approval'] ),
 			'disable_all_price_updates'       => $this->sanitize_bool( $settings['disable_all_price_updates'] ?? $defaults['disable_all_price_updates'] ),
 			'allow_real_price_updates'        => $this->sanitize_bool( $settings['allow_real_price_updates'] ?? $defaults['allow_real_price_updates'] ),
@@ -271,6 +294,31 @@ final class Settings {
 			'allow_token_dry_run_approval_links' => $this->sanitize_bool( $settings['allow_token_dry_run_approval_links'] ?? $defaults['allow_token_dry_run_approval_links'] ),
 			'token_link_expiry_hours'         => $this->sanitize_int( $settings['token_link_expiry_hours'] ?? $defaults['token_link_expiry_hours'], 1, 168, (int) $defaults['token_link_expiry_hours'] ),
 			'token_retention_days'            => $this->sanitize_int( $settings['token_retention_days'] ?? $defaults['token_retention_days'], 1, 3650, (int) $defaults['token_retention_days'] ),
+			'whatsapp_action_links_enabled'   => $this->sanitize_bool( $settings['whatsapp_action_links_enabled'] ?? $defaults['whatsapp_action_links_enabled'] ),
+			'whatsapp_action_link_expiry_hours' => $this->sanitize_int( $settings['whatsapp_action_link_expiry_hours'] ?? $defaults['whatsapp_action_link_expiry_hours'], 1, 168, (int) $defaults['whatsapp_action_link_expiry_hours'] ),
+			'allow_token_match_price_dry_run' => $this->sanitize_bool( $settings['allow_token_match_price_dry_run'] ?? $defaults['allow_token_match_price_dry_run'] ),
+			'allow_token_match_price_minus_1_dry_run' => $this->sanitize_bool( $settings['allow_token_match_price_minus_1_dry_run'] ?? $defaults['allow_token_match_price_minus_1_dry_run'] ),
+			'allow_token_reject'              => $this->sanitize_bool( $settings['allow_token_reject'] ?? $defaults['allow_token_reject'] ),
+			'allow_unauthenticated_real_price_update_from_token' => $this->sanitize_bool( $settings['allow_unauthenticated_real_price_update_from_token'] ?? $defaults['allow_unauthenticated_real_price_update_from_token'] ),
+			'price_match_box_enabled'         => $this->sanitize_bool( $settings['price_match_box_enabled'] ?? $defaults['price_match_box_enabled'] ),
+			'price_match_box_show_on_product_page' => $this->sanitize_bool( $settings['price_match_box_show_on_product_page'] ?? $defaults['price_match_box_show_on_product_page'] ),
+			'price_match_box_show_on_loop'    => $this->sanitize_bool( $settings['price_match_box_show_on_loop'] ?? $defaults['price_match_box_show_on_loop'] ),
+			'price_match_box_position'        => $this->sanitize_choice(
+				$settings['price_match_box_position'] ?? $defaults['price_match_box_position'],
+				array( 'below_price', 'below_add_to_cart', 'product_summary_bottom' ),
+				(string) $defaults['price_match_box_position']
+			),
+			'price_match_box_text'            => $this->sanitize_limited_text_setting( $settings['price_match_box_text'] ?? $defaults['price_match_box_text'], 220, (string) $defaults['price_match_box_text'] ),
+			'price_match_box_subtext'         => $this->sanitize_limited_text_setting( $settings['price_match_box_subtext'] ?? $defaults['price_match_box_subtext'], 220, (string) $defaults['price_match_box_subtext'] ),
+			'price_match_box_emoji'           => $this->sanitize_limited_text_setting( $settings['price_match_box_emoji'] ?? $defaults['price_match_box_emoji'], 12, (string) $defaults['price_match_box_emoji'] ),
+			'price_match_box_use_theme_color' => $this->sanitize_bool( $settings['price_match_box_use_theme_color'] ?? $defaults['price_match_box_use_theme_color'] ),
+			'price_match_box_background_color' => $this->sanitize_color_or_empty( $settings['price_match_box_background_color'] ?? $defaults['price_match_box_background_color'] ),
+			'price_match_box_text_color'      => $this->sanitize_color_or_empty( $settings['price_match_box_text_color'] ?? $defaults['price_match_box_text_color'] ),
+			'price_match_box_border_color'    => $this->sanitize_color_or_empty( $settings['price_match_box_border_color'] ?? $defaults['price_match_box_border_color'] ),
+			'price_match_box_border_radius'   => $this->sanitize_int( $settings['price_match_box_border_radius'] ?? $defaults['price_match_box_border_radius'], 0, 40, (int) $defaults['price_match_box_border_radius'] ),
+			'price_match_box_hide_if_no_active_match' => $this->sanitize_bool( $settings['price_match_box_hide_if_no_active_match'] ?? $defaults['price_match_box_hide_if_no_active_match'] ),
+			'price_match_box_show_for_group_matches' => $this->sanitize_bool( $settings['price_match_box_show_for_group_matches'] ?? $defaults['price_match_box_show_for_group_matches'] ),
+			'disable_coupons_for_price_matched_products' => $this->sanitize_bool( $settings['disable_coupons_for_price_matched_products'] ?? $defaults['disable_coupons_for_price_matched_products'] ),
 			'rows_per_page'                   => $this->sanitize_int( $settings['rows_per_page'] ?? $defaults['rows_per_page'], 1, 200, (int) $defaults['rows_per_page'] ),
 		);
 	}
@@ -368,6 +416,38 @@ final class Settings {
 		$secret = sanitize_text_field( (string) $value );
 
 		return substr( trim( $secret ), 0, 255 );
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_limited_text_setting( $value, int $max_length, string $fallback ): string {
+		$text = trim( sanitize_text_field( (string) $value ) );
+
+		if ( '' === $text ) {
+			return $fallback;
+		}
+
+		return substr( $text, 0, $max_length );
+	}
+
+	/**
+	 * @param mixed $value Raw color.
+	 */
+	private function sanitize_color_or_empty( $value ): string {
+		$color = trim( sanitize_text_field( (string) $value ) );
+
+		if ( '' === $color ) {
+			return '';
+		}
+
+		if ( function_exists( 'sanitize_hex_color' ) ) {
+			$hex = sanitize_hex_color( $color );
+
+			return is_string( $hex ) ? $hex : '';
+		}
+
+		return preg_match( '/^#[0-9A-Fa-f]{3,6}$/', $color ) ? $color : '';
 	}
 
 	/**
