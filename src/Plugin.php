@@ -18,6 +18,7 @@ use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
+use Lilleprinsen\PriceMonitor\Cli\Command as CliCommand;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
@@ -25,6 +26,7 @@ use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
 use Lilleprinsen\PriceMonitor\Service\PricingRuleService;
+use Lilleprinsen\PriceMonitor\Service\RetentionService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
@@ -67,10 +69,13 @@ final class Plugin {
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );
 		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
 		$job_scheduler        = new JobScheduler( $settings, $check_job, $repository );
+		$retention_service    = new RetentionService( $repository, $settings );
 		$product_search       = new ProductSearchService( $repository );
 		$notice_store         = new AdminNoticeStore();
 		$csv_import           = new CsvImportService( $repository );
-		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import );
+		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service );
+
+		$this->maybe_upgrade_schema_for_non_admin_runtime();
 
 		add_action( 'admin_init', array( Schema::class, 'maybe_upgrade' ) );
 		add_action( 'admin_init', array( $settings, 'handle_settings_save' ) );
@@ -79,6 +84,7 @@ final class Plugin {
 		add_action( 'admin_notices', array( new Notices(), 'render' ) );
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );
 		$job_scheduler->register();
+		$this->register_cli( $settings, $repository, $check_job, $retention_service );
 	}
 
 	public static function can_manage(): bool {
@@ -91,6 +97,25 @@ final class Plugin {
 
 	public static function is_woocommerce_active(): bool {
 		return class_exists( 'WooCommerce' ) || function_exists( 'WC' );
+	}
+
+	private function register_cli( Settings $settings, Repository $repository, CheckCompetitorLinkJob $check_job, RetentionService $retention_service ): void {
+		if ( ! defined( 'WP_CLI' ) || ! WP_CLI || ! class_exists( '\WP_CLI' ) ) {
+			return;
+		}
+
+		\WP_CLI::add_command( 'lpm', new CliCommand( $settings, $repository, $check_job, $retention_service ) );
+	}
+
+	private function maybe_upgrade_schema_for_non_admin_runtime(): void {
+		$is_cli  = defined( 'WP_CLI' ) && WP_CLI;
+		$is_cron = function_exists( 'wp_doing_cron' ) && wp_doing_cron();
+
+		if ( ! $is_cli && ! $is_cron ) {
+			return;
+		}
+
+		Schema::maybe_upgrade();
 	}
 
 	private function __construct() {}

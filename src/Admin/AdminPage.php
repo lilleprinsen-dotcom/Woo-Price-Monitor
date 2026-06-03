@@ -9,6 +9,7 @@ namespace Lilleprinsen\PriceMonitor\Admin;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
+use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
@@ -17,6 +18,7 @@ use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
+use Lilleprinsen\PriceMonitor\Service\RetentionService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
@@ -55,7 +57,9 @@ final class AdminPage {
 
 	private CsvImportService $csv_import_service;
 
-	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null ) {
+	private RetentionService $retention_service;
+
+	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null, ?RetentionService $retention_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
 		$this->price_check_service    = $price_check_service ?? new PriceCheckService( null, $repository );
@@ -67,6 +71,7 @@ final class AdminPage {
 		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
 		$this->notice_store           = $notice_store ?? new AdminNoticeStore();
 		$this->csv_import_service     = $csv_import_service ?? new CsvImportService( $repository );
+		$this->retention_service      = $retention_service ?? new RetentionService( $repository, $settings );
 	}
 
 	public function handle_actions(): void {
@@ -155,6 +160,9 @@ final class AdminPage {
 				break;
 			case 'send_test_webhook':
 				$this->handle_send_test_webhook();
+				break;
+			case 'run_retention_cleanup':
+				$this->handle_run_retention_cleanup();
 				break;
 			case 'approve_and_update_price':
 				$this->handle_approve_and_update_price();
@@ -284,6 +292,8 @@ final class AdminPage {
 	 * @param array<string, mixed> $table_status Schema status.
 	 */
 	public function render_dashboard( array $counts, array $settings, array $table_status, bool $woocommerce_active ): void {
+		$lock_status     = CheckCompetitorLinkJob::get_lock_status();
+		$health_warnings = $this->get_health_warnings( $counts, $settings, $woocommerce_active, $lock_status );
 		?>
 		<div class="lpm-grid lpm-grid-summary">
 			<?php
@@ -296,6 +306,19 @@ final class AdminPage {
 			$this->render_summary_card( __( 'Failed checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['failed_checks_last_24h'], __( 'Observation failures', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Recent failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Last 7 days', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Active price match sessions', 'lilleprinsen-price-monitor' ), $counts['active_price_match_sessions'], __( 'Dry-run recovery state', 'lilleprinsen-price-monitor' ) );
+			?>
+		</div>
+
+		<div class="lpm-grid lpm-grid-summary">
+			<?php
+			$this->render_health_card( __( 'Last check time', 'lilleprinsen-price-monitor' ), $this->format_datetime( $counts['last_successful_check_time'] ?? null ), __( 'Latest successful observation', 'lilleprinsen-price-monitor' ), '' !== (string) ( $counts['last_successful_check_time'] ?? '' ) ? 'ok' : 'muted' );
+			$this->render_health_card( __( 'Batch lock', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? __( 'Locked', 'lilleprinsen-price-monitor' ) : __( 'Free', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['source'] ) ? sprintf( __( 'Source: %s', 'lilleprinsen-price-monitor' ), (string) $lock_status['source'] ) : __( 'Transient lock status', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? 'warning' : 'ok' );
+			$this->render_health_card( __( 'Scheduled checks', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Opt-in background work', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' );
+			$this->render_health_card( __( 'Real updates', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? __( 'Possible', 'lilleprinsen-price-monitor' ) : __( 'Impossible', 'lilleprinsen-price-monitor' ), __( 'Requires all guardrails', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' );
+			$this->render_health_card( __( 'Webhook notifications', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Make/Zapier channel', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' );
+			$this->render_health_card( __( 'Rate limiting', 'lilleprinsen-price-monitor' ), __( 'Profile delay', 'lilleprinsen-price-monitor' ), __( 'Respected during batch selection', 'lilleprinsen-price-monitor' ), 'ok' );
+			$this->render_health_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['pending_suggestions'] ), __( 'Pricing inbox', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] > 0 ? 'warning' : 'ok' );
+			$this->render_health_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['blocked_suggestions'] ), __( 'Safety review', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] > 0 ? 'danger' : 'ok' );
 			?>
 		</div>
 
@@ -349,10 +372,13 @@ final class AdminPage {
 				</div>
 				<p><?php esc_html_e( 'Manual checks and dry-run suggestions surface here before any real price update workflow exists.', 'lilleprinsen-price-monitor' ); ?></p>
 				<ul class="lpm-check-list">
-					<li><?php printf( esc_html__( '%d pending suggestions are waiting in the pricing inbox.', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] ); ?></li>
-					<li><?php printf( esc_html__( '%d blocked suggestions need a manual safety review.', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] ); ?></li>
-					<li><?php printf( esc_html__( '%d manual competitor checks failed recently.', 'lilleprinsen-price-monitor' ), (int) $counts['recent_failed_checks'] ); ?></li>
-					<li><?php echo esc_html( $this->real_updates_enabled( $settings ) ? __( 'Real updates require explicit confirmation for one product at a time.', 'lilleprinsen-price-monitor' ) : __( 'Approvals are dry-run only. No WooCommerce prices are updated.', 'lilleprinsen-price-monitor' ) ); ?></li>
+					<?php if ( empty( $health_warnings ) ) : ?>
+						<li><?php esc_html_e( 'No operational warnings detected from the current dashboard counts.', 'lilleprinsen-price-monitor' ); ?></li>
+					<?php else : ?>
+						<?php foreach ( $health_warnings as $warning ) : ?>
+							<li><?php echo esc_html( $warning ); ?></li>
+						<?php endforeach; ?>
+					<?php endif; ?>
 				</ul>
 				<form method="post" class="lpm-form-actions">
 					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
@@ -583,13 +609,14 @@ final class AdminPage {
 					$this->render_number_field( 'default_check_frequency_hours', __( 'Default check frequency (hours)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'scheduled_checks_enabled', __( 'Scheduled checks enabled', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Requires Action Scheduler; otherwise no background job is registered.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'max_urls_per_batch', __( 'Max URLs per batch', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_number_field( 'check_batch_lock_minutes', __( 'Batch lock minutes', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'create_suggestions_from_scheduled_checks', __( 'Create suggestions from scheduled checks', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Scheduled checks never update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'request_timeout_seconds', __( 'Request timeout (seconds)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'retry_failed_checks', __( 'Retry failed checks', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_number_field( 'observation_retention_days', __( 'Successful observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_number_field( 'failed_observation_retention_days', __( 'Failed observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					?>
-					<p class="lpm-field-description"><?php esc_html_e( 'Observation cleanup is not automatic yet. Retention values are stored for a future admin-only cleanup workflow.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-field-description"><?php esc_html_e( 'Batch checks use a transient lock and retry backoff. Cleanup remains manual and admin-only.', 'lilleprinsen-price-monitor' ); ?></p>
 				</section>
 
 				<section class="lpm-card">
@@ -746,6 +773,19 @@ final class AdminPage {
 
 				<section class="lpm-card">
 					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Retention cleanup', 'lilleprinsen-price-monitor' ); ?></h2>
+						<?php $this->render_status_pill( __( 'Manual only', 'lilleprinsen-price-monitor' ), 'muted' ); ?>
+					</div>
+					<p class="lpm-field-description"><?php esc_html_e( 'Cleanup deletes old debug and operational logs plus old observation rows. Approval and price-update audit logs are preserved.', 'lilleprinsen-price-monitor' ); ?></p>
+					<?php
+					$this->render_number_field( 'log_retention_days', __( 'Operational log retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_number_field( 'debug_log_retention_days', __( 'Debug log retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_checkbox_field( 'keep_audit_logs_forever', __( 'Keep audit logs forever', 'lilleprinsen-price-monitor' ), $settings, __( 'Recommended. Approval and real-update audit logs are not deleted by cleanup.', 'lilleprinsen-price-monitor' ) );
+					?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
 						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
 						<?php $this->render_status_pill( ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Webhook enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' ); ?>
 					</div>
@@ -796,6 +836,12 @@ final class AdminPage {
 			<input type="hidden" name="lpm_action" value="send_test_webhook" />
 			<button type="submit" class="button"><?php esc_html_e( 'Test webhook', 'lilleprinsen-price-monitor' ); ?></button>
 			<span class="lpm-field-description"><?php esc_html_e( 'Sends one JSON test payload to the saved webhook URL. No WooCommerce price update link is included.', 'lilleprinsen-price-monitor' ); ?></span>
+		</form>
+		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="run_retention_cleanup" />
+			<button type="submit" class="button"><?php esc_html_e( 'Run cleanup now', 'lilleprinsen-price-monitor' ); ?></button>
+			<span class="lpm-field-description"><?php esc_html_e( 'Admin-only cleanup for old operational logs and price observations. It does not change products or suggestions.', 'lilleprinsen-price-monitor' ); ?></span>
 		</form>
 		<?php
 	}
@@ -1877,6 +1923,11 @@ final class AdminPage {
 	private function handle_run_small_check_batch_now(): void {
 		$result = $this->job_scheduler->run_one_small_batch_now();
 
+		if ( ! empty( $result['locked'] ) ) {
+			$this->set_admin_notice( __( 'Small batch skipped because another batch is running.', 'lilleprinsen-price-monitor' ), 'warning' );
+			$this->redirect_to_tab( 'dashboard', 'small_batch_locked', array( 'lpm_notice_type' => 'warning' ) );
+		}
+
 		$this->set_admin_notice(
 			sprintf(
 				/* translators: 1: processed count, 2: failed count, 3: skipped count, 4: suggested count. */
@@ -1923,6 +1974,20 @@ final class AdminPage {
 		);
 
 		$this->redirect_to_tab( 'settings', $sent ? 'test_webhook_sent' : 'test_webhook_failed', array( 'lpm_notice_type' => $sent ? 'success' : 'error' ) );
+	}
+
+	private function handle_run_retention_cleanup(): void {
+		$summary = $this->retention_service->run_cleanup();
+
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: 1: logs deleted, 2: observations deleted. */
+				__( 'Cleanup finished: %1$d logs deleted and %2$d observations deleted.', 'lilleprinsen-price-monitor' ),
+				(int) $summary['logs_deleted'],
+				(int) $summary['observations_deleted']
+			)
+		);
+		$this->redirect_to_tab( 'settings', 'retention_cleanup_completed' );
 	}
 
 	private function handle_approve_and_update_price(): void {
@@ -3295,6 +3360,28 @@ final class AdminPage {
 		<?php
 	}
 
+	private function render_health_card( string $label, string $value, string $description, string $status ): void {
+		?>
+		<section class="lpm-card lpm-summary-card">
+			<span class="lpm-summary-label"><?php echo esc_html( $label ); ?></span>
+			<strong><?php echo esc_html( $value ); ?></strong>
+			<span><?php echo esc_html( $description ); ?></span>
+			<?php $this->render_status_pill( $this->get_health_status_label( $status ), $status ); ?>
+		</section>
+		<?php
+	}
+
+	private function get_health_status_label( string $status ): string {
+		$labels = array(
+			'ok'      => __( 'OK', 'lilleprinsen-price-monitor' ),
+			'warning' => __( 'Warning', 'lilleprinsen-price-monitor' ),
+			'danger'  => __( 'Review', 'lilleprinsen-price-monitor' ),
+			'muted'   => __( 'Idle', 'lilleprinsen-price-monitor' ),
+		);
+
+		return $labels[ $status ] ?? __( 'Status', 'lilleprinsen-price-monitor' );
+	}
+
 	public function render_status_pill( string $label, string $status ): void {
 		printf(
 			'<span class="lpm-pill lpm-pill-%1$s">%2$s</span>',
@@ -3851,6 +3938,68 @@ final class AdminPage {
 	}
 
 	/**
+	 * @param array<string, mixed> $counts Dashboard counts.
+	 * @param array<string, mixed> $settings Current settings.
+	 * @param array<string, mixed> $lock_status Batch lock status.
+	 * @return array<int, string>
+	 */
+	private function get_health_warnings( array $counts, array $settings, bool $woocommerce_active, array $lock_status ): array {
+		$warnings = array();
+
+		if ( ! $woocommerce_active ) {
+			$warnings[] = __( 'WooCommerce is inactive, so product lookups and price workflows are limited.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( empty( $settings['dry_run_mode'] ) ) {
+			$warnings[] = __( 'Dry-run mode is disabled. Real updates still require every separate guardrail and confirmation.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( empty( $settings['disable_all_price_updates'] ) ) {
+			$warnings[] = __( 'Emergency price update disable is off.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( $this->real_updates_enabled( $settings ) ) {
+			$warnings[] = __( 'Real price updates are possible for individually confirmed suggestions.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( ! empty( $lock_status['locked'] ) ) {
+			$warnings[] = __( 'A competitor check batch lock is currently active.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( ! empty( $settings['scheduled_checks_enabled'] ) && (int) ( $settings['max_urls_per_batch'] ?? 0 ) > 50 ) {
+			$warnings[] = __( 'Scheduled checks are enabled with a large batch size. Keep production batches small until the store has been observed in dry-run.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( (int) ( $counts['failed_checks_last_24h'] ?? 0 ) > 20 ) {
+			$warnings[] = __( 'Many competitor checks failed in the last 24 hours. Review logs before increasing batch volume.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( ! empty( $settings['scheduled_checks_enabled'] ) && $this->last_check_is_stale( (string) ( $counts['last_successful_check_time'] ?? '' ), 6 ) ) {
+			$warnings[] = __( 'Scheduled checks are enabled, but no successful observation was recorded in the last 6 hours.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( ! empty( $settings['webhook_notifications_enabled'] ) && empty( $settings['webhook_url'] ) ) {
+			$warnings[] = __( 'Webhook notifications are enabled without a webhook URL.', 'lilleprinsen-price-monitor' );
+		}
+
+		return $warnings;
+	}
+
+	private function last_check_is_stale( string $datetime, int $hours ): bool {
+		if ( '' === $datetime ) {
+			return true;
+		}
+
+		$timestamp = strtotime( $datetime );
+
+		if ( false === $timestamp ) {
+			return true;
+		}
+
+		return $timestamp < ( current_time( 'timestamp' ) - ( $hours * HOUR_IN_SECONDS ) );
+	}
+
+	/**
 	 * @param array<string, mixed> $settings Current settings.
 	 */
 	private function real_updates_enabled( array $settings ): bool {
@@ -4221,9 +4370,11 @@ final class AdminPage {
 			'suggested_price_updated'         => __( 'Suggested price updated.', 'lilleprinsen-price-monitor' ),
 			'suggested_price_update_failed'   => __( 'Could not update suggested price.', 'lilleprinsen-price-monitor' ),
 			'small_batch_completed'           => __( 'Small competitor check batch completed.', 'lilleprinsen-price-monitor' ),
+			'small_batch_locked'              => __( 'Small check batch skipped because another batch is running.', 'lilleprinsen-price-monitor' ),
 			'test_notification_sent'          => __( 'Test notification logged. WhatsApp is not connected yet.', 'lilleprinsen-price-monitor' ),
 			'test_webhook_sent'               => __( 'Test webhook sent.', 'lilleprinsen-price-monitor' ),
 			'test_webhook_failed'             => __( 'Test webhook failed. Check the webhook URL and logs.', 'lilleprinsen-price-monitor' ),
+			'retention_cleanup_completed'     => __( 'Retention cleanup completed.', 'lilleprinsen-price-monitor' ),
 			'real_update_confirmation_required' => __( 'Real price update confirmation is required.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_failed'        => __( 'Real price update failed.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_applied'       => __( 'WooCommerce price updated after explicit approval.', 'lilleprinsen-price-monitor' ),

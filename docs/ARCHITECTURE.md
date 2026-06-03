@@ -4,7 +4,7 @@ Lilleprinsen Price Monitor is an admin-only WooCommerce competitor price monitor
 
 ## Runtime Boundaries
 
-- The main plugin bootstrap only initializes during `is_admin()` or `wp_doing_cron()`.
+- The main plugin bootstrap only initializes during `is_admin()`, `wp_doing_cron()`, or `WP_CLI`.
 - Normal frontend requests should not load the plugin coordinator, admin screens, admin assets, product search, price checks, or job scheduling.
 - Manual competitor checks are admin-triggered and use `wp_remote_get()` with the configured timeout.
 - Scheduled checks are disabled by default and only use the Action Scheduler path when explicitly enabled.
@@ -15,9 +15,11 @@ Lilleprinsen Price Monitor is an admin-only WooCommerce competitor price monitor
 
 ### Bootstrap
 
-`lilleprinsen-price-monitor.php` defines plugin constants, registers the autoloader, activation/deactivation hooks, and initializes `Plugin` only for admin or cron contexts.
+`lilleprinsen-price-monitor.php` defines plugin constants, registers the autoloader, activation/deactivation hooks, and initializes `Plugin` only for admin, cron, or WP-CLI contexts.
 
-`src/Plugin.php` wires settings, repository, admin UI, services, notification channels, and job scheduler. Capability checks use `manage_woocommerce` or `manage_options`.
+`src/Plugin.php` wires settings, repository, admin UI, services, notification channels, job scheduler, retention cleanup, and WP-CLI commands. Capability checks use `manage_woocommerce` or `manage_options`.
+
+For cron and WP-CLI contexts, `Plugin` also runs the schema version check directly so batch commands do not query newly added columns before an admin page visit has triggered `admin_init`.
 
 ### Activation And Schema
 
@@ -34,6 +36,8 @@ Current custom tables:
 - `lpm_logs`
 
 `src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, observation history, suggestion review state, competitor link state, and price match session helpers.
+
+Competitor links include retry/backoff state through `consecutive_failures` and `next_check_after`. Failed checks delay the next batch attempt by 1 hour, 6 hours, then 24 hours for later failures. Successful checks reset the failure counter and clear the backoff timestamp.
 
 ### Admin UI
 
@@ -140,6 +144,20 @@ Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by tho
 
 Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
+### Retention Cleanup
+
+`src/Service/RetentionService.php` provides an admin-only and WP-CLI-invoked cleanup workflow. It deletes old debug and known operational logs plus old price observation rows based on retention settings. Approval and real price-update audit logs are preserved. Cleanup is not scheduled automatically.
+
+### WP-CLI
+
+`src/Cli/Command.php` registers safe commands when `WP_CLI` is available:
+
+- `wp lpm check-batch --limit=10`
+- `wp lpm cleanup`
+- `wp lpm status`
+
+The check-batch command is capped at 100 links, respects the shared batch lock, and does not update WooCommerce prices. Status prints dry-run state, scheduled-check state, pending/blocked suggestions, failed checks in the last 24 hours, active price match sessions, emergency update disable state, real-update possibility, WooCommerce state, and batch lock state.
+
 ### Settings
 
 `src/Settings/Settings.php` stores one option: `lpm_settings`. It defines defaults, sanitization, getters, updates, and settings form handling.
@@ -162,8 +180,12 @@ Important conservative defaults:
 - `allow_token_dry_run_approval_links = 0`
 - `token_link_expiry_hours = 24`
 - `max_urls_per_batch = 10`
+- `check_batch_lock_minutes = 10`
 - `observation_retention_days = 90`
 - `failed_observation_retention_days = 30`
+- `log_retention_days = 90`
+- `debug_log_retention_days = 14`
+- `keep_audit_logs_forever = 1`
 - `default_pricing_strategy = match_competitor`
 - `rounding_mode = none`
 - `cost_source = none`
@@ -173,7 +195,7 @@ Important conservative defaults:
 - `block_suggestions_for_out_of_stock_products = 0`
 - `rows_per_page = 25`
 
-Retention settings are stored for future admin-only cleanup. Automatic cleanup is not implemented yet.
+Retention cleanup is manual and admin-only. Automatic cleanup is not implemented.
 
 ## Request Flows
 
@@ -239,6 +261,24 @@ Current competitor link bulk actions:
 8. `PricingRuleService` applies strategy, rounding, min price, margin/cost, and safety rules.
 9. Suggestion appears in the Approvals inbox with rule summary, warnings, and margin-after data when available.
 
+### Batch Checks
+
+1. Admin clicks "Run one small check batch now", Action Scheduler invokes the scheduled action, or WP-CLI runs `wp lpm check-batch`.
+2. `CheckCompetitorLinkJob` acquires the shared `lpm_check_batch_lock` transient.
+3. If the lock exists, the batch is skipped and a log entry records that another batch is running.
+4. Repository selects only due enabled competitor links for enabled monitored products, capped by the configured limit.
+5. Links with `next_check_after` in the future are skipped by the SQL selection.
+6. Competitor profile `request_delay_seconds` is respected in SQL selection and within the in-memory batch.
+7. The lock is released after normal completion; fatal errors rely on transient expiry.
+
+### Retention Cleanup
+
+1. Admin clicks "Run cleanup now" in Settings or WP-CLI runs `wp lpm cleanup`.
+2. `RetentionService` computes retention cutoffs from settings.
+3. Repository deletes old debug and operational log events while preserving approval/update audit logs.
+4. Repository deletes successful and failed observations according to their separate retention settings.
+5. A cleanup summary is logged.
+
 ### Competitor Profile Test
 
 1. Admin edits a competitor profile.
@@ -275,4 +315,4 @@ Current competitor link bulk actions:
 
 ## Performance Notes
 
-The store size requires predictable request work. Admin lists use pagination, product search is bounded, custom table queries use indexed columns, and background work is capped. No current flow loads all products, all orders, or all competitor links into memory.
+The store size requires predictable request work. Admin lists use pagination, product search is bounded, custom table queries use indexed columns, background work is capped, and WP-CLI operations require explicit bounded commands. No current flow loads all products, all orders, or all competitor links into memory.
