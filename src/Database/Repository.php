@@ -415,6 +415,41 @@ final class Repository {
 		return is_array( $row ) ? $row : null;
 	}
 
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_due_competitor_links( int $limit ): array {
+		$links_table     = $this->tables['competitor_links'];
+		$monitored_table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $links_table ) || ! $this->table_exists( $monitored_table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_per_page( $limit );
+		$now   = current_time( 'mysql' );
+		$sql   = $this->wpdb->prepare(
+			"SELECT cl.*, mp.product_id, mp.sku, mp.check_frequency_hours
+			FROM {$links_table} cl
+			INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
+			WHERE cl.enabled = %d
+				AND mp.enabled = %d
+				AND (
+					cl.last_checked_at IS NULL
+					OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
+				)
+			ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
+			LIMIT %d",
+			1,
+			1,
+			$now,
+			$limit
+		);
+		$rows  = $this->wpdb->get_results( $sql, ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
 	public function update_competitor_check_result( int $competitor_link_id, ?float $price, string $currency, ?string $error ): bool {
 		$table = $this->tables['competitor_links'];
 
@@ -590,8 +625,34 @@ final class Repository {
 		return $this->set_suggestion_review_status( $suggestion_id, 'approved_dry_run', 'approved_at', 'approved_by', $user_id );
 	}
 
+	public function approve_suggestion_real_update( int $suggestion_id, int $user_id ): bool {
+		return $this->set_suggestion_review_status( $suggestion_id, 'approved_real_update', 'approved_at', 'approved_by', $user_id );
+	}
+
 	public function reject_suggestion( int $suggestion_id, int $user_id ): bool {
 		return $this->set_suggestion_review_status( $suggestion_id, 'rejected', 'rejected_at', 'rejected_by', $user_id );
+	}
+
+	public function mark_suggestion_failed( int $suggestion_id, string $reason ): bool {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'status'     => 'failed',
+				'reason'     => sanitize_textarea_field( $reason ),
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $suggestion_id ) ),
+			array( '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
 	}
 
 	/**
@@ -602,6 +663,7 @@ final class Repository {
 			'pending'          => $this->count_where( 'price_suggestions', 'status = %s', array( 'pending' ) ),
 			'blocked'          => $this->count_where( 'price_suggestions', 'status = %s', array( 'blocked' ) ),
 			'approved_dry_run' => $this->count_where( 'price_suggestions', 'status = %s', array( 'approved_dry_run' ) ),
+			'approved_real_update' => $this->count_where( 'price_suggestions', 'status = %s', array( 'approved_real_update' ) ),
 			'rejected'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'rejected' ) ),
 			'recovery'         => $this->count_price_suggestions_by_view( 'recovery' ),
 		);
@@ -875,8 +937,13 @@ final class Repository {
 			case 'blocked':
 			case 'approved_dry_run':
 			case 'rejected':
+			case 'failed':
 				$where[] = 'ps.status = %s';
 				$args[]  = $view;
+				break;
+			case 'approved_real_update':
+				$where[] = 'ps.status = %s';
+				$args[]  = 'approved_real_update';
 				break;
 			case 'price_match_down':
 			case 'price_match_up':
@@ -954,7 +1021,7 @@ final class Repository {
 	}
 
 	private function sanitize_suggestion_status( string $status ): string {
-		$allowed = array( 'pending', 'blocked', 'approved_dry_run', 'rejected' );
+		$allowed = array( 'pending', 'blocked', 'approved_dry_run', 'approved_real_update', 'rejected', 'failed' );
 		$status  = sanitize_key( $status );
 
 		return in_array( $status, $allowed, true ) ? $status : 'pending';

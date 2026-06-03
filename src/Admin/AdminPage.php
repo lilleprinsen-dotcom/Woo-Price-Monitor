@@ -9,9 +9,12 @@ namespace Lilleprinsen\PriceMonitor\Admin;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
+use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
+use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
+use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
@@ -32,12 +35,21 @@ final class AdminPage {
 
 	private SuggestionService $suggestion_service;
 
-	public function __construct( Repository $repository, Settings $settings ) {
+	private NotificationService $notification_service;
+
+	private JobScheduler $job_scheduler;
+
+	private PriceUpdateService $price_update_service;
+
+	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
-		$this->price_check_service    = new PriceCheckService();
-		$this->price_recovery_service = new PriceRecoveryService();
-		$this->suggestion_service     = new SuggestionService( $repository, $this->price_recovery_service );
+		$this->price_check_service    = $price_check_service ?? new PriceCheckService();
+		$this->price_recovery_service = $price_recovery_service ?? new PriceRecoveryService();
+		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service );
+		$this->notification_service   = $notification_service ?? new NotificationService();
+		$this->job_scheduler          = $job_scheduler ?? new JobScheduler( $settings, new \Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob( $repository, $settings, $this->price_check_service, $this->suggestion_service, $this->notification_service ), $repository );
+		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service );
 	}
 
 	public function handle_actions(): void {
@@ -85,6 +97,15 @@ final class AdminPage {
 				break;
 			case 'update_suggested_price':
 				$this->handle_update_suggested_price();
+				break;
+			case 'run_small_check_batch_now':
+				$this->handle_run_small_check_batch_now();
+				break;
+			case 'send_test_notification':
+				$this->handle_send_test_notification();
+				break;
+			case 'approve_and_update_price':
+				$this->handle_approve_and_update_price();
 				break;
 			default:
 				$this->redirect_to_tab( 'dashboard', 'unknown_action' );
@@ -243,6 +264,14 @@ final class AdminPage {
 							<td><?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?></td>
 						</tr>
 						<tr>
+							<th scope="row"><?php esc_html_e( 'Scheduled checks', 'lilleprinsen-price-monitor' ); ?></th>
+							<td><?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?></td>
+						</tr>
+						<tr>
+							<th scope="row"><?php esc_html_e( 'Emergency update disable', 'lilleprinsen-price-monitor' ); ?></th>
+							<td><?php $this->render_status_pill( ! empty( $settings['disable_all_price_updates'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['disable_all_price_updates'] ) ? 'ok' : 'danger' ); ?></td>
+						</tr>
+						<tr>
 							<th scope="row"><?php esc_html_e( 'Active price match sessions', 'lilleprinsen-price-monitor' ); ?></th>
 							<td><?php echo esc_html( number_format_i18n( (int) $counts['active_price_match_sessions'] ) ); ?></td>
 						</tr>
@@ -260,8 +289,13 @@ final class AdminPage {
 					<li><?php printf( esc_html__( '%d pending suggestions are waiting in the pricing inbox.', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] ); ?></li>
 					<li><?php printf( esc_html__( '%d blocked suggestions need a manual safety review.', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] ); ?></li>
 					<li><?php printf( esc_html__( '%d manual competitor checks failed recently.', 'lilleprinsen-price-monitor' ), (int) $counts['recent_failed_checks'] ); ?></li>
-					<li><?php esc_html_e( 'Approvals are dry-run only. No WooCommerce prices are updated.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php echo esc_html( $this->real_updates_enabled( $settings ) ? __( 'Real updates require explicit confirmation for one product at a time.', 'lilleprinsen-price-monitor' ) : __( 'Approvals are dry-run only. No WooCommerce prices are updated.', 'lilleprinsen-price-monitor' ) ); ?></li>
 				</ul>
+				<form method="post" class="lpm-form-actions">
+					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+					<input type="hidden" name="lpm_action" value="run_small_check_batch_now" />
+					<button type="submit" class="button button-primary"><?php esc_html_e( 'Run one small check batch now', 'lilleprinsen-price-monitor' ); ?></button>
+				</form>
 			</section>
 		</div>
 		<?php
@@ -401,10 +435,12 @@ final class AdminPage {
 		$view        = $this->get_approval_view();
 		$page        = $this->get_positive_query_arg( 'lpm_approvals_page', 1 );
 		$per_page    = (int) $this->settings->get( 'rows_per_page', 25 );
+		$settings    = $this->settings->get_all();
 		$filters     = array( 'view' => $view );
 		$suggestions = $this->repository->get_price_suggestions( $filters, $page, $per_page );
 		$total       = $this->repository->count_price_suggestions( $filters );
 		$counts      = $this->repository->get_suggestion_counts();
+		$confirm_id  = $this->get_positive_query_arg( 'lpm_confirm_update', 0 );
 		?>
 		<div class="lpm-grid lpm-grid-summary lpm-inbox-summary">
 			<?php
@@ -416,16 +452,22 @@ final class AdminPage {
 			?>
 		</div>
 
+		<?php
+		if ( $confirm_id > 0 ) {
+			$this->render_real_update_confirmation( $confirm_id, $settings );
+		}
+		?>
+
 		<section class="lpm-card lpm-card-spaced">
 			<div class="lpm-card-header">
 				<div>
 					<h2><?php esc_html_e( 'Pricing inbox', 'lilleprinsen-price-monitor' ); ?></h2>
-					<p class="lpm-card-subtitle"><?php esc_html_e( 'Approvals record dry-run workflow state only. WooCommerce prices are not updated in this version.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-card-subtitle"><?php echo esc_html( $this->real_updates_enabled( $settings ) ? __( 'Real updates require confirmation and only run for a single approved product.', 'lilleprinsen-price-monitor' ) : __( 'Approvals record dry-run workflow state only. WooCommerce prices are not updated in this mode.', 'lilleprinsen-price-monitor' ) ); ?></p>
 				</div>
-				<?php $this->render_status_pill( __( 'Dry-run only', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+				<?php $this->render_status_pill( $this->real_updates_enabled( $settings ) ? __( 'Real updates enabled', 'lilleprinsen-price-monitor' ) : __( 'Dry-run only', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'warning' : 'ok' ); ?>
 			</div>
 			<?php $this->render_approval_filters( $view ); ?>
-			<?php $this->render_approvals_table( $suggestions ); ?>
+			<?php $this->render_approvals_table( $suggestions, $settings ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_approvals_page', array( 'tab' => 'approvals', 'lpm_approval_view' => $view ) ); ?>
 		</section>
 		<?php
@@ -458,7 +500,9 @@ final class AdminPage {
 					</div>
 					<?php
 					$this->render_number_field( 'default_check_frequency_hours', __( 'Default check frequency (hours)', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_checkbox_field( 'scheduled_checks_enabled', __( 'Scheduled checks enabled', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Requires Action Scheduler; otherwise no background job is registered.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'max_urls_per_batch', __( 'Max URLs per batch', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_checkbox_field( 'create_suggestions_from_scheduled_checks', __( 'Create suggestions from scheduled checks', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Scheduled checks never update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'request_timeout_seconds', __( 'Request timeout (seconds)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'retry_failed_checks', __( 'Retry failed checks', 'lilleprinsen-price-monitor' ), $settings );
 					?>
@@ -473,15 +517,24 @@ final class AdminPage {
 					$this->render_decimal_field( 'min_price_difference_to_suggest', __( 'Minimum price difference to suggest', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_decimal_field( 'max_allowed_price_drop_percent', __( 'Max allowed price drop percent', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'require_manual_approval', __( 'Require manual approval', 'lilleprinsen-price-monitor' ), $settings, __( 'Approval is stored as workflow state only. This version does not change product prices.', 'lilleprinsen-price-monitor' ) );
+					$this->render_checkbox_field( 'disable_all_price_updates', __( 'Emergency disable all price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default on. Real updates cannot run while this is enabled.', 'lilleprinsen-price-monitor' ) );
+					$this->render_checkbox_field( 'allow_real_price_updates', __( 'Allow real price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default off. Also requires dry-run mode off and explicit confirmation.', 'lilleprinsen-price-monitor' ) );
+					$this->render_checkbox_field( 'require_confirmation_for_real_updates', __( 'Require confirmation for real updates', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_group_field(
+						'real_update_allowed_suggestion_types',
+						__( 'Allowed real update suggestion types', 'lilleprinsen-price-monitor' ),
+						$settings,
+						$this->get_real_update_type_options()
+					);
 					?>
 				</section>
 
 				<section class="lpm-card">
 					<div class="lpm-card-header">
 						<h2><?php esc_html_e( 'Price recovery', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( __( 'Dry-run only', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+						<?php $this->render_status_pill( __( 'Suggestion rules', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
 					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'These settings decide what the plugin should suggest when competitor prices go up again after a price match. For now this only affects future dry-run suggestions. No WooCommerce prices are updated in this version.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-field-description"><?php esc_html_e( 'These settings decide what the plugin should suggest when competitor prices go up again after a price match. Real updates still require the separate pricing safety switches and explicit confirmation.', 'lilleprinsen-price-monitor' ); ?></p>
 					<?php
 					$this->render_select_field(
 						'recovery_when_competitor_increases',
@@ -547,11 +600,44 @@ final class AdminPage {
 					</div>
 					<?php $this->render_number_field( 'rows_per_page', __( 'Rows per page', 'lilleprinsen-price-monitor' ), $settings, 1 ); ?>
 				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
+						<?php $this->render_status_pill( __( 'Log only', 'lilleprinsen-price-monitor' ), 'muted' ); ?>
+					</div>
+					<p class="lpm-field-description"><?php esc_html_e( 'WhatsApp is not connected yet. Notification events are logged only until a provider integration is explicitly implemented.', 'lilleprinsen-price-monitor' ); ?></p>
+					<?php
+					$this->render_checkbox_field( 'notifications_enabled', __( 'Notifications enabled', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'notify_on_new_suggestion', __( 'Notify on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'notify_on_blocked_suggestion', __( 'Notify on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'notify_on_failed_check', __( 'Notify on failed check', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_text_field( 'notification_phone_number', __( 'Notification phone number', 'lilleprinsen-price-monitor' ), $settings, '+47 ...' );
+					$this->render_select_field(
+						'whatsapp_provider',
+						__( 'WhatsApp provider placeholder', 'lilleprinsen-price-monitor' ),
+						$settings,
+						array(
+							'none'           => __( 'None', 'lilleprinsen-price-monitor' ),
+							'meta_cloud_api' => __( 'Meta Cloud API', 'lilleprinsen-price-monitor' ),
+							'twilio'         => __( 'Twilio', 'lilleprinsen-price-monitor' ),
+							'make_webhook'   => __( 'Make webhook', 'lilleprinsen-price-monitor' ),
+							'zapier_webhook' => __( 'Zapier webhook', 'lilleprinsen-price-monitor' ),
+						)
+					);
+					?>
+				</section>
 			</div>
 
 			<div class="lpm-form-actions">
 				<button type="submit" class="button button-primary"><?php esc_html_e( 'Save settings', 'lilleprinsen-price-monitor' ); ?></button>
 			</div>
+		</form>
+		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="send_test_notification" />
+			<button type="submit" class="button"><?php esc_html_e( 'Send test notification', 'lilleprinsen-price-monitor' ); ?></button>
+			<span class="lpm-field-description"><?php esc_html_e( 'This writes a log entry only. No WhatsApp provider is connected.', 'lilleprinsen-price-monitor' ); ?></span>
 		</form>
 		<?php
 	}
@@ -864,6 +950,7 @@ final class AdminPage {
 			),
 			(int) $monitored_product['product_id']
 		);
+		$this->maybe_notify_created_suggestion( $result, (int) $monitored_product['product_id'] );
 		$this->set_admin_notice(
 			sprintf(
 				/* translators: 1: suggestion type, 2: suggested price. */
@@ -1003,6 +1090,62 @@ final class AdminPage {
 		$this->redirect_to_approvals( 'suggested_price_updated', 'success', $this->get_submitted_approval_view() );
 	}
 
+	private function handle_run_small_check_batch_now(): void {
+		$result = $this->job_scheduler->run_one_small_batch_now();
+
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: 1: processed count, 2: failed count, 3: skipped count, 4: suggested count. */
+				__( 'Small batch finished: %1$d processed, %2$d failed, %3$d skipped, %4$d suggestions.', 'lilleprinsen-price-monitor' ),
+				(int) $result['processed'],
+				(int) $result['failed'],
+				(int) $result['skipped'],
+				(int) $result['suggested']
+			)
+		);
+		$this->redirect_to_tab( 'dashboard', 'small_batch_completed' );
+	}
+
+	private function handle_send_test_notification(): void {
+		$settings = $this->settings->get_all();
+		$this->notification_service->send(
+			'test',
+			__( 'Price Monitor test notification. WhatsApp is not connected yet; this was logged only.', 'lilleprinsen-price-monitor' ),
+			$settings,
+			array(
+				'provider' => (string) ( $settings['whatsapp_provider'] ?? 'none' ),
+				'phone'    => (string) ( $settings['notification_phone_number'] ?? '' ),
+			),
+			null,
+			true
+		);
+		$this->redirect_to_tab( 'settings', 'test_notification_sent' );
+	}
+
+	private function handle_approve_and_update_price(): void {
+		$suggestion = $this->get_submitted_suggestion();
+
+		if ( ! $suggestion ) {
+			$this->redirect_to_approvals( 'suggestion_not_found', 'error' );
+		}
+
+		check_admin_referer( 'lpm_real_price_update_' . (int) $suggestion['id'], 'lpm_real_update_nonce' );
+
+		if ( empty( $this->settings->get( 'require_confirmation_for_real_updates', 1 ) ) ) {
+			$this->redirect_to_approvals( 'real_update_confirmation_required', 'error' );
+		}
+
+		$result = $this->price_update_service->apply_suggestion( (int) $suggestion['id'], $this->settings->get_all(), get_current_user_id() );
+
+		if ( empty( $result['success'] ) ) {
+			$this->set_admin_notice( (string) $result['message'], 'error' );
+			$this->redirect_to_approvals( 'real_price_update_failed', 'error' );
+		}
+
+		$this->set_admin_notice( (string) $result['message'] );
+		$this->redirect_to_approvals( 'real_price_update_applied', 'success', 'approved_real_update' );
+	}
+
 	/**
 	 * @return array<string, mixed>|null
 	 */
@@ -1014,6 +1157,34 @@ final class AdminPage {
 		}
 
 		return $this->repository->get_price_suggestion( $suggestion_id );
+	}
+
+	/**
+	 * @param array<string, mixed> $result Suggestion service result.
+	 */
+	private function maybe_notify_created_suggestion( array $result, int $product_id ): void {
+		$settings = $this->settings->get_all();
+		$status   = (string) ( $result['status'] ?? '' );
+
+		if ( 'pending' === $status && empty( $settings['notify_on_new_suggestion'] ) ) {
+			return;
+		}
+
+		if ( 'blocked' === $status && empty( $settings['notify_on_blocked_suggestion'] ) ) {
+			return;
+		}
+
+		if ( ! in_array( $status, array( 'pending', 'blocked' ), true ) ) {
+			return;
+		}
+
+		$this->notification_service->send(
+			'price_suggestion_' . $status,
+			__( 'Price Monitor would send a suggestion notification.', 'lilleprinsen-price-monitor' ),
+			$settings,
+			$result,
+			$product_id
+		);
 	}
 
 	/**
@@ -1353,12 +1524,13 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_approvals_table( array $suggestions ): void {
+	private function render_approvals_table( array $suggestions, array $settings ): void {
 		if ( empty( $suggestions ) ) {
 			$this->render_empty_state( __( 'No suggestions match the current inbox filter.', 'lilleprinsen-price-monitor' ) );
 			return;
 		}
-		$currency = (string) $this->settings->get( 'default_currency', 'NOK' );
+		$currency             = (string) ( $settings['default_currency'] ?? 'NOK' );
+		$real_updates_enabled = $this->real_updates_enabled( $settings );
 		?>
 		<table class="lpm-compact-table lpm-approvals-table">
 			<thead>
@@ -1380,6 +1552,7 @@ final class AdminPage {
 					<?php
 					$product    = $this->get_product( (int) $suggestion['product_id'] );
 					$can_review = in_array( (string) $suggestion['status'], array( 'pending', 'blocked' ), true );
+					$can_real_update = $can_review && 'pending' === (string) $suggestion['status'] && $real_updates_enabled && $this->suggestion_type_allows_real_update( (string) $suggestion['suggestion_type'], $settings );
 					?>
 					<tr>
 						<td>
@@ -1403,7 +1576,11 @@ final class AdminPage {
 							<div class="lpm-actions lpm-inbox-actions">
 								<?php if ( $can_review ) : ?>
 									<?php $this->render_suggestion_price_form( $suggestion ); ?>
-									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ) ); ?>
+									<?php if ( $can_real_update ) : ?>
+										<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_confirm_update' => (int) $suggestion['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Approve and update price', 'lilleprinsen-price-monitor' ); ?></a>
+									<?php else : ?>
+										<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ) ); ?>
+									<?php endif; ?>
 									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'reject_suggestion', __( 'Reject', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
 								<?php endif; ?>
 								<a class="button button-small" href="<?php echo esc_url( $this->get_product_admin_url( (int) $suggestion['product_id'] ) ); ?>"><?php esc_html_e( 'View product', 'lilleprinsen-price-monitor' ); ?></a>
@@ -1416,6 +1593,68 @@ final class AdminPage {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
+	 */
+	private function render_real_update_confirmation( int $suggestion_id, array $settings ): void {
+		if ( ! $this->real_updates_enabled( $settings ) ) {
+			$this->render_empty_card( __( 'Real updates are disabled', 'lilleprinsen-price-monitor' ), __( 'Enable every real-update safety setting before confirming a WooCommerce price change.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+
+		$suggestion = $this->repository->get_price_suggestion( $suggestion_id );
+
+		if ( ! $suggestion ) {
+			$this->render_empty_card( __( 'Suggestion not found', 'lilleprinsen-price-monitor' ), __( 'Choose a pending suggestion from the inbox.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+
+		$product = $this->get_product( (int) $suggestion['product_id'] );
+		$currency = (string) ( $settings['default_currency'] ?? 'NOK' );
+		$current_price = $product && method_exists( $product, 'get_price' ) ? (float) $product->get_price() : (float) $suggestion['current_price'];
+		?>
+		<section class="lpm-card lpm-card-spaced lpm-confirm-update">
+			<div class="lpm-card-header">
+				<h2><?php esc_html_e( 'Confirm WooCommerce price update', 'lilleprinsen-price-monitor' ); ?></h2>
+				<?php $this->render_status_pill( __( 'Changes product price', 'lilleprinsen-price-monitor' ), 'danger' ); ?>
+			</div>
+			<table class="lpm-status-table">
+				<tbody>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
+						<td><?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $suggestion['product_id'] ) ); ?></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Current WooCommerce price', 'lilleprinsen-price-monitor' ); ?></th>
+						<td><?php echo esc_html( $this->format_price_amount( $current_price, $currency ) ); ?></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Suggested price', 'lilleprinsen-price-monitor' ); ?></th>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['suggested_price'], $currency ) ); ?></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Suggestion type', 'lilleprinsen-price-monitor' ); ?></th>
+						<td><?php echo esc_html( $this->get_suggestion_type_label( (string) $suggestion['suggestion_type'] ) ); ?></td>
+					</tr>
+					<tr>
+						<th scope="row"><?php esc_html_e( 'Difference', 'lilleprinsen-price-monitor' ); ?></th>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['difference'], $currency ) ); ?></td>
+					</tr>
+				</tbody>
+			</table>
+			<p class="lpm-danger-note"><?php esc_html_e( 'This approval will change the WooCommerce product price using WooCommerce CRUD APIs. Scheduled checks never perform this action.', 'lilleprinsen-price-monitor' ); ?></p>
+			<form method="post" class="lpm-form-actions">
+				<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+				<?php wp_nonce_field( 'lpm_real_price_update_' . (int) $suggestion['id'], 'lpm_real_update_nonce' ); ?>
+				<input type="hidden" name="lpm_action" value="approve_and_update_price" />
+				<input type="hidden" name="suggestion_id" value="<?php echo esc_attr( (string) $suggestion['id'] ); ?>" />
+				<button type="submit" class="button button-primary"><?php esc_html_e( 'Confirm and update price', 'lilleprinsen-price-monitor' ); ?></button>
+				<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Cancel', 'lilleprinsen-price-monitor' ); ?></a>
+			</form>
+		</section>
 		<?php
 	}
 
@@ -1668,6 +1907,26 @@ final class AdminPage {
 
 	/**
 	 * @param array<string, mixed> $settings Current settings.
+	 * @param array<string, string> $options Checkbox options.
+	 */
+	private function render_checkbox_group_field( string $key, string $label, array $settings, array $options ): void {
+		$values = isset( $settings[ $key ] ) && is_array( $settings[ $key ] ) ? $settings[ $key ] : array();
+		?>
+		<div class="lpm-field">
+			<span><?php echo esc_html( $label ); ?></span>
+			<input type="hidden" name="lpm_settings[<?php echo esc_attr( $key ); ?>][]" value="" />
+			<?php foreach ( $options as $value => $option_label ) : ?>
+				<label class="lpm-field-checkbox lpm-field-checkbox-compact">
+					<input type="checkbox" name="lpm_settings[<?php echo esc_attr( $key ); ?>][]" value="<?php echo esc_attr( $value ); ?>" <?php checked( in_array( $value, $values, true ) ); ?> />
+					<span><?php echo esc_html( $option_label ); ?></span>
+				</label>
+			<?php endforeach; ?>
+		</div>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
 	 */
 	private function render_text_field( string $key, string $label, array $settings, string $placeholder = '' ): void {
 		?>
@@ -1746,7 +2005,9 @@ final class AdminPage {
 			'pending'                => __( 'Pending', 'lilleprinsen-price-monitor' ),
 			'blocked'                => __( 'Blocked', 'lilleprinsen-price-monitor' ),
 			'approved_dry_run'       => __( 'Approved dry-run', 'lilleprinsen-price-monitor' ),
+			'approved_real_update'   => __( 'Approved real update', 'lilleprinsen-price-monitor' ),
 			'rejected'               => __( 'Rejected', 'lilleprinsen-price-monitor' ),
+			'failed'                 => __( 'Failed', 'lilleprinsen-price-monitor' ),
 			'price_match_down'       => __( 'Price match down', 'lilleprinsen-price-monitor' ),
 			'price_match_up'         => __( 'Price match up', 'lilleprinsen-price-monitor' ),
 			'restore_previous_price' => __( 'Restore previous price', 'lilleprinsen-price-monitor' ),
@@ -1881,12 +2142,27 @@ final class AdminPage {
 		return $labels[ $suggestion_type ] ?? __( 'Manual review', 'lilleprinsen-price-monitor' );
 	}
 
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_real_update_type_options(): array {
+		return array(
+			'price_match_down'               => __( 'Price match down', 'lilleprinsen-price-monitor' ),
+			'price_match_up'                 => __( 'Price match up', 'lilleprinsen-price-monitor' ),
+			'restore_previous_active_price'  => __( 'Restore previous active price', 'lilleprinsen-price-monitor' ),
+			'restore_previous_regular_price' => __( 'Restore previous regular price', 'lilleprinsen-price-monitor' ),
+			'restore_previous_sale_price'    => __( 'Restore previous sale price', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
 	private function get_suggestion_status_label( string $status ): string {
 		$labels = array(
 			'pending'          => __( 'Pending', 'lilleprinsen-price-monitor' ),
 			'blocked'          => __( 'Blocked', 'lilleprinsen-price-monitor' ),
 			'approved_dry_run' => __( 'Approved dry-run', 'lilleprinsen-price-monitor' ),
+			'approved_real_update' => __( 'Approved real update', 'lilleprinsen-price-monitor' ),
 			'rejected'         => __( 'Rejected', 'lilleprinsen-price-monitor' ),
+			'failed'           => __( 'Failed', 'lilleprinsen-price-monitor' ),
 		);
 
 		return $labels[ $status ] ?? __( 'Pending', 'lilleprinsen-price-monitor' );
@@ -1905,7 +2181,37 @@ final class AdminPage {
 			return 'ok';
 		}
 
+		if ( 'approved_real_update' === $status ) {
+			return 'danger';
+		}
+
+		if ( 'failed' === $status ) {
+			return 'danger';
+		}
+
 		return 'muted';
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
+	 */
+	private function real_updates_enabled( array $settings ): bool {
+		return empty( $settings['dry_run_mode'] )
+			&& empty( $settings['disable_all_price_updates'] )
+			&& ! empty( $settings['allow_real_price_updates'] )
+			&& ! empty( $settings['require_manual_approval'] )
+			&& ! empty( $settings['require_confirmation_for_real_updates'] );
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
+	 */
+	private function suggestion_type_allows_real_update( string $suggestion_type, array $settings ): bool {
+		$allowed = isset( $settings['real_update_allowed_suggestion_types'] ) && is_array( $settings['real_update_allowed_suggestion_types'] )
+			? $settings['real_update_allowed_suggestion_types']
+			: array();
+
+		return in_array( $suggestion_type, $allowed, true );
 	}
 
 	private function format_price_amount( float $price, string $currency ): string {
@@ -2038,6 +2344,11 @@ final class AdminPage {
 			'suggested_price_invalid'         => __( 'Suggested price must be a positive number.', 'lilleprinsen-price-monitor' ),
 			'suggested_price_updated'         => __( 'Suggested price updated.', 'lilleprinsen-price-monitor' ),
 			'suggested_price_update_failed'   => __( 'Could not update suggested price.', 'lilleprinsen-price-monitor' ),
+			'small_batch_completed'           => __( 'Small competitor check batch completed.', 'lilleprinsen-price-monitor' ),
+			'test_notification_sent'          => __( 'Test notification logged. WhatsApp is not connected yet.', 'lilleprinsen-price-monitor' ),
+			'real_update_confirmation_required' => __( 'Real price update confirmation is required.', 'lilleprinsen-price-monitor' ),
+			'real_price_update_failed'        => __( 'Real price update failed.', 'lilleprinsen-price-monitor' ),
+			'real_price_update_applied'       => __( 'WooCommerce price updated after explicit approval.', 'lilleprinsen-price-monitor' ),
 		);
 
 		return $messages[ $notice ] ?? '';

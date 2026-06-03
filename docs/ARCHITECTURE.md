@@ -63,7 +63,9 @@ URLs are untrusted admin-provided data. They should be validated, sanitized, esc
 
 Responsible for recording competitor price observations.
 
-The MVP should stay dry-run and may use manual entry or placeholder check records. Real external HTTP fetching should not be included until explicitly requested in a later milestone. Any future runner must be admin-triggered or scheduled with strict limits and must never run from frontend requests.
+Manual checks are admin-triggered and bounded. The production-style background skeleton uses `JobScheduler` and `CheckCompetitorLinkJob` to process only enabled competitor links that are due by `last_checked_at` and `check_frequency_hours`, capped by `max_urls_per_batch`.
+
+Action Scheduler is preferred when available. If it is not available, the plugin logs that no fallback job was registered. Background checks must not run from normal frontend page loads, must not scan all products or all links, and must not update WooCommerce prices.
 
 ### Suggestion Engine
 
@@ -77,11 +79,29 @@ The first suggestion rules should be simple and explainable, for example:
 
 Suggestions should not change WooCommerce prices automatically.
 
+Scheduled checks can optionally create dry-run suggestions when `create_suggestions_from_scheduled_checks` is enabled. This setting defaults off.
+
 ### Approval Workflow
 
 Responsible for approving, rejecting, and recording decisions for price suggestions.
 
-The MVP approval action should remain dry-run. When real updates are eventually added, the update path must use WooCommerce CRUD functions and log the before/after state.
+Dry-run approval remains the default. The real update foundation is behind strict settings:
+
+- `dry_run_mode` must be disabled.
+- `disable_all_price_updates` must be disabled.
+- `allow_real_price_updates` must be enabled.
+- `require_manual_approval` and `require_confirmation_for_real_updates` must be enabled.
+- The suggestion must be pending and of an allowed suggestion type.
+
+Real update confirmation is a single-product admin flow. It uses WooCommerce CRUD APIs only and logs old/new price state. Scheduled checks never update prices.
+
+### Price Recovery
+
+Price recovery suggestions use active price match session state to decide whether to suggest matching a higher competitor price or restoring previous active, sale, or regular prices. Recovery settings affect suggestion creation. Ending or creating real match sessions only happens after explicit admin approval.
+
+### Notifications
+
+Notifications are abstracted through `NotificationService` and channel interfaces. The only current channel is `LogNotificationChannel`, which writes audit log entries describing what would have been sent. WhatsApp provider fields are placeholders only; no real WhatsApp, webhook, Twilio, or Meta API call is implemented.
 
 ### Logging And Audit Trail
 
@@ -95,6 +115,15 @@ Responsible for plugin configuration such as default margin rules, batch limits,
 
 Settings should default to conservative values. Riskier capabilities, especially real competitor checks and product price updates, should be opt-in and implemented in later PRs.
 
+Important safety defaults:
+
+- Scheduled checks disabled.
+- Scheduled suggestion creation disabled.
+- Notifications disabled.
+- Dry-run mode enabled.
+- Emergency disable for all price updates enabled.
+- Real price updates disabled.
+
 ## Request Flow
 
 1. Admin searches for a product by ID, SKU, or keyword.
@@ -103,7 +132,8 @@ Settings should default to conservative values. Riskier capabilities, especially
 4. Admin records or triggers bounded price observations.
 5. The suggestion engine creates dry-run suggestions.
 6. Admin approves or rejects suggestions.
-7. The plugin logs each action.
+7. If real updates are explicitly enabled, admin confirms a single product update.
+8. The plugin logs each action.
 
 ## Performance Notes
 

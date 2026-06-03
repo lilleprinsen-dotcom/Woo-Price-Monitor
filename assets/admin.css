@@ -316,6 +316,15 @@
 	min-width: 220px;
 }
 
+.lpm-danger-note {
+	background: #fcebea;
+	border: 1px solid #f2b8b5;
+	border-radius: 8px;
+	color: #9b1c1c;
+	font-weight: 700;
+	padding: 12px;
+}
+
 .lpm-stacked-form {
 	display: grid;
 	gap: 12px;
@@ -406,6 +415,10 @@
 	align-items: flex-start;
 	display: flex;
 	gap: 10px;
+}
+
+.lpm-field-checkbox-compact {
+	margin: 6px 0;
 }
 
 .lpm-field-checkbox input[type="checkbox"] {

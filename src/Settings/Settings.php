@@ -26,18 +26,36 @@ final class Settings {
 			'dry_run_mode'                    => 1,
 			'default_currency'                => 'NOK',
 			'default_check_frequency_hours'   => 24,
+			'scheduled_checks_enabled'        => 0,
 			'max_urls_per_batch'              => 10,
+			'create_suggestions_from_scheduled_checks' => 0,
 			'request_timeout_seconds'         => 8,
 			'retry_failed_checks'             => 1,
 			'default_min_margin_percent'      => '',
 			'min_price_difference_to_suggest' => 10,
 			'max_allowed_price_drop_percent'  => 25,
 			'require_manual_approval'         => 1,
+			'disable_all_price_updates'       => 1,
+			'allow_real_price_updates'        => 0,
+			'require_confirmation_for_real_updates' => 1,
+			'real_update_allowed_suggestion_types' => array(
+				'price_match_down',
+				'price_match_up',
+				'restore_previous_active_price',
+				'restore_previous_regular_price',
+				'restore_previous_sale_price',
+			),
 			'recovery_when_competitor_increases' => 'suggest_only',
 			'recovery_if_competitor_still_below_previous_sale_price' => 'suggest_match_competitor',
 			'recovery_if_competitor_above_previous_regular_price' => 'suggest_restore_previous_regular_price',
 			'multiple_competitor_recovery_basis' => 'lowest_valid_competitor',
 			'price_match_write_mode'          => 'sale_price',
+			'notifications_enabled'           => 0,
+			'notify_on_new_suggestion'        => 1,
+			'notify_on_blocked_suggestion'    => 1,
+			'notify_on_failed_check'          => 0,
+			'notification_phone_number'       => '',
+			'whatsapp_provider'               => 'none',
 			'rows_per_page'                   => 25,
 		);
 	}
@@ -94,13 +112,29 @@ final class Settings {
 			'dry_run_mode'                    => $this->sanitize_bool( $settings['dry_run_mode'] ?? $defaults['dry_run_mode'] ),
 			'default_currency'                => $this->sanitize_currency( $settings['default_currency'] ?? $defaults['default_currency'] ),
 			'default_check_frequency_hours'   => $this->sanitize_int( $settings['default_check_frequency_hours'] ?? $defaults['default_check_frequency_hours'], 1, 720, (int) $defaults['default_check_frequency_hours'] ),
+			'scheduled_checks_enabled'        => $this->sanitize_bool( $settings['scheduled_checks_enabled'] ?? $defaults['scheduled_checks_enabled'] ),
 			'max_urls_per_batch'              => $this->sanitize_int( $settings['max_urls_per_batch'] ?? $defaults['max_urls_per_batch'], 1, 100, (int) $defaults['max_urls_per_batch'] ),
+			'create_suggestions_from_scheduled_checks' => $this->sanitize_bool( $settings['create_suggestions_from_scheduled_checks'] ?? $defaults['create_suggestions_from_scheduled_checks'] ),
 			'request_timeout_seconds'         => $this->sanitize_int( $settings['request_timeout_seconds'] ?? $defaults['request_timeout_seconds'], 1, 60, (int) $defaults['request_timeout_seconds'] ),
 			'retry_failed_checks'             => $this->sanitize_bool( $settings['retry_failed_checks'] ?? $defaults['retry_failed_checks'] ),
 			'default_min_margin_percent'      => $this->sanitize_decimal_or_empty( $settings['default_min_margin_percent'] ?? $defaults['default_min_margin_percent'], '' ),
 			'min_price_difference_to_suggest' => $this->sanitize_decimal( $settings['min_price_difference_to_suggest'] ?? $defaults['min_price_difference_to_suggest'], (float) $defaults['min_price_difference_to_suggest'] ),
 			'max_allowed_price_drop_percent'  => $this->sanitize_decimal_between( $settings['max_allowed_price_drop_percent'] ?? $defaults['max_allowed_price_drop_percent'], 0, 100, (float) $defaults['max_allowed_price_drop_percent'] ),
 			'require_manual_approval'         => $this->sanitize_bool( $settings['require_manual_approval'] ?? $defaults['require_manual_approval'] ),
+			'disable_all_price_updates'       => $this->sanitize_bool( $settings['disable_all_price_updates'] ?? $defaults['disable_all_price_updates'] ),
+			'allow_real_price_updates'        => $this->sanitize_bool( $settings['allow_real_price_updates'] ?? $defaults['allow_real_price_updates'] ),
+			'require_confirmation_for_real_updates' => $this->sanitize_bool( $settings['require_confirmation_for_real_updates'] ?? $defaults['require_confirmation_for_real_updates'] ),
+			'real_update_allowed_suggestion_types' => $this->sanitize_choice_list(
+				$settings['real_update_allowed_suggestion_types'] ?? $defaults['real_update_allowed_suggestion_types'],
+				array(
+					'price_match_down',
+					'price_match_up',
+					'restore_previous_active_price',
+					'restore_previous_regular_price',
+					'restore_previous_sale_price',
+				),
+				(array) $defaults['real_update_allowed_suggestion_types']
+			),
 			'recovery_when_competitor_increases' => $this->sanitize_choice(
 				$settings['recovery_when_competitor_increases'] ?? $defaults['recovery_when_competitor_increases'],
 				array(
@@ -150,6 +184,16 @@ final class Settings {
 					'temporary_sale_price',
 				),
 				(string) $defaults['price_match_write_mode']
+			),
+			'notifications_enabled'           => $this->sanitize_bool( $settings['notifications_enabled'] ?? $defaults['notifications_enabled'] ),
+			'notify_on_new_suggestion'        => $this->sanitize_bool( $settings['notify_on_new_suggestion'] ?? $defaults['notify_on_new_suggestion'] ),
+			'notify_on_blocked_suggestion'    => $this->sanitize_bool( $settings['notify_on_blocked_suggestion'] ?? $defaults['notify_on_blocked_suggestion'] ),
+			'notify_on_failed_check'          => $this->sanitize_bool( $settings['notify_on_failed_check'] ?? $defaults['notify_on_failed_check'] ),
+			'notification_phone_number'       => $this->sanitize_phone_placeholder( $settings['notification_phone_number'] ?? $defaults['notification_phone_number'] ),
+			'whatsapp_provider'               => $this->sanitize_choice(
+				$settings['whatsapp_provider'] ?? $defaults['whatsapp_provider'],
+				array( 'none', 'meta_cloud_api', 'twilio', 'make_webhook', 'zapier_webhook' ),
+				(string) $defaults['whatsapp_provider']
 			),
 			'rows_per_page'                   => $this->sanitize_int( $settings['rows_per_page'] ?? $defaults['rows_per_page'], 1, 200, (int) $defaults['rows_per_page'] ),
 		);
@@ -210,6 +254,16 @@ final class Settings {
 		}
 
 		return substr( $currency, 0, 10 );
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_phone_placeholder( $value ): string {
+		$phone = sanitize_text_field( (string) $value );
+		$phone = preg_replace( '/[^0-9+() .-]/', '', $phone );
+
+		return is_string( $phone ) ? substr( trim( $phone ), 0, 50 ) : '';
 	}
 
 	/**
@@ -277,5 +331,29 @@ final class Settings {
 		$value = sanitize_key( (string) $value );
 
 		return in_array( $value, $allowed, true ) ? $value : $fallback;
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 * @param array<int, string> $allowed Allowed values.
+	 * @param array<int, string> $fallback Fallback values.
+	 * @return array<int, string>
+	 */
+	private function sanitize_choice_list( $value, array $allowed, array $fallback ): array {
+		if ( ! is_array( $value ) ) {
+			return $fallback;
+		}
+
+		$sanitized = array();
+
+		foreach ( $value as $item ) {
+			$item = sanitize_key( (string) $item );
+
+			if ( in_array( $item, $allowed, true ) ) {
+				$sanitized[] = $item;
+			}
+		}
+
+		return array_values( array_unique( $sanitized ) );
 	}
 }

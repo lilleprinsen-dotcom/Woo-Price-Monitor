@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.2.0';
+	public const VERSION = '1.3.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -90,6 +90,7 @@ final class Schema {
 			KEY monitored_product_id (monitored_product_id),
 			KEY competitor_name (competitor_name),
 			KEY enabled (enabled),
+			KEY enabled_last_checked_at (enabled, last_checked_at),
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
 

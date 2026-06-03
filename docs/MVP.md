@@ -71,15 +71,50 @@ Expected tables:
 - Add PHP syntax checks to the development workflow.
 - Review indexes against expected admin filters.
 
+## Milestone 8: Production-Safe Operations Skeleton
+
+- Add a bounded background check skeleton using Action Scheduler when available.
+- Keep scheduled checks disabled by default.
+- Process only due, enabled competitor links with `max_urls_per_batch`.
+- Optionally create suggestions from scheduled checks, disabled by default.
+- Add a manual "Run one small check batch now" admin action.
+- Log batch start, completion, failed links, skipped links, and processed totals.
+- Never update WooCommerce prices from scheduled checks.
+
+## Milestone 9: Notification Abstraction
+
+- Add `NotificationService` and channel interfaces.
+- Keep notifications disabled by default.
+- Add a log-only notification channel.
+- Add WhatsApp provider and phone number placeholders without real API calls.
+- Log what would have been sent for suggestion and failed-check notifications.
+
+## Milestone 10: Guarded Real Update Foundation
+
+- Add `PriceUpdateService` using WooCommerce CRUD APIs only.
+- Keep dry-run mode enabled by default.
+- Keep `disable_all_price_updates` enabled by default.
+- Require explicit admin confirmation for a single product update.
+- Block updates when product price changed after suggestion creation.
+- Respect `max_allowed_price_drop_percent` and allowed suggestion type settings.
+- Log old and new price state for every attempted real update.
+- Create or end price match sessions only after explicit approval.
+
 ## Later, Explicitly Opt-In Work
 
 These should not be included in the MVP unless explicitly requested:
 
-- Real competitor HTTP checks.
-- Scraping or parsing competitor pages.
-- Automatic WooCommerce price updates.
-- WhatsApp, SMS, or email messaging.
+- Automatic competitor checks across broad catalogs.
+- Unlimited scraping or parsing competitor pages.
+- Automatic or bulk WooCommerce price updates.
+- Real WhatsApp, SMS, webhook, or email messaging.
 - Bulk import jobs.
 - Advanced reports across the whole product or order catalog.
 
-If real price updates are added later, they must use WooCommerce CRUD APIs, run only from admin-approved flows or controlled background jobs, and write a full audit log entry for every attempted update.
+Still not implemented:
+
+- Real WhatsApp provider integration.
+- Bulk price updates.
+- Scheduled price updates.
+- Full catalog scans.
+- Advanced multi-competitor recovery modes beyond conservative lowest-valid checks.
