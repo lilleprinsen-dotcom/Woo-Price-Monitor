@@ -64,9 +64,28 @@ Observation rows store check metadata such as product ID, competitor link ID, ob
 
 Parsing is intentionally MVP-level and does not crawl other pages.
 
-### Suggestions
+### Pricing Rules And Suggestions
 
-`src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price. It applies minimum difference and maximum price drop safety settings, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes.
+`src/Service/PricingRuleService.php` is the explainable rule engine for dry-run suggestions. It calculates the suggested price and returns a status, plain-English reason, structured rule details, margin snapshot when product cost is available, and warnings.
+
+Current rule inputs include current WooCommerce price, competitor price, suggestion type, monitored product row, active price match session, optional product cost, optional currency, sale state, and stock status.
+
+Current rule controls include:
+
+- default and product-level pricing strategy
+- beat/stay-above amounts
+- rounding mode
+- product-level minimum price
+- default or product-level minimum margin percent
+- optional custom-meta cost lookup for one product at suggestion time
+- optional minimum profit amount
+- VAT comparison mode label and VAT rate
+- maximum allowed drop and increase percentages
+- sale-product and out-of-stock blocking settings
+
+`src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price, asks `PricingRuleService` for the final dry-run decision, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes. Manual-review outcomes are stored as approval-inbox suggestions with `suggestion_type = manual_review` and workflow status `pending`.
+
+Suggestion rows also store `margin_after_change`, `rule_details`, and `warnings` when available so the Approvals inbox can explain why a suggestion was made or blocked.
 
 Suggestion types include:
 
@@ -116,6 +135,13 @@ Important conservative defaults:
 - `max_urls_per_batch = 10`
 - `observation_retention_days = 90`
 - `failed_observation_retention_days = 30`
+- `default_pricing_strategy = match_competitor`
+- `rounding_mode = none`
+- `cost_source = none`
+- `block_if_cost_missing = 0`
+- `max_allowed_price_increase_percent = 50`
+- `block_suggestions_for_sale_products = 0`
+- `block_suggestions_for_out_of_stock_products = 0`
 - `rows_per_page = 25`
 
 Retention settings are stored for future admin-only cleanup. Automatic cleanup is not implemented yet.
@@ -138,7 +164,8 @@ Retention settings are stored for future admin-only cleanup. Automatic cleanup i
 4. Repository creates a price observation history row without storing raw HTML.
 5. Repository updates the competitor link's last price, currency, timestamp, and error state.
 6. Admin can create a dry-run suggestion from the stored last price.
-7. Suggestion appears in the Approvals inbox.
+7. `PricingRuleService` applies strategy, rounding, min price, margin/cost, and safety rules.
+8. Suggestion appears in the Approvals inbox with rule summary, warnings, and margin-after data when available.
 
 ### Observation History
 

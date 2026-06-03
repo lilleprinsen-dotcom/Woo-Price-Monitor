@@ -18,6 +18,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Scheduled batches are capped by `max_urls_per_batch`.
 - Scheduled checks never update WooCommerce prices.
 - Scheduled suggestion creation is disabled by default.
+- Pricing rules create dry-run suggestions only and store explainable rule metadata; they do not update WooCommerce prices.
 - Notifications are disabled by default and currently use only `LogNotificationChannel`.
 - WhatsApp settings are placeholders only. No real WhatsApp provider call is implemented.
 - Real WooCommerce price updates are blocked by default.
@@ -37,6 +38,7 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Product title search depends on WooCommerce query behavior and should be tested on the production-like catalog before relying on it.
 - Action Scheduler locking and duplicate scheduling should be reviewed before scheduled checks are enabled in production.
 - Parser behavior is MVP-level and can misread complex competitor pages; suggestions should stay manual-review/dry-run until parsing confidence improves.
+- Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
 - Log retention is not implemented yet.
 - More automated tests are needed for parsing, suggestion safety rules, recovery decisions, and guarded update validation.
