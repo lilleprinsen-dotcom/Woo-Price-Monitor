@@ -89,7 +89,7 @@ final class CheckCompetitorLinkJob {
 
 			if ( empty( $check['success'] ) ) {
 				$result['failed']++;
-				$this->repository->write_log( 'error', 'competitor_check_failed', __( 'Scheduled competitor check failed.', 'lilleprinsen-price-monitor' ), array( 'competitor_link_id' => (int) $link['id'], 'source' => $source, 'error' => (string) $check['error'] ), (int) $link['product_id'] );
+				$this->repository->write_log( 'error', 'competitor_check_failed', __( 'Scheduled competitor check failed.', 'lilleprinsen-price-monitor' ), array( 'competitor_link_id' => (int) $link['id'], 'source' => $source, 'error' => (string) $check['error'], 'http_status' => (int) $check['http_status'], 'response_time_ms' => (int) $check['response_time_ms'] ), (int) $link['product_id'] );
 				$this->maybe_notify_failed_check( $settings, $link, (string) $check['error'] );
 				continue;
 			}

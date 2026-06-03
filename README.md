@@ -10,7 +10,7 @@ Implemented foundation:
 
 - Admin page under WooCommerce: Dashboard, Products, Approvals, Competitors, Settings, and Logs.
 - Product search by ID, SKU, or bounded title query, limited to 20 results.
-- Custom database tables for monitoring rows, competitor links, suggestions, price match sessions, and logs.
+- Custom database tables for monitoring rows, competitor links, price observations, suggestions, price match sessions, and logs.
 - Competitor link management with manual "Test check" action.
 - Price parsing MVP with JSON-LD, price meta tags, and NOK/kr visible text fallback.
 - Dry-run suggestion creation for price-match-down, price-up/recovery, restore, manual-review, and blocked scenarios.
@@ -37,6 +37,7 @@ The plugin creates these custom tables with the active WordPress table prefix:
 
 - `lpm_monitored_products`: selected WooCommerce product IDs, SKU snapshots, enabled state, strategy, priority, check cadence, and timestamps.
 - `lpm_competitor_links`: direct competitor URLs attached to monitored products, last detected price data, check timestamps, and errors.
+- `lpm_price_observations`: historical check rows for trust, debugging, recovery behavior, and future reports.
 - `lpm_price_suggestions`: dry-run and real-update workflow suggestions, suggestion type, status, reason, reviewer, and timestamps.
 - `lpm_price_match_sessions`: original price state and recovery context for price-match sessions, including dry-run sessions.
 - `lpm_logs`: audit trail for admin actions, checks, suggestions, notifications, jobs, and guarded price update attempts.

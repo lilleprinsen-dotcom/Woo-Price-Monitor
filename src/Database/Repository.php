@@ -62,10 +62,11 @@ final class Repository {
 	}
 
 	/**
-	 * @return array<string, int>
+	 * @return array<string, mixed>
 	 */
 	public function get_dashboard_counts(): array {
 		$recent_cutoff = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - WEEK_IN_SECONDS );
+		$day_cutoff    = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - DAY_IN_SECONDS );
 
 		return array(
 			'monitored_products'          => $this->count_where( 'monitored_products', 'enabled = %d', array( 1 ) ),
@@ -74,6 +75,9 @@ final class Repository {
 			'blocked_suggestions'         => $this->count_where( 'price_suggestions', 'status = %s', array( 'blocked' ) ),
 			'recovery_suggestions'        => $this->count_price_suggestions_by_view( 'recovery' ),
 			'recent_failed_checks'        => $this->count_where( 'logs', 'level = %s AND event = %s AND created_at >= %s', array( 'error', 'competitor_check_failed', $recent_cutoff ) ),
+			'checks_last_24h'             => $this->count_where( 'price_observations', 'checked_at >= %s', array( $day_cutoff ) ),
+			'failed_checks_last_24h'      => $this->count_failed_observations_since( $day_cutoff ),
+			'last_successful_check_time'  => $this->get_latest_successful_observation_time(),
 			'failed_logs'                 => $this->count_where( 'logs', 'level = %s', array( 'error' ) ),
 			'active_price_match_sessions' => $this->count_active_price_match_sessions(),
 		);
@@ -481,6 +485,130 @@ final class Repository {
 		);
 
 		return false !== $updated;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Observation fields.
+	 */
+	public function create_price_observation( array $data ): int {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$inserted = $this->wpdb->insert(
+			$table,
+			array(
+				'competitor_link_id'   => absint( $data['competitor_link_id'] ?? 0 ),
+				'monitored_product_id' => absint( $data['monitored_product_id'] ?? 0 ),
+				'product_id'           => absint( $data['product_id'] ?? 0 ),
+				'observed_price'       => $this->nullable_decimal( $data['observed_price'] ?? null ),
+				'currency'             => $this->nullable_currency( $data['currency'] ?? null ),
+				'stock_status'         => $this->nullable_limited_text( $data['stock_status'] ?? null, 50 ),
+				'extraction_method'    => $this->nullable_limited_text( $data['extraction_method'] ?? null, 100 ),
+				'http_status'          => $this->nullable_positive_int( $data['http_status'] ?? null ),
+				'success'              => ! empty( $data['success'] ) ? 1 : 0,
+				'error_message'        => isset( $data['error_message'] ) && '' !== (string) $data['error_message'] ? sanitize_textarea_field( (string) $data['error_message'] ) : null,
+				'response_time_ms'     => $this->nullable_positive_int( $data['response_time_ms'] ?? null ),
+				'checked_at'           => $this->nullable_datetime( $data['checked_at'] ?? null ) ?? current_time( 'mysql' ),
+				'created_at'           => current_time( 'mysql' ),
+			),
+			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%s', '%s' )
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Observation filters.
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_price_observations( array $filters, int $page, int $per_page ): array {
+		$table = $this->tables['price_observations'];
+		$links = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$where  = $this->build_observation_where( $filters );
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$sql    = "SELECT po.*, cl.competitor_name, cl.competitor_url FROM {$table} po LEFT JOIN {$links} cl ON po.competitor_link_id = cl.id {$where['sql']} ORDER BY po.checked_at DESC, po.id DESC LIMIT %d OFFSET %d";
+		$args   = array_merge( $where['args'], array( $limit, $offset ) );
+		$rows   = $this->wpdb->get_results( $this->wpdb->prepare( $sql, $args ), ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @param array<string, mixed> $filters Observation filters.
+	 */
+	public function count_price_observations( array $filters ): int {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$where = $this->build_observation_where( $filters );
+		$sql   = "SELECT COUNT(*) FROM {$table} po {$where['sql']}";
+
+		if ( ! empty( $where['args'] ) ) {
+			$sql = $this->wpdb->prepare( $sql, $where['args'] );
+		}
+
+		return (int) $this->wpdb->get_var( $sql );
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_recent_observations_for_competitor_link( int $competitor_link_id, int $limit ): array {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_per_page( $limit );
+		$rows  = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE competitor_link_id = %d ORDER BY checked_at DESC, id DESC LIMIT %d",
+				absint( $competitor_link_id ),
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_failed_observations_since( string $datetime ): int {
+		return $this->count_where( 'price_observations', 'success = %d AND checked_at >= %s', array( 0, $datetime ) );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_latest_successful_observation_for_link( int $competitor_link_id ): ?array {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE competitor_link_id = %d AND success = %d ORDER BY checked_at DESC, id DESC LIMIT 1",
+				absint( $competitor_link_id ),
+				1
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
 	}
 
 	/**
@@ -924,6 +1052,65 @@ final class Repository {
 	}
 
 	/**
+	 * @param array<string, mixed> $filters Observation filters.
+	 * @return array{sql: string, args: array<int, mixed>}
+	 */
+	private function build_observation_where( array $filters ): array {
+		$where = array();
+		$args  = array();
+
+		if ( ! empty( $filters['competitor_link_id'] ) ) {
+			$where[] = 'po.competitor_link_id = %d';
+			$args[]  = absint( $filters['competitor_link_id'] );
+		}
+
+		if ( ! empty( $filters['monitored_product_id'] ) ) {
+			$where[] = 'po.monitored_product_id = %d';
+			$args[]  = absint( $filters['monitored_product_id'] );
+		}
+
+		if ( ! empty( $filters['product_id'] ) ) {
+			$where[] = 'po.product_id = %d';
+			$args[]  = absint( $filters['product_id'] );
+		}
+
+		if ( ! empty( $filters['status'] ) ) {
+			$status = sanitize_key( (string) $filters['status'] );
+
+			if ( 'success' === $status ) {
+				$where[] = 'po.success = %d';
+				$args[]  = 1;
+			} elseif ( 'failed' === $status ) {
+				$where[] = 'po.success = %d';
+				$args[]  = 0;
+			}
+		}
+
+		if ( ! empty( $filters['date_from'] ) ) {
+			$date_from = $this->normalize_filter_date( (string) $filters['date_from'], false );
+
+			if ( null !== $date_from ) {
+				$where[] = 'po.checked_at >= %s';
+				$args[]  = $date_from;
+			}
+		}
+
+		if ( ! empty( $filters['date_to'] ) ) {
+			$date_to = $this->normalize_filter_date( (string) $filters['date_to'], true );
+
+			if ( null !== $date_to ) {
+				$where[] = 'po.checked_at <= %s';
+				$args[]  = $date_to;
+			}
+		}
+
+		return array(
+			'sql'  => ! empty( $where ) ? 'WHERE ' . implode( ' AND ', $where ) : '',
+			'args' => $args,
+		);
+	}
+
+	/**
 	 * @param array<string, mixed> $filters Suggestion filters.
 	 * @return array{sql: string, args: array<int, mixed>}
 	 */
@@ -1034,12 +1221,72 @@ final class Repository {
 		return is_string( $currency ) && '' !== $currency ? substr( $currency, 0, 10 ) : 'NOK';
 	}
 
+	/**
+	 * @param mixed $currency Raw currency.
+	 */
+	private function nullable_currency( $currency ): ?string {
+		if ( null === $currency || '' === $currency ) {
+			return null;
+		}
+
+		$currency = strtoupper( sanitize_text_field( (string) $currency ) );
+		$currency = preg_replace( '/[^A-Z]/', '', $currency );
+
+		return is_string( $currency ) && '' !== $currency ? substr( $currency, 0, 10 ) : null;
+	}
+
+	/**
+	 * @param mixed $value Raw text.
+	 */
+	private function nullable_limited_text( $value, int $length ): ?string {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$value = sanitize_text_field( (string) $value );
+
+		return '' === $value ? null : substr( $value, 0, $length );
+	}
+
+	/**
+	 * @param mixed $value Raw integer.
+	 */
+	private function nullable_positive_int( $value ): ?int {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$int = absint( $value );
+
+		return $int > 0 ? $int : null;
+	}
+
 	private function sanitize_per_page( int $per_page ): int {
 		return min( 200, max( 1, absint( $per_page ) ) );
 	}
 
 	private function get_offset( int $page, int $per_page ): int {
 		return max( 0, ( max( 1, absint( $page ) ) - 1 ) * $per_page );
+	}
+
+	private function get_latest_successful_observation_time(): string {
+		$table = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return '';
+		}
+
+		return (string) $this->wpdb->get_var( "SELECT checked_at FROM {$table} WHERE success = 1 ORDER BY checked_at DESC, id DESC LIMIT 1" );
+	}
+
+	private function normalize_filter_date( string $date, bool $end_of_day ): ?string {
+		$date = sanitize_text_field( $date );
+
+		if ( ! preg_match( '/^\d{4}-\d{2}-\d{2}$/', $date ) ) {
+			return null;
+		}
+
+		return $date . ( $end_of_day ? ' 23:59:59' : ' 00:00:00' );
 	}
 
 	/**

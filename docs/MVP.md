@@ -76,7 +76,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Added single-product confirmation flow in the Approvals tab when all guards are enabled.
 - Added snapshot validation and max-drop safety validation.
 
-## Current Stabilization Milestone
+### Milestone 10: Stabilization And QA
 
 - Extract bounded product search into `ProductSearchService`.
 - Extract one-time admin notices into `AdminNoticeStore`.
@@ -85,12 +85,24 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add a manual test plan.
 - Add a safety review document.
 
+## Current Milestone: Price Observation History
+
+- Add `lpm_price_observations` for one historical row per competitor check.
+- Keep `lpm_competitor_links` latest-price columns for fast current status.
+- Record observed price, currency, extraction method, HTTP status, success/failure, error message, response time, and timestamps.
+- Do not store raw HTML or large response bodies.
+- Add repository methods for paginated history, recent link history, failed counts, and latest successful observation lookup.
+- Add a History tab with filters and pagination.
+- Add recent checks on the competitor management screen.
+- Add dashboard metrics for checks and failed checks in the last 24 hours plus last successful check time.
+- Add retention settings for successful and failed observations without automatic cleanup yet.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
 - Add more structured logging around parser extraction methods.
 - Add table migration tests where possible.
-- Add retention policies for old logs and historical suggestions.
+- Add an explicit admin-only cleanup action for old observations, logs, and historical suggestions.
 - Review Action Scheduler locking and duplicate job protection before enabling scheduled checks in production.
 - Consider soft-delete semantics for competitor links if historical link auditability becomes important.
 
