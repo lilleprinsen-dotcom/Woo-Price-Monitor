@@ -12,6 +12,8 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Admin lists are paginated and use repository methods with explicit limits.
 - Monitoring data is stored in custom `lpm_*` tables instead of `wp_postmeta`.
 - Manual competitor checks fetch one admin-selected competitor URL at a time.
+- Competitor profiles can configure extraction rules, but selector support is limited and dependency-free.
+- Profiles marked as requiring JavaScript return a clear warning; no browser scraper or anti-bot bypass is implemented.
 - Price observation history stores check metadata only. Raw HTML and full response bodies are not stored.
 - Scheduled checks are disabled by default.
 - Scheduled checks use Action Scheduler only when available and enabled.
@@ -38,6 +40,8 @@ The current code registers normal WordPress admin hooks, an Action Scheduler act
 - Product title search depends on WooCommerce query behavior and should be tested on the production-like catalog before relying on it.
 - Action Scheduler locking and duplicate scheduling should be reviewed before scheduled checks are enabled in production.
 - Parser behavior is MVP-level and can misread complex competitor pages; suggestions should stay manual-review/dry-run until parsing confidence improves.
+- Selector rules support only simple `.class`, `#id`, and `[attr="value"]` patterns for now.
+- JavaScript-rendered competitor pages require a future, explicit external worker design; the internal checker does not render JavaScript.
 - Pricing rules depend on optional cost metadata when configured; cost meta keys and margin rules should be verified on staging before enabling strict cost blocking.
 - Competitor links are currently deleted from the link table when the delete action is used. Historical suggestions/logs are preserved, but link audit retention may need a soft-delete model later.
 - Log retention is not implemented yet.

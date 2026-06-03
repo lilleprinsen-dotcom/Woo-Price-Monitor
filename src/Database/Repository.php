@@ -318,6 +318,228 @@ final class Repository {
 	}
 
 	/**
+	 * @param array<string, mixed> $data Competitor profile fields.
+	 */
+	public function add_competitor( array $data ): int {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		$profile = $this->sanitize_competitor_profile_data( $data );
+
+		if ( '' === $profile['name'] ) {
+			return 0;
+		}
+
+		$now      = current_time( 'mysql' );
+		$inserted = $this->wpdb->insert(
+			$table,
+			array_merge(
+				$profile,
+				array(
+					'created_at' => $now,
+					'updated_at' => $now,
+				)
+			),
+			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s' )
+		);
+
+		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Competitor profile fields.
+	 */
+	public function update_competitor( int $competitor_id, array $data ): bool {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$profile = $this->sanitize_competitor_profile_data( $data );
+
+		if ( '' === $profile['name'] ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array_merge( $profile, array( 'updated_at' => current_time( 'mysql' ) ) ),
+			array( 'id' => absint( $competitor_id ) ),
+			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function set_competitor_enabled( int $competitor_id, bool $enabled ): bool {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'    => $enabled ? 1 : 0,
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_id ) ),
+			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_competitor( int $competitor_id ): ?array {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", absint( $competitor_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_competitors( int $page, int $per_page ): array {
+		$table = $this->tables['competitors'];
+		$links = $this->tables['competitor_links'];
+		$obs   = $this->tables['price_observations'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+
+		if ( ! $this->table_exists( $links ) || ! $this->table_exists( $obs ) ) {
+			$sql  = $this->wpdb->prepare( "SELECT *, 0 AS link_count, NULL AS last_check, 0 AS observation_count, 0 AS successful_observation_count FROM {$table} ORDER BY updated_at DESC, id DESC LIMIT %d OFFSET %d", $limit, $offset );
+			$rows = $this->wpdb->get_results( $sql, ARRAY_A );
+			return is_array( $rows ) ? $rows : array();
+		}
+
+		$cutoff = gmdate( 'Y-m-d H:i:s', current_time( 'timestamp' ) - ( 30 * DAY_IN_SECONDS ) );
+		$sql    = $this->wpdb->prepare(
+			"SELECT
+				c.*,
+				(SELECT COUNT(*) FROM {$links} cl WHERE cl.competitor_id = c.id) AS link_count,
+				(SELECT MAX(cl_last.last_checked_at) FROM {$links} cl_last WHERE cl_last.competitor_id = c.id) AS last_check,
+				(
+					SELECT COUNT(*)
+					FROM {$obs} po
+					INNER JOIN {$links} cl_obs ON po.competitor_link_id = cl_obs.id
+					WHERE cl_obs.competitor_id = c.id AND po.checked_at >= %s
+				) AS observation_count,
+				(
+					SELECT COUNT(*)
+					FROM {$obs} po_success
+					INNER JOIN {$links} cl_success ON po_success.competitor_link_id = cl_success.id
+					WHERE cl_success.competitor_id = c.id AND po_success.checked_at >= %s AND po_success.success = 1
+				) AS successful_observation_count
+			FROM {$table} c
+			ORDER BY c.updated_at DESC, c.id DESC
+			LIMIT %d OFFSET %d",
+			$cutoff,
+			$cutoff,
+			$limit,
+			$offset
+		);
+		$rows   = $this->wpdb->get_results( $sql, ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_competitors(): int {
+		return $this->get_table_count( 'competitors' );
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_competitor_profile_options( int $limit = 500 ): array {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_export_limit( $limit );
+		$rows  = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT id, name, domain, enabled, requires_javascript FROM {$table} ORDER BY name ASC, id ASC LIMIT %d",
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_competitor_linked_products( int $competitor_id, int $page, int $per_page ): array {
+		$links     = $this->tables['competitor_links'];
+		$monitored = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $links ) || ! $this->table_exists( $monitored ) ) {
+			return array();
+		}
+
+		$limit  = $this->sanitize_per_page( $per_page );
+		$offset = $this->get_offset( $page, $limit );
+		$rows   = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT cl.*, mp.product_id, mp.sku
+				FROM {$links} cl
+				INNER JOIN {$monitored} mp ON cl.monitored_product_id = mp.id
+				WHERE cl.competitor_id = %d
+				ORDER BY cl.updated_at DESC, cl.id DESC
+				LIMIT %d OFFSET %d",
+				absint( $competitor_id ),
+				$limit,
+				$offset
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	public function count_competitor_linked_products( int $competitor_id ): int {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		return (int) $this->wpdb->get_var(
+			$this->wpdb->prepare(
+				"SELECT COUNT(*) FROM {$table} WHERE competitor_id = %d",
+				absint( $competitor_id )
+			)
+		);
+	}
+
+	/**
 	 * @param array<string, mixed> $data Competitor link fields.
 	 */
 	public function add_competitor_link( array $data ): int {
@@ -332,6 +554,7 @@ final class Repository {
 			$table,
 			array(
 				'monitored_product_id' => absint( $data['monitored_product_id'] ?? 0 ),
+				'competitor_id'        => ! empty( $data['competitor_id'] ) ? absint( $data['competitor_id'] ) : null,
 				'competitor_name'      => sanitize_text_field( (string) ( $data['competitor_name'] ?? '' ) ),
 				'competitor_url'       => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
 				'match_type'           => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
@@ -339,7 +562,7 @@ final class Repository {
 				'created_at'           => $now,
 				'updated_at'           => $now,
 			),
-			array( '%d', '%s', '%s', '%s', '%d', '%s', '%s' )
+			array( '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s' )
 		);
 
 		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -358,6 +581,7 @@ final class Repository {
 		$updated = $this->wpdb->update(
 			$table,
 			array(
+				'competitor_id'   => ! empty( $data['competitor_id'] ) ? absint( $data['competitor_id'] ) : null,
 				'competitor_name' => sanitize_text_field( (string) ( $data['competitor_name'] ?? '' ) ),
 				'competitor_url'  => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
 				'match_type'      => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
@@ -365,7 +589,7 @@ final class Repository {
 				'updated_at'      => current_time( 'mysql' ),
 			),
 			array( 'id' => absint( $competitor_link_id ) ),
-			array( '%s', '%s', '%s', '%d', '%s' ),
+			array( '%d', '%s', '%s', '%s', '%d', '%s' ),
 			array( '%d' )
 		);
 
@@ -413,10 +637,27 @@ final class Repository {
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function get_competitor_links_for_monitored_product( int $monitored_product_id ): array {
-		$table = $this->tables['competitor_links'];
+		$table       = $this->tables['competitor_links'];
+		$competitors = $this->tables['competitors'];
 
 		if ( ! $this->table_exists( $table ) ) {
 			return array();
+		}
+
+		if ( $this->table_exists( $competitors ) ) {
+			$rows = $this->wpdb->get_results(
+				$this->wpdb->prepare(
+					"SELECT cl.*, c.name AS competitor_profile_name, c.domain AS competitor_profile_domain, c.requires_javascript AS competitor_requires_javascript
+					FROM {$table} cl
+					LEFT JOIN {$competitors} c ON cl.competitor_id = c.id
+					WHERE cl.monitored_product_id = %d
+					ORDER BY cl.enabled DESC, cl.competitor_name ASC, cl.id DESC",
+					absint( $monitored_product_id )
+				),
+				ARRAY_A
+			);
+
+			return is_array( $rows ) ? $rows : array();
 		}
 
 		$rows = $this->wpdb->get_results(
@@ -498,6 +739,7 @@ final class Repository {
 	public function get_due_competitor_links( int $limit ): array {
 		$links_table     = $this->tables['competitor_links'];
 		$monitored_table = $this->tables['monitored_products'];
+		$competitors     = $this->tables['competitors'];
 
 		if ( ! $this->table_exists( $links_table ) || ! $this->table_exists( $monitored_table ) ) {
 			return array();
@@ -505,29 +747,71 @@ final class Repository {
 
 		$limit = $this->sanitize_per_page( $limit );
 		$now   = current_time( 'mysql' );
-		$sql   = $this->wpdb->prepare(
-			"SELECT cl.*, mp.product_id, mp.sku, mp.check_frequency_hours
-			FROM {$links_table} cl
-			INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
-			WHERE cl.enabled = %d
-				AND mp.enabled = %d
-				AND (
-					cl.last_checked_at IS NULL
-					OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
-				)
-			ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
-			LIMIT %d",
-			1,
-			1,
-			$now,
-			$limit
-		);
+		if ( $this->table_exists( $competitors ) ) {
+			$sql = $this->wpdb->prepare(
+				"SELECT
+					cl.*,
+					mp.product_id,
+					mp.sku,
+					mp.check_frequency_hours,
+					c.name AS competitor_profile_name,
+					c.request_delay_seconds AS competitor_request_delay_seconds,
+					c.request_timeout_seconds AS competitor_request_timeout_seconds,
+					c.requires_javascript AS competitor_requires_javascript
+				FROM {$links_table} cl
+				INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
+				LEFT JOIN {$competitors} c ON cl.competitor_id = c.id
+				WHERE cl.enabled = %d
+					AND mp.enabled = %d
+					AND (cl.competitor_id IS NULL OR c.enabled = %d)
+					AND (
+						cl.last_checked_at IS NULL
+						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
+					)
+					AND (
+						cl.competitor_id IS NULL
+						OR c.request_delay_seconds = 0
+						OR NOT EXISTS (
+							SELECT recent.id FROM {$links_table} recent
+							WHERE recent.competitor_id = cl.competitor_id
+								AND recent.last_checked_at >= DATE_SUB(%s, INTERVAL c.request_delay_seconds SECOND)
+							LIMIT 1
+						)
+					)
+				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
+				LIMIT %d",
+				1,
+				1,
+				1,
+				$now,
+				$now,
+				$limit
+			);
+		} else {
+			$sql = $this->wpdb->prepare(
+				"SELECT cl.*, mp.product_id, mp.sku, mp.check_frequency_hours
+				FROM {$links_table} cl
+				INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
+				WHERE cl.enabled = %d
+					AND mp.enabled = %d
+					AND (
+						cl.last_checked_at IS NULL
+						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
+					)
+				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
+				LIMIT %d",
+				1,
+				1,
+				$now,
+				$limit
+			);
+		}
 		$rows  = $this->wpdb->get_results( $sql, ARRAY_A );
 
 		return is_array( $rows ) ? $rows : array();
 	}
 
-	public function update_competitor_check_result( int $competitor_link_id, ?float $price, string $currency, ?string $error ): bool {
+	public function update_competitor_check_result( int $competitor_link_id, ?float $price, string $currency, ?string $error, ?string $stock_status = null ): bool {
 		$table = $this->tables['competitor_links'];
 
 		if ( ! $this->table_exists( $table ) ) {
@@ -547,6 +831,11 @@ final class Repository {
 			$data['last_currency'] = $this->sanitize_currency( $currency );
 			$formats[]             = '%s';
 			$formats[]             = '%s';
+		}
+
+		if ( null !== $stock_status && '' !== $stock_status ) {
+			$data['last_stock_status'] = $this->nullable_limited_text( $stock_status, 50 );
+			$formats[]                 = '%s';
 		}
 
 		$updated = $this->wpdb->update(
@@ -1307,6 +1596,57 @@ final class Repository {
 		return in_array( $match_type, $allowed, true ) ? $match_type : 'unknown';
 	}
 
+	/**
+	 * @param array<string, mixed> $data Raw competitor profile fields.
+	 * @return array<string, mixed>
+	 */
+	private function sanitize_competitor_profile_data( array $data ): array {
+		return array(
+			'name'                    => substr( sanitize_text_field( (string) ( $data['name'] ?? '' ) ), 0, 191 ),
+			'domain'                  => $this->sanitize_domain( (string) ( $data['domain'] ?? '' ) ),
+			'enabled'                 => ! array_key_exists( 'enabled', $data ) || ! empty( $data['enabled'] ) ? 1 : 0,
+			'default_currency'        => $this->sanitize_currency( (string) ( $data['default_currency'] ?? 'NOK' ) ),
+			'request_delay_seconds'   => $this->sanitize_bounded_int( $data['request_delay_seconds'] ?? 2, 0, 3600, 2 ),
+			'request_timeout_seconds' => $this->nullable_bounded_int( $data['request_timeout_seconds'] ?? null, 1, 30 ),
+			'price_extraction_mode'   => $this->sanitize_price_extraction_mode( (string) ( $data['price_extraction_mode'] ?? 'auto' ) ),
+			'price_selector'          => $this->nullable_limited_text( $data['price_selector'] ?? null, 255 ),
+			'sale_price_selector'     => $this->nullable_limited_text( $data['sale_price_selector'] ?? null, 255 ),
+			'stock_selector'          => $this->nullable_limited_text( $data['stock_selector'] ?? null, 255 ),
+			'stock_in_text'           => $this->nullable_limited_text( $data['stock_in_text'] ?? null, 255 ),
+			'stock_out_text'          => $this->nullable_limited_text( $data['stock_out_text'] ?? null, 255 ),
+			'json_ld_enabled'         => ! array_key_exists( 'json_ld_enabled', $data ) || ! empty( $data['json_ld_enabled'] ) ? 1 : 0,
+			'meta_tags_enabled'       => ! array_key_exists( 'meta_tags_enabled', $data ) || ! empty( $data['meta_tags_enabled'] ) ? 1 : 0,
+			'visible_regex_enabled'   => ! array_key_exists( 'visible_regex_enabled', $data ) || ! empty( $data['visible_regex_enabled'] ) ? 1 : 0,
+			'requires_javascript'     => ! empty( $data['requires_javascript'] ) ? 1 : 0,
+			'notes'                   => isset( $data['notes'] ) && '' !== (string) $data['notes'] ? sanitize_textarea_field( (string) $data['notes'] ) : null,
+		);
+	}
+
+	private function sanitize_price_extraction_mode( string $mode ): string {
+		$allowed = array( 'auto', 'json_ld', 'meta_tags', 'selector', 'visible_regex' );
+		$mode    = sanitize_key( $mode );
+
+		return in_array( $mode, $allowed, true ) ? $mode : 'auto';
+	}
+
+	private function sanitize_domain( string $domain ): ?string {
+		$domain = trim( strtolower( sanitize_text_field( $domain ) ) );
+
+		if ( '' === $domain ) {
+			return null;
+		}
+
+		if ( str_contains( $domain, '://' ) ) {
+			$host = wp_parse_url( $domain, PHP_URL_HOST );
+			$domain = is_string( $host ) ? $host : '';
+		}
+
+		$domain = preg_replace( '/[^a-z0-9.-]/', '', $domain );
+		$domain = is_string( $domain ) ? trim( $domain, '.-' ) : '';
+
+		return '' === $domain ? null : substr( $domain, 0, 191 );
+	}
+
 	private function sanitize_monitored_priority( string $priority ): string {
 		$allowed = array( 'low', 'normal', 'high', 'urgent' );
 		$priority = sanitize_key( $priority );
@@ -1406,6 +1746,23 @@ final class Repository {
 
 		if ( $int < $min ) {
 			return $fallback;
+		}
+
+		return min( $int, $max );
+	}
+
+	/**
+	 * @param mixed $value Raw integer.
+	 */
+	private function nullable_bounded_int( $value, int $min, int $max ): ?int {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		$int = absint( $value );
+
+		if ( $int < $min ) {
+			return null;
 		}
 
 		return min( $int, $max );

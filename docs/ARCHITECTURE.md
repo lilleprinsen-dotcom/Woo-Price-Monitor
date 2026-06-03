@@ -26,6 +26,7 @@ Lilleprinsen Price Monitor is an admin-only WooCommerce competitor price monitor
 Current custom tables:
 
 - `lpm_monitored_products`
+- `lpm_competitors`
 - `lpm_competitor_links`
 - `lpm_price_observations`
 - `lpm_price_suggestions`
@@ -37,6 +38,11 @@ Current custom tables:
 ### Admin UI
 
 `src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, History, Import / Export, Settings, and Logs tabs.
+
+The Competitors tab has two layers:
+
+- Global competitor profiles in `lpm_competitors` for reusable domain, delay, timeout, extraction mode, selector, stock text, reliability, and JavaScript-requirement metadata.
+- Product-specific direct competitor links in `lpm_competitor_links`, optionally attached to a profile through nullable `competitor_id`.
 
 `src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
 
@@ -54,17 +60,19 @@ Current custom tables:
 
 ### Price Checking
 
-`src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses settings for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and creates one `lpm_price_observations` row for each attempted check when the repository is available.
+`src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses global settings or competitor profile overrides for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and creates one `lpm_price_observations` row for each attempted check when the repository is available.
 
-Observation rows store check metadata such as product ID, competitor link ID, observed price, currency, extraction method, HTTP status, success flag, error message, response time, and checked timestamp. Raw HTML and full response bodies are not stored.
+Observation rows store check metadata such as product ID, competitor link ID, observed price, currency, stock status, extraction method, HTTP status, success flag, error message, response time, and checked timestamp. Raw HTML and full response bodies are not stored.
 
-`src/Service/PriceParser.php` parses the fetched HTML in this order:
+`src/Service/PriceParser.php` parses fetched HTML with optional competitor profile rules. Supported extraction modes are `auto`, `json_ld`, `meta_tags`, `selector`, and `visible_regex`. The default auto flow remains:
 
 1. JSON-LD Product offers price.
 2. Common product price meta tags.
 3. Basic visible NOK/kr price patterns.
 
-Parsing is intentionally MVP-level and does not crawl other pages.
+If a profile uses selector mode, limited selector extraction is attempted first. Selector support is intentionally small and dependency-free: `.class`, `#id`, and `[attr="value"]` patterns are translated through `DOMDocument` and `DOMXPath`. Profile stock selectors can classify stock as `in_stock`, `out_of_stock`, or `unknown` when matching text is configured.
+
+Profiles marked as requiring JavaScript return a clear warning because the internal checker does not render JavaScript. Browser automation, anti-bot bypassing, and external scraper workers are future work and are not implemented here.
 
 ### Pricing Rules And Suggestions
 
@@ -113,7 +121,7 @@ This service is present for future controlled use. Defaults keep real updates bl
 
 `src/Jobs/JobScheduler.php` registers the Action Scheduler action and an admin-only scheduling check. Scheduled checks are disabled by default. When enabled without Action Scheduler, it logs a warning and does not register a fallback job.
 
-`src/Jobs/CheckCompetitorLinkJob.php` processes only due enabled competitor links for enabled monitored products, capped by `max_urls_per_batch`. It can create suggestions only when `create_suggestions_from_scheduled_checks` is enabled, which defaults off.
+`src/Jobs/CheckCompetitorLinkJob.php` processes only due enabled competitor links for enabled monitored products, capped by `max_urls_per_batch`. It skips links attached to disabled competitor profiles and applies a simple request-delay guard so one batch does not check multiple links from the same delayed profile too quickly. It can create suggestions only when `create_suggestions_from_scheduled_checks` is enabled, which defaults off.
 
 ### Notifications
 
@@ -202,14 +210,23 @@ Current competitor link bulk actions:
 
 ### Competitor Check And Suggestion
 
-1. Admin adds or edits a competitor link for one monitored product.
-2. Admin clicks "Test check".
-3. `PriceCheckService` fetches one URL and `PriceParser` attempts price extraction.
-4. Repository creates a price observation history row without storing raw HTML.
-5. Repository updates the competitor link's last price, currency, timestamp, and error state.
-6. Admin can create a dry-run suggestion from the stored last price.
-7. `PricingRuleService` applies strategy, rounding, min price, margin/cost, and safety rules.
-8. Suggestion appears in the Approvals inbox with rule summary, warnings, and margin-after data when available.
+1. Admin optionally creates a global competitor profile with extraction rules.
+2. Admin adds or edits a competitor link for one monitored product and can attach that profile.
+3. Admin clicks "Test check".
+4. `PriceCheckService` fetches one URL and `PriceParser` attempts price extraction using profile rules when present.
+5. Repository creates a price observation history row without storing raw HTML.
+6. Repository updates the competitor link's last price, currency, stock status, timestamp, and error state.
+7. Admin can create a dry-run suggestion from the stored last price.
+8. `PricingRuleService` applies strategy, rounding, min price, margin/cost, and safety rules.
+9. Suggestion appears in the Approvals inbox with rule summary, warnings, and margin-after data when available.
+
+### Competitor Profile Test
+
+1. Admin edits a competitor profile.
+2. Admin enters a one-off Test URL.
+3. `PriceCheckService` fetches and parses that URL with the profile rules.
+4. The result is shown in the admin UI with price, currency, stock status, extraction method, HTTP status, and error/warning.
+5. No product, competitor link, or observation row is updated by the profile-only test.
 
 ### Observation History
 

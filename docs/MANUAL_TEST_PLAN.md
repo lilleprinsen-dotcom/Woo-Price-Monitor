@@ -6,7 +6,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 
 - [ ] Activate the plugin from WordPress admin.
 - [ ] Confirm the WooCommerce submenu "Price Monitor" appears.
-- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, and `lpm_logs`.
+- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, and `lpm_logs`.
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
@@ -22,14 +22,24 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Select monitored products and apply bulk priority, strategy, check frequency, min margin, and min price changes.
 - [ ] Confirm monitored product bulk actions affect only selected rows on the current page.
 - [ ] Disable and re-enable monitoring for that product.
+- [ ] Open Competitors without a selected product and add a global competitor profile.
+- [ ] Edit the profile and update domain, default currency, request delay, request timeout, extraction mode, selectors, stock text, enabled state, JSON-LD/meta/regex flags, JavaScript requirement, and notes.
+- [ ] Confirm the competitor profile overview shows enabled state, delay, extraction mode, JavaScript flag, link count, success rate, and last check.
+- [ ] Use the profile Test URL field with a simple page and confirm the result card shows price, currency, stock status, extraction method, HTTP status, and error/warning.
+- [ ] Mark the profile as requiring JavaScript and confirm profile testing returns the clear internal-checker warning without trying browser automation.
+- [ ] Confirm profile-only Test URL does not create a product observation row or update a competitor link.
 - [ ] Click Manage competitors for the monitored product.
-- [ ] Add a competitor link with a valid http/https URL.
+- [ ] Add a competitor link with a valid http/https URL and attach the competitor profile.
+- [ ] Add a competitor link with "No profile / custom name" and confirm custom-name links still work.
+- [ ] Leave competitor name blank while selecting a profile and confirm the profile name is used.
 - [ ] Try an invalid URL and confirm validation blocks it.
 - [ ] Edit the competitor link and confirm changes persist.
 - [ ] Disable and re-enable the competitor link.
+- [ ] Confirm the competitor link table shows the attached profile and a JavaScript warning pill when applicable.
 - [ ] Select competitor links and apply bulk enable/disable, set match type, and delete selected on a staging-only link.
 - [ ] Confirm competitor bulk actions affect only selected links.
-- [ ] Click Test check on a simple competitor/test page and confirm detected price, currency, and extraction method notice.
+- [ ] Click Test check on a simple competitor/test page and confirm detected price, currency, stock status when configured, and extraction method notice.
+- [ ] Confirm a JavaScript-required profile attached to a link returns the clear warning and does not attempt browser rendering.
 - [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.

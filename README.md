@@ -10,9 +10,11 @@ Implemented foundation:
 
 - Admin page under WooCommerce: Dashboard, Products, Approvals, Competitors, History, Settings, and Logs.
 - Product search by ID, SKU, or bounded title query, limited to 20 results.
-- Custom database tables for monitoring rows, competitor links, price observations, suggestions, price match sessions, and logs.
-- Competitor link management with manual "Test check" action.
-- Price parsing MVP with JSON-LD, price meta tags, and NOK/kr visible text fallback.
+- Custom database tables for monitoring rows, competitor profiles, competitor links, price observations, suggestions, price match sessions, and logs.
+- Competitor profile management with reusable domain, timing, extraction, selector, stock text, and JavaScript-requirement settings.
+- Competitor link management with optional profile attachment and manual "Test check" action.
+- Price parsing MVP with JSON-LD, price meta tags, limited selector extraction, stock text detection, and NOK/kr visible text fallback.
+- Import / Export tab with bounded CSV preview/confirm import, safe CSV exports, and selected-row bulk actions.
 - Pricing rule engine for dry-run suggestions with strategy, rounding, min price, margin, cost, VAT-mode labels, and safety checks.
 - Product-level rule overrides for enabled state, priority, strategy, minimum margin, minimum price, and check cadence.
 - Dry-run suggestion creation for price-match-down, price-up/recovery, restore, manual-review, skipped, and blocked scenarios.
@@ -38,7 +40,8 @@ Implemented foundation:
 The plugin creates these custom tables with the active WordPress table prefix:
 
 - `lpm_monitored_products`: selected WooCommerce product IDs, SKU snapshots, enabled state, strategy, priority, check cadence, and timestamps.
-- `lpm_competitor_links`: direct competitor URLs attached to monitored products, last detected price data, check timestamps, and errors.
+- `lpm_competitors`: global competitor profiles, domains, request delay/timeout settings, extraction rules, selector settings, stock text, JavaScript requirement, and notes.
+- `lpm_competitor_links`: direct competitor URLs attached to monitored products, optional `competitor_id`, last detected price/stock data, check timestamps, and errors.
 - `lpm_price_observations`: historical check rows for trust, debugging, recovery behavior, and future reports.
 - `lpm_price_suggestions`: dry-run and real-update workflow suggestions, suggestion type, status, reason, rule details, warnings, margin snapshot, reviewer, and timestamps.
 - `lpm_price_match_sessions`: original price state and recovery context for price-match sessions, including dry-run sessions.
@@ -57,6 +60,7 @@ This project currently does not implement:
 - Automatic or bulk WooCommerce price updates.
 - Direct SQL updates to `_price`, `_regular_price`, or `_sale_price`.
 - Heavy reporting over all products or all orders.
+- JavaScript/browser scraping, anti-bot bypassing, or external scraper workers.
 
 ## Development
 
