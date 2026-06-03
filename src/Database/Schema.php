@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.1.0';
+	public const VERSION = '1.2.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -113,8 +113,11 @@ final class Schema {
 			rejected_by bigint(20) unsigned DEFAULT NULL,
 			PRIMARY KEY  (id),
 			KEY monitored_product_id (monitored_product_id),
+			KEY competitor_link_id (competitor_link_id),
 			KEY product_id (product_id),
+			KEY suggestion_type (suggestion_type),
 			KEY status (status),
+			KEY status_type (status, suggestion_type),
 			KEY created_at (created_at)
 		) {$charset_collate};";
 

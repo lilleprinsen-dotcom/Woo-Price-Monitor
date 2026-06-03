@@ -59,7 +59,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 		<section class="lpm-panel <?php echo esc_attr( 'approvals' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="approvals">
 			<?php
 			if ( 'approvals' === $active_tab ) {
-				$this->render_placeholder_panel( __( 'Approvals', 'lilleprinsen-price-monitor' ), __( 'Suggestion approval and rejection queues will stay dry-run until explicit price update work is requested.', 'lilleprinsen-price-monitor' ) );
+				$this->render_approvals();
 			}
 			?>
 		</section>

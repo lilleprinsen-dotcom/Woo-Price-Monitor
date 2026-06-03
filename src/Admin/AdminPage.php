@@ -10,6 +10,9 @@ namespace Lilleprinsen\PriceMonitor\Admin;
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Plugin;
+use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
+use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
+use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -23,9 +26,18 @@ final class AdminPage {
 
 	private Settings $settings;
 
+	private PriceCheckService $price_check_service;
+
+	private PriceRecoveryService $price_recovery_service;
+
+	private SuggestionService $suggestion_service;
+
 	public function __construct( Repository $repository, Settings $settings ) {
-		$this->repository = $repository;
-		$this->settings   = $settings;
+		$this->repository             = $repository;
+		$this->settings               = $settings;
+		$this->price_check_service    = new PriceCheckService();
+		$this->price_recovery_service = new PriceRecoveryService();
+		$this->suggestion_service     = new SuggestionService( $repository, $this->price_recovery_service );
 	}
 
 	public function handle_actions(): void {
@@ -59,6 +71,21 @@ final class AdminPage {
 			case 'delete_competitor_link':
 				$this->handle_competitor_link_action( $action );
 				break;
+			case 'test_competitor_check':
+				$this->handle_test_competitor_check();
+				break;
+			case 'create_price_suggestion':
+				$this->handle_create_price_suggestion();
+				break;
+			case 'approve_suggestion_dry_run':
+				$this->handle_approve_suggestion_dry_run();
+				break;
+			case 'reject_suggestion':
+				$this->handle_reject_suggestion();
+				break;
+			case 'update_suggested_price':
+				$this->handle_update_suggested_price();
+				break;
 			default:
 				$this->redirect_to_tab( 'dashboard', 'unknown_action' );
 		}
@@ -87,6 +114,22 @@ final class AdminPage {
 	}
 
 	public function render_admin_notices(): void {
+		$dynamic_notice = $this->pull_admin_notice();
+		$dynamic_shown  = false;
+
+		if ( is_array( $dynamic_notice ) && ! empty( $dynamic_notice['message'] ) ) {
+			printf(
+				'<div class="lpm-notice lpm-notice-%1$s">%2$s</div>',
+				esc_attr( in_array( (string) $dynamic_notice['type'], array( 'success', 'error', 'warning' ), true ) ? (string) $dynamic_notice['type'] : 'success' ),
+				esc_html( (string) $dynamic_notice['message'] )
+			);
+			$dynamic_shown = true;
+		}
+
+		if ( $dynamic_shown ) {
+			return;
+		}
+
 		$notice = isset( $_GET['lpm_notice'] ) ? sanitize_key( wp_unslash( $_GET['lpm_notice'] ) ) : '';
 
 		if ( '' === $notice ) {
@@ -138,6 +181,9 @@ final class AdminPage {
 			'monitored_products'          => 0,
 			'active_competitor_links'     => 0,
 			'pending_suggestions'         => 0,
+			'blocked_suggestions'         => 0,
+			'recovery_suggestions'        => 0,
+			'recent_failed_checks'        => 0,
 			'failed_logs'                 => 0,
 			'active_price_match_sessions' => 0,
 		);
@@ -166,7 +212,9 @@ final class AdminPage {
 			$this->render_summary_card( __( 'Monitored products', 'lilleprinsen-price-monitor' ), $counts['monitored_products'], __( 'Selected products only', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Active competitor links', 'lilleprinsen-price-monitor' ), $counts['active_competitor_links'], __( 'Stored direct URLs', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), $counts['pending_suggestions'], __( 'Awaiting review', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Failed logs/checks', 'lilleprinsen-price-monitor' ), $counts['failed_logs'], __( 'Error-level audit entries', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), $counts['blocked_suggestions'], __( 'Need manual attention', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Recovery suggestions', 'lilleprinsen-price-monitor' ), $counts['recovery_suggestions'], __( 'Price-up or restore plans', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Recent failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Last 7 days', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Active price match sessions', 'lilleprinsen-price-monitor' ), $counts['active_price_match_sessions'], __( 'Dry-run recovery state', 'lilleprinsen-price-monitor' ) );
 			?>
 		</div>
@@ -207,11 +255,12 @@ final class AdminPage {
 					<h2><?php esc_html_e( 'Needs attention', 'lilleprinsen-price-monitor' ); ?></h2>
 					<span class="lpm-pill lpm-pill-muted"><?php esc_html_e( 'Dry-run', 'lilleprinsen-price-monitor' ); ?></span>
 				</div>
-				<p><?php esc_html_e( 'This panel will highlight pending suggestions, failed checks, stale monitored products, and recovery sessions once those workflows are added.', 'lilleprinsen-price-monitor' ); ?></p>
+				<p><?php esc_html_e( 'Manual checks and dry-run suggestions surface here before any real price update workflow exists.', 'lilleprinsen-price-monitor' ); ?></p>
 				<ul class="lpm-check-list">
-					<li><?php esc_html_e( 'No competitor checks run in this version.', 'lilleprinsen-price-monitor' ); ?></li>
-					<li><?php esc_html_e( 'No WooCommerce prices are updated.', 'lilleprinsen-price-monitor' ); ?></li>
-					<li><?php esc_html_e( 'Price recovery settings only affect future dry-run suggestions.', 'lilleprinsen-price-monitor' ); ?></li>
+					<li><?php printf( esc_html__( '%d pending suggestions are waiting in the pricing inbox.', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] ); ?></li>
+					<li><?php printf( esc_html__( '%d blocked suggestions need a manual safety review.', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] ); ?></li>
+					<li><?php printf( esc_html__( '%d manual competitor checks failed recently.', 'lilleprinsen-price-monitor' ), (int) $counts['recent_failed_checks'] ); ?></li>
+					<li><?php esc_html_e( 'Approvals are dry-run only. No WooCommerce prices are updated.', 'lilleprinsen-price-monitor' ); ?></li>
 				</ul>
 			</section>
 		</div>
@@ -344,6 +393,40 @@ final class AdminPage {
 					</tr>
 				</tbody>
 			</table>
+		</section>
+		<?php
+	}
+
+	public function render_approvals(): void {
+		$view        = $this->get_approval_view();
+		$page        = $this->get_positive_query_arg( 'lpm_approvals_page', 1 );
+		$per_page    = (int) $this->settings->get( 'rows_per_page', 25 );
+		$filters     = array( 'view' => $view );
+		$suggestions = $this->repository->get_price_suggestions( $filters, $page, $per_page );
+		$total       = $this->repository->count_price_suggestions( $filters );
+		$counts      = $this->repository->get_suggestion_counts();
+		?>
+		<div class="lpm-grid lpm-grid-summary lpm-inbox-summary">
+			<?php
+			$this->render_summary_card( __( 'Pending', 'lilleprinsen-price-monitor' ), $counts['pending'], __( 'Ready for dry-run review', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Blocked', 'lilleprinsen-price-monitor' ), $counts['blocked'], __( 'Safety limits tripped', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Approved dry-run', 'lilleprinsen-price-monitor' ), $counts['approved_dry_run'], __( 'No price updates made', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Rejected', 'lilleprinsen-price-monitor' ), $counts['rejected'], __( 'Dismissed suggestions', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Recovery suggestions', 'lilleprinsen-price-monitor' ), $counts['recovery'], __( 'Price-up or restore plans', 'lilleprinsen-price-monitor' ) );
+			?>
+		</div>
+
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Pricing inbox', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'Approvals record dry-run workflow state only. WooCommerce prices are not updated in this version.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->render_status_pill( __( 'Dry-run only', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+			</div>
+			<?php $this->render_approval_filters( $view ); ?>
+			<?php $this->render_approvals_table( $suggestions ); ?>
+			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_approvals_page', array( 'tab' => 'approvals', 'lpm_approval_view' => $view ) ); ?>
 		</section>
 		<?php
 	}
@@ -642,6 +725,295 @@ final class AdminPage {
 		}
 
 		$this->redirect_to_competitors( $monitored_product_id, 'competitor_link_status_failed', 'error' );
+	}
+
+	private function handle_test_competitor_check(): void {
+		$link_id = isset( $_POST['competitor_link_id'] ) ? absint( wp_unslash( $_POST['competitor_link_id'] ) ) : 0;
+		$link    = $this->repository->get_competitor_link( $link_id );
+
+		if ( ! $link ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_link_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$monitored_product_id = (int) $link['monitored_product_id'];
+		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
+		$product_id           = $monitored_product ? (int) $monitored_product['product_id'] : null;
+
+		if ( ! $monitored_product ) {
+			$this->redirect_to_competitors( $monitored_product_id, 'monitored_not_found', 'error' );
+		}
+
+		$result  = $this->price_check_service->test_check( $link, $this->settings->get_all() );
+		$updated = $this->repository->update_competitor_check_result(
+			$link_id,
+			$result['success'] ? (float) $result['price'] : null,
+			(string) $result['currency'],
+			$result['success'] ? null : (string) $result['error']
+		);
+
+		if ( ! empty( $result['success'] ) && $updated ) {
+			$this->repository->write_log(
+				'info',
+				'competitor_check_succeeded',
+				__( 'Manual competitor test check detected a price.', 'lilleprinsen-price-monitor' ),
+				array(
+					'competitor_link_id' => $link_id,
+					'price'              => (float) $result['price'],
+					'currency'           => (string) $result['currency'],
+					'extraction_method'  => (string) $result['extraction_method'],
+					'http_status'        => (int) $result['http_status'],
+				),
+				$product_id
+			);
+			$this->set_admin_notice(
+				sprintf(
+					/* translators: 1: detected price, 2: extraction method. */
+					__( 'Detected %1$s using %2$s. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+					$this->format_price_amount( (float) $result['price'], (string) $result['currency'] ),
+					(string) $result['extraction_method']
+				)
+			);
+			$this->redirect_to_competitors( $monitored_product_id, 'competitor_check_succeeded' );
+		}
+
+		$error_message = ! empty( $result['success'] ) && ! $updated
+			? __( 'Detected a price, but could not save the competitor check result.', 'lilleprinsen-price-monitor' )
+			: (string) $result['error'];
+
+		$this->repository->write_log(
+			'error',
+			'competitor_check_failed',
+			__( 'Manual competitor test check failed.', 'lilleprinsen-price-monitor' ),
+			array(
+				'competitor_link_id' => $link_id,
+				'error'              => $error_message,
+				'http_status'        => (int) $result['http_status'],
+				'updated'            => $updated,
+			),
+			$product_id
+		);
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: %s: error message. */
+				__( 'Test check failed: %s', 'lilleprinsen-price-monitor' ),
+				$error_message
+			),
+			'error'
+		);
+		$this->redirect_to_competitors( $monitored_product_id, 'competitor_check_failed', 'error' );
+	}
+
+	private function handle_create_price_suggestion(): void {
+		$link_id = isset( $_POST['competitor_link_id'] ) ? absint( wp_unslash( $_POST['competitor_link_id'] ) ) : 0;
+		$link    = $this->repository->get_competitor_link( $link_id );
+
+		if ( ! $link ) {
+			$this->redirect_to_tab( 'competitors', 'competitor_link_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$monitored_product_id = (int) $link['monitored_product_id'];
+		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
+
+		if ( ! $monitored_product ) {
+			$this->redirect_to_competitors( $monitored_product_id, 'monitored_not_found', 'error' );
+		}
+
+		$product = $this->get_product( (int) $monitored_product['product_id'] );
+
+		if ( ! $product ) {
+			$this->redirect_to_competitors( $monitored_product_id, 'product_not_found', 'error' );
+		}
+
+		$result = $this->suggestion_service->create_from_competitor_link( $monitored_product, $link, $product, $this->settings->get_all() );
+		$status = (string) ( $result['status'] ?? 'error' );
+
+		if ( 'skipped' === $status ) {
+			$this->repository->write_log(
+				'warning',
+				'price_suggestion_skipped',
+				(string) ( $result['message'] ?? __( 'Price suggestion was skipped.', 'lilleprinsen-price-monitor' ) ),
+				array( 'competitor_link_id' => $link_id ),
+				(int) $monitored_product['product_id']
+			);
+			$this->set_admin_notice( (string) $result['message'], 'warning' );
+			$this->redirect_to_competitors( $monitored_product_id, 'price_suggestion_skipped', 'warning' );
+		}
+
+		if ( 'error' === $status ) {
+			$this->repository->write_log(
+				'error',
+				'price_suggestion_failed',
+				(string) ( $result['message'] ?? __( 'Could not create price suggestion.', 'lilleprinsen-price-monitor' ) ),
+				array( 'competitor_link_id' => $link_id ),
+				(int) $monitored_product['product_id']
+			);
+			$this->set_admin_notice( (string) $result['message'], 'error' );
+			$this->redirect_to_competitors( $monitored_product_id, 'price_suggestion_failed', 'error' );
+		}
+
+		$event = 'blocked' === $status ? 'price_suggestion_blocked' : 'price_suggestion_created';
+		$this->repository->write_log(
+			'blocked' === $status ? 'warning' : 'info',
+			$event,
+			(string) ( $result['message'] ?? __( 'Dry-run price suggestion created.', 'lilleprinsen-price-monitor' ) ),
+			array(
+				'competitor_link_id' => $link_id,
+				'suggestion_id'      => (int) ( $result['suggestion_id'] ?? 0 ),
+				'suggestion_type'    => (string) ( $result['suggestion_type'] ?? '' ),
+				'suggested_price'    => (float) ( $result['suggested_price'] ?? 0 ),
+			),
+			(int) $monitored_product['product_id']
+		);
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: 1: suggestion type, 2: suggested price. */
+				__( 'Dry-run suggestion %1$s created for %2$s. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+				$this->get_suggestion_type_label( (string) ( $result['suggestion_type'] ?? 'manual_review' ) ),
+				$this->format_price_amount( (float) ( $result['suggested_price'] ?? 0 ), (string) $this->settings->get( 'default_currency', 'NOK' ) )
+			),
+			'blocked' === $status ? 'warning' : 'success'
+		);
+		$this->redirect_to_competitors( $monitored_product_id, 'price_suggestion_created', 'blocked' === $status ? 'warning' : 'success' );
+	}
+
+	private function handle_approve_suggestion_dry_run(): void {
+		$suggestion = $this->get_submitted_suggestion();
+		$user_id    = get_current_user_id();
+
+		if ( ! $suggestion ) {
+			$this->redirect_to_approvals( 'suggestion_not_found', 'error' );
+		}
+
+		$approved = $this->repository->approve_suggestion_dry_run( (int) $suggestion['id'], $user_id );
+
+		if ( ! $approved ) {
+			$this->redirect_to_approvals( 'suggestion_approval_failed', 'error' );
+		}
+
+		$session_id = 0;
+
+		if ( 'price_match_down' === (string) $suggestion['suggestion_type'] ) {
+			$active_session = $this->repository->get_active_price_match_session_for_product( (int) $suggestion['product_id'] );
+
+			if ( ! $active_session ) {
+				$original_state = $this->price_recovery_service->get_original_price_state( (int) $suggestion['product_id'] );
+				$session_id     = $this->repository->create_price_match_session(
+					array_merge(
+						$original_state,
+						array(
+							'product_id'                   => (int) $suggestion['product_id'],
+							'monitored_product_id'         => (int) $suggestion['monitored_product_id'],
+							'suggestion_id'                => (int) $suggestion['id'],
+							'status'                       => 'active_dry_run',
+							'matched_price'                => (float) $suggestion['suggested_price'],
+							'matched_at'                   => current_time( 'mysql' ),
+							'matched_by'                   => $user_id,
+							'restore_strategy'             => 'previous_active_price',
+							'recovery_strategy'            => (string) $this->settings->get( 'recovery_when_competitor_increases', 'suggest_only' ),
+							'last_competitor_price'        => (float) $suggestion['competitor_price'],
+							'last_lowest_competitor_price' => (float) $suggestion['competitor_price'],
+							'last_checked_at'              => current_time( 'mysql' ),
+						)
+					)
+				);
+
+				if ( $session_id > 0 ) {
+					$this->repository->write_log(
+						'info',
+						'dry_run_price_match_session_created',
+						__( 'Dry-run price match session created after approval. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+						array(
+							'suggestion_id' => (int) $suggestion['id'],
+							'session_id'    => $session_id,
+						),
+						(int) $suggestion['product_id']
+					);
+				}
+			}
+		}
+
+		$this->repository->write_log(
+			'info',
+			'price_suggestion_approved_dry_run',
+			__( 'Dry-run approval recorded. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+			array(
+				'suggestion_id' => (int) $suggestion['id'],
+				'session_id'    => $session_id,
+			),
+			(int) $suggestion['product_id']
+		);
+		$this->set_admin_notice( __( 'Dry-run approval recorded. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ) );
+		$this->redirect_to_approvals( 'suggestion_approved_dry_run', 'success', 'approved_dry_run' );
+	}
+
+	private function handle_reject_suggestion(): void {
+		$suggestion = $this->get_submitted_suggestion();
+
+		if ( ! $suggestion ) {
+			$this->redirect_to_approvals( 'suggestion_not_found', 'error' );
+		}
+
+		$rejected = $this->repository->reject_suggestion( (int) $suggestion['id'], get_current_user_id() );
+
+		if ( ! $rejected ) {
+			$this->redirect_to_approvals( 'suggestion_reject_failed', 'error' );
+		}
+
+		$this->repository->write_log(
+			'info',
+			'price_suggestion_rejected',
+			__( 'Price suggestion rejected.', 'lilleprinsen-price-monitor' ),
+			array( 'suggestion_id' => (int) $suggestion['id'] ),
+			(int) $suggestion['product_id']
+		);
+		$this->redirect_to_approvals( 'suggestion_rejected', 'success', 'rejected' );
+	}
+
+	private function handle_update_suggested_price(): void {
+		$suggestion = $this->get_submitted_suggestion();
+
+		if ( ! $suggestion ) {
+			$this->redirect_to_approvals( 'suggestion_not_found', 'error' );
+		}
+
+		$raw_price = isset( $_POST['suggested_price'] ) ? str_replace( ',', '.', sanitize_text_field( wp_unslash( $_POST['suggested_price'] ) ) ) : '';
+
+		if ( '' === $raw_price || ! is_numeric( $raw_price ) || (float) $raw_price <= 0 ) {
+			$this->redirect_to_approvals( 'suggested_price_invalid', 'error' );
+		}
+
+		$new_price = round( (float) $raw_price, 4 );
+		$updated   = $this->repository->update_suggested_price( (int) $suggestion['id'], $new_price );
+
+		if ( ! $updated ) {
+			$this->redirect_to_approvals( 'suggested_price_update_failed', 'error' );
+		}
+
+		$this->repository->write_log(
+			'info',
+			'price_suggestion_adjusted',
+			__( 'Suggested price adjusted before dry-run approval.', 'lilleprinsen-price-monitor' ),
+			array(
+				'suggestion_id' => (int) $suggestion['id'],
+				'old_price'     => (float) $suggestion['suggested_price'],
+				'new_price'     => $new_price,
+			),
+			(int) $suggestion['product_id']
+		);
+		$this->redirect_to_approvals( 'suggested_price_updated', 'success', $this->get_submitted_approval_view() );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	private function get_submitted_suggestion(): ?array {
+		$suggestion_id = isset( $_POST['suggestion_id'] ) ? absint( wp_unslash( $_POST['suggestion_id'] ) ) : 0;
+
+		if ( $suggestion_id <= 0 ) {
+			return null;
+		}
+
+		return $this->repository->get_price_suggestion( $suggestion_id );
 	}
 
 	/**
@@ -951,8 +1323,93 @@ final class AdminPage {
 						<td>
 							<div class="lpm-actions">
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'monitored_product_id' => $monitored_product_id, 'competitor_link_id' => (int) $link['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit', 'lilleprinsen-price-monitor' ); ?></a>
+								<?php $this->render_competitor_action_form( (int) $link['id'], 'test_competitor_check', __( 'Test check', 'lilleprinsen-price-monitor' ) ); ?>
+								<?php if ( ! empty( $link['last_price'] ) ) : ?>
+									<?php $this->render_competitor_action_form( (int) $link['id'], 'create_price_suggestion', __( 'Create suggestion', 'lilleprinsen-price-monitor' ) ); ?>
+								<?php endif; ?>
 								<?php $this->render_competitor_action_form( (int) $link['id'], ! empty( $link['enabled'] ) ? 'disable_competitor_link' : 'enable_competitor_link', ! empty( $link['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
 								<?php $this->render_competitor_action_form( (int) $link['id'], 'delete_competitor_link', __( 'Delete', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
+							</div>
+						</td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_approval_filters( string $active_view ): void {
+		?>
+		<nav class="lpm-filter-tabs" aria-label="<?php esc_attr_e( 'Suggestion filters', 'lilleprinsen-price-monitor' ); ?>">
+			<?php foreach ( $this->get_approval_view_options() as $view => $label ) : ?>
+				<a
+					class="lpm-filter-tab <?php echo esc_attr( $active_view === $view ? 'is-active' : '' ); ?>"
+					href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_approval_view' => $view ), admin_url( 'admin.php' ) ) ); ?>"
+				>
+					<?php echo esc_html( $label ); ?>
+				</a>
+			<?php endforeach; ?>
+		</nav>
+		<?php
+	}
+
+	private function render_approvals_table( array $suggestions ): void {
+		if ( empty( $suggestions ) ) {
+			$this->render_empty_state( __( 'No suggestions match the current inbox filter.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		$currency = (string) $this->settings->get( 'default_currency', 'NOK' );
+		?>
+		<table class="lpm-compact-table lpm-approvals-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Suggestion type', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Current price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Competitor price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Suggested price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Difference', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Reason', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Created', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $suggestions as $suggestion ) : ?>
+					<?php
+					$product    = $this->get_product( (int) $suggestion['product_id'] );
+					$can_review = in_array( (string) $suggestion['status'], array( 'pending', 'blocked' ), true );
+					?>
+					<tr>
+						<td>
+							<div class="lpm-product-cell">
+								<?php echo wp_kses_post( $product ? $this->get_product_thumbnail( $product ) : '' ); ?>
+								<span>
+									<?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $suggestion['product_id'] ) ); ?>
+									<small><?php printf( esc_html__( 'ID %d', 'lilleprinsen-price-monitor' ), (int) $suggestion['product_id'] ); ?></small>
+								</span>
+							</div>
+						</td>
+						<td><?php echo esc_html( $this->get_suggestion_type_label( (string) $suggestion['suggestion_type'] ) ); ?></td>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['current_price'], $currency ) ); ?></td>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['competitor_price'], $currency ) ); ?></td>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['suggested_price'], $currency ) ); ?></td>
+						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['difference'], $currency ) ); ?></td>
+						<td><?php $this->render_status_pill( $this->get_suggestion_status_label( (string) $suggestion['status'] ), $this->get_suggestion_status_pill_type( (string) $suggestion['status'] ) ); ?></td>
+						<td class="lpm-suggestion-reason"><?php echo esc_html( $this->shorten_text( (string) ( $suggestion['reason'] ?? '' ), 120 ) ); ?></td>
+						<td><?php echo esc_html( $this->format_datetime( $suggestion['created_at'] ?? null ) ); ?></td>
+						<td>
+							<div class="lpm-actions lpm-inbox-actions">
+								<?php if ( $can_review ) : ?>
+									<?php $this->render_suggestion_price_form( $suggestion ); ?>
+									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'approve_suggestion_dry_run', __( 'Approve dry-run', 'lilleprinsen-price-monitor' ) ); ?>
+									<?php $this->render_suggestion_action_form( (int) $suggestion['id'], 'reject_suggestion', __( 'Reject', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
+								<?php endif; ?>
+								<a class="button button-small" href="<?php echo esc_url( $this->get_product_admin_url( (int) $suggestion['product_id'] ) ); ?>"><?php esc_html_e( 'View product', 'lilleprinsen-price-monitor' ); ?></a>
+								<?php if ( ! empty( $suggestion['competitor_url'] ) ) : ?>
+									<a class="button button-small" href="<?php echo esc_url( (string) $suggestion['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php esc_html_e( 'Open competitor', 'lilleprinsen-price-monitor' ); ?></a>
+								<?php endif; ?>
 							</div>
 						</td>
 					</tr>
@@ -1076,6 +1533,34 @@ final class AdminPage {
 			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
 			<input type="hidden" name="competitor_link_id" value="<?php echo esc_attr( (string) $competitor_link_id ); ?>" />
 			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_suggestion_action_form( int $suggestion_id, string $action, string $label, string $class = '' ): void {
+		?>
+		<form method="post" class="lpm-inline-action">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
+			<input type="hidden" name="suggestion_id" value="<?php echo esc_attr( (string) $suggestion_id ); ?>" />
+			<input type="hidden" name="lpm_approval_view" value="<?php echo esc_attr( $this->get_approval_view() ); ?>" />
+			<button type="submit" class="button button-small <?php echo esc_attr( $class ); ?>"><?php echo esc_html( $label ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_suggestion_price_form( array $suggestion ): void {
+		?>
+		<form method="post" class="lpm-inline-action lpm-price-edit">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="update_suggested_price" />
+			<input type="hidden" name="suggestion_id" value="<?php echo esc_attr( (string) $suggestion['id'] ); ?>" />
+			<input type="hidden" name="lpm_approval_view" value="<?php echo esc_attr( $this->get_approval_view() ); ?>" />
+			<label>
+				<span class="screen-reader-text"><?php esc_html_e( 'Suggested price', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="0.01" step="0.01" name="suggested_price" value="<?php echo esc_attr( $this->format_price_for_input( (float) $suggestion['suggested_price'] ) ); ?>" />
+			</label>
+			<button type="submit" class="button button-small"><?php esc_html_e( 'Update', 'lilleprinsen-price-monitor' ); ?></button>
 		</form>
 		<?php
 	}
@@ -1241,6 +1726,34 @@ final class AdminPage {
 		return isset( $_GET['lpm_product_search'] ) ? trim( sanitize_text_field( wp_unslash( $_GET['lpm_product_search'] ) ) ) : '';
 	}
 
+	private function get_approval_view(): string {
+		$view = isset( $_GET['lpm_approval_view'] ) ? sanitize_key( wp_unslash( $_GET['lpm_approval_view'] ) ) : 'pending';
+
+		return array_key_exists( $view, $this->get_approval_view_options() ) ? $view : 'pending';
+	}
+
+	private function get_submitted_approval_view(): string {
+		$view = isset( $_POST['lpm_approval_view'] ) ? sanitize_key( wp_unslash( $_POST['lpm_approval_view'] ) ) : 'pending';
+
+		return array_key_exists( $view, $this->get_approval_view_options() ) ? $view : 'pending';
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_approval_view_options(): array {
+		return array(
+			'pending'                => __( 'Pending', 'lilleprinsen-price-monitor' ),
+			'blocked'                => __( 'Blocked', 'lilleprinsen-price-monitor' ),
+			'approved_dry_run'       => __( 'Approved dry-run', 'lilleprinsen-price-monitor' ),
+			'rejected'               => __( 'Rejected', 'lilleprinsen-price-monitor' ),
+			'price_match_down'       => __( 'Price match down', 'lilleprinsen-price-monitor' ),
+			'price_match_up'         => __( 'Price match up', 'lilleprinsen-price-monitor' ),
+			'restore_previous_price' => __( 'Restore previous price', 'lilleprinsen-price-monitor' ),
+			'all'                    => __( 'All', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
 	/**
 	 * @return array{level: string, event: string, product_id: string}
 	 */
@@ -1354,6 +1867,66 @@ final class AdminPage {
 		);
 	}
 
+	private function get_suggestion_type_label( string $suggestion_type ): string {
+		$labels = array(
+			'price_match_down'               => __( 'Price match down', 'lilleprinsen-price-monitor' ),
+			'price_match_up'                 => __( 'Price match up', 'lilleprinsen-price-monitor' ),
+			'restore_previous_active_price'  => __( 'Restore previous active price', 'lilleprinsen-price-monitor' ),
+			'restore_previous_regular_price' => __( 'Restore previous regular price', 'lilleprinsen-price-monitor' ),
+			'restore_previous_sale_price'    => __( 'Restore previous sale price', 'lilleprinsen-price-monitor' ),
+			'manual_review'                  => __( 'Manual review', 'lilleprinsen-price-monitor' ),
+			'blocked'                        => __( 'Blocked', 'lilleprinsen-price-monitor' ),
+		);
+
+		return $labels[ $suggestion_type ] ?? __( 'Manual review', 'lilleprinsen-price-monitor' );
+	}
+
+	private function get_suggestion_status_label( string $status ): string {
+		$labels = array(
+			'pending'          => __( 'Pending', 'lilleprinsen-price-monitor' ),
+			'blocked'          => __( 'Blocked', 'lilleprinsen-price-monitor' ),
+			'approved_dry_run' => __( 'Approved dry-run', 'lilleprinsen-price-monitor' ),
+			'rejected'         => __( 'Rejected', 'lilleprinsen-price-monitor' ),
+		);
+
+		return $labels[ $status ] ?? __( 'Pending', 'lilleprinsen-price-monitor' );
+	}
+
+	private function get_suggestion_status_pill_type( string $status ): string {
+		if ( 'blocked' === $status ) {
+			return 'danger';
+		}
+
+		if ( 'pending' === $status ) {
+			return 'warning';
+		}
+
+		if ( 'approved_dry_run' === $status ) {
+			return 'ok';
+		}
+
+		return 'muted';
+	}
+
+	private function format_price_amount( float $price, string $currency ): string {
+		$currency = strtoupper( sanitize_text_field( $currency ) );
+		$currency = '' !== $currency ? $currency : 'NOK';
+
+		return number_format_i18n( $price, 2 ) . ' ' . $currency;
+	}
+
+	private function format_price_for_input( float $price ): string {
+		return number_format( $price, 2, '.', '' );
+	}
+
+	private function get_product_admin_url( int $product_id ): string {
+		if ( $product_id <= 0 ) {
+			return admin_url( 'edit.php?post_type=product' );
+		}
+
+		return admin_url( 'post.php?post=' . absint( $product_id ) . '&action=edit' );
+	}
+
 	private function is_valid_http_url( string $url ): bool {
 		$parts = wp_parse_url( $url );
 
@@ -1374,6 +1947,17 @@ final class AdminPage {
 		);
 	}
 
+	private function redirect_to_approvals( string $notice, string $type = 'success', string $view = 'pending' ): void {
+		$this->redirect_to_tab(
+			'approvals',
+			$notice,
+			array(
+				'lpm_approval_view' => array_key_exists( $view, $this->get_approval_view_options() ) ? $view : 'pending',
+				'lpm_notice_type'   => $type,
+			)
+		);
+	}
+
 	private function redirect_to_tab( string $tab, string $notice, array $extra_args = array() ): void {
 		$args = array_merge(
 			array(
@@ -1386,6 +1970,37 @@ final class AdminPage {
 
 		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	private function set_admin_notice( string $message, string $type = 'success' ): void {
+		set_transient(
+			$this->get_admin_notice_transient_key(),
+			array(
+				'message' => sanitize_text_field( $message ),
+				'type'    => in_array( $type, array( 'success', 'error', 'warning' ), true ) ? $type : 'success',
+			),
+			60
+		);
+	}
+
+	/**
+	 * @return array<string, string>|null
+	 */
+	private function pull_admin_notice(): ?array {
+		$key    = $this->get_admin_notice_transient_key();
+		$notice = get_transient( $key );
+
+		if ( false === $notice ) {
+			return null;
+		}
+
+		delete_transient( $key );
+
+		return is_array( $notice ) ? $notice : null;
+	}
+
+	private function get_admin_notice_transient_key(): string {
+		return 'lpm_admin_notice_' . (int) get_current_user_id();
 	}
 
 	private function get_notice_message( string $notice ): string {
@@ -1410,6 +2025,19 @@ final class AdminPage {
 			'competitor_link_delete_failed'   => __( 'Could not delete competitor link.', 'lilleprinsen-price-monitor' ),
 			'competitor_link_status_updated'  => __( 'Competitor link status updated.', 'lilleprinsen-price-monitor' ),
 			'competitor_link_status_failed'   => __( 'Could not update competitor link status.', 'lilleprinsen-price-monitor' ),
+			'competitor_check_succeeded'      => __( 'Manual competitor check completed.', 'lilleprinsen-price-monitor' ),
+			'competitor_check_failed'         => __( 'Manual competitor check failed.', 'lilleprinsen-price-monitor' ),
+			'price_suggestion_created'        => __( 'Dry-run price suggestion created.', 'lilleprinsen-price-monitor' ),
+			'price_suggestion_skipped'        => __( 'No suggestion was created.', 'lilleprinsen-price-monitor' ),
+			'price_suggestion_failed'         => __( 'Could not create a price suggestion.', 'lilleprinsen-price-monitor' ),
+			'suggestion_not_found'            => __( 'Suggestion was not found.', 'lilleprinsen-price-monitor' ),
+			'suggestion_approved_dry_run'     => __( 'Dry-run approval recorded. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+			'suggestion_approval_failed'      => __( 'Could not approve suggestion.', 'lilleprinsen-price-monitor' ),
+			'suggestion_rejected'             => __( 'Suggestion rejected.', 'lilleprinsen-price-monitor' ),
+			'suggestion_reject_failed'        => __( 'Could not reject suggestion.', 'lilleprinsen-price-monitor' ),
+			'suggested_price_invalid'         => __( 'Suggested price must be a positive number.', 'lilleprinsen-price-monitor' ),
+			'suggested_price_updated'         => __( 'Suggested price updated.', 'lilleprinsen-price-monitor' ),
+			'suggested_price_update_failed'   => __( 'Could not update suggested price.', 'lilleprinsen-price-monitor' ),
 		);
 
 		return $messages[ $notice ] ?? '';
