@@ -36,7 +36,7 @@ Current custom tables:
 
 ### Admin UI
 
-`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, History, Settings, and Logs tabs.
+`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, History, Import / Export, Settings, and Logs tabs.
 
 `src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
 
@@ -47,6 +47,8 @@ Current custom tables:
 - conversion of WooCommerce product objects into escaped-ready display arrays
 
 `src/Admin/AdminNoticeStore.php` stores one-time user-specific notices across redirects. `src/Admin/Notices.php` renders dependency notices, including WooCommerce inactive state.
+
+`src/Admin/CsvImportService.php` provides bounded CSV import preview and commit behavior. It accepts CSV files up to 512 KB and previews up to 500 non-empty rows. Product matching uses `product_id` first, then `sku`; no title search, full catalog scan, or broad WooCommerce query is used during import.
 
 `src/Assets/AdminAssets.php` loads `assets/admin.css` and `assets/admin.js` only on the plugin admin page.
 
@@ -155,6 +157,48 @@ Retention settings are stored for future admin-only cleanup. Automatic cleanup i
 3. Admin adds a selected product to monitoring.
 4. Repository inserts or re-enables a row in `lpm_monitored_products`.
 5. Action is logged in `lpm_logs`.
+
+### CSV Import
+
+1. Admin uploads a CSV on the Import / Export tab.
+2. The file is rejected if it is not `.csv`, is empty, is larger than 512 KB, or exceeds the preview row cap.
+3. `CsvImportService` validates each row by product ID or SKU only.
+4. Preview shows valid rows, warnings, invalid rows, product matches, not-found products, duplicate products, and duplicate competitor links.
+5. Confirm import reads the transient preview, adds or re-enables monitored products, applies provided rule fields, adds non-duplicate competitor links, and logs imported/skipped rows.
+6. Blank optional rule fields leave existing values unchanged during commit.
+
+### CSV Export
+
+Exports are admin-only POST actions protected by the normal admin nonce. Exports stream CSV responses and are capped at 1,000 rows by default.
+
+Current export types:
+
+- monitored products and competitor links
+- pending suggestions
+- recent failed competitor checks
+- price observations
+
+### Bulk Actions
+
+Products and competitor links support selected-row bulk actions on the current paginated page. Bulk actions apply only to submitted IDs, capped at 100 IDs per request.
+
+Current monitored product bulk actions:
+
+- enable selected
+- disable selected
+- set priority
+- set strategy
+- set check frequency
+- set minimum margin
+- set minimum price
+- disable selected monitoring rows
+
+Current competitor link bulk actions:
+
+- enable selected
+- disable selected
+- delete selected
+- set match type
 
 ### Competitor Check And Suggestion
 

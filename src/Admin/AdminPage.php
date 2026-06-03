@@ -25,6 +25,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class AdminPage {
 	public const SLUG = 'lilleprinsen-price-monitor';
 
+	private const IMPORT_TRANSIENT_PREFIX = 'lpm_csv_import_preview_';
+
+	private const EXPORT_MAX_ROWS = 1000;
+
+	private const BULK_MAX_IDS = 100;
+
 	private Repository $repository;
 
 	private Settings $settings;
@@ -45,7 +51,9 @@ final class AdminPage {
 
 	private AdminNoticeStore $notice_store;
 
-	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null ) {
+	private CsvImportService $csv_import_service;
+
+	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
 		$this->price_check_service    = $price_check_service ?? new PriceCheckService( null, $repository );
@@ -56,6 +64,7 @@ final class AdminPage {
 		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service );
 		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
 		$this->notice_store           = $notice_store ?? new AdminNoticeStore();
+		$this->csv_import_service     = $csv_import_service ?? new CsvImportService( $repository );
 	}
 
 	public function handle_actions(): void {
@@ -83,6 +92,9 @@ final class AdminPage {
 			case 'update_monitored_rules':
 				$this->handle_update_monitored_rules();
 				break;
+			case 'bulk_monitored_products':
+				$this->handle_bulk_monitored_products();
+				break;
 			case 'add_competitor_link':
 			case 'update_competitor_link':
 				$this->handle_save_competitor_link( $action );
@@ -92,8 +104,23 @@ final class AdminPage {
 			case 'delete_competitor_link':
 				$this->handle_competitor_link_action( $action );
 				break;
+			case 'bulk_competitor_links':
+				$this->handle_bulk_competitor_links();
+				break;
 			case 'test_competitor_check':
 				$this->handle_test_competitor_check();
+				break;
+			case 'preview_csv_import':
+				$this->handle_preview_csv_import();
+				break;
+			case 'confirm_csv_import':
+				$this->handle_confirm_csv_import();
+				break;
+			case 'download_csv_template':
+				$this->handle_download_csv_template();
+				break;
+			case 'export_csv':
+				$this->handle_export_csv();
 				break;
 			case 'create_price_suggestion':
 				$this->handle_create_price_suggestion();
@@ -190,6 +217,7 @@ final class AdminPage {
 			'approvals'   => __( 'Approvals', 'lilleprinsen-price-monitor' ),
 			'competitors' => __( 'Competitors', 'lilleprinsen-price-monitor' ),
 			'history'     => __( 'History', 'lilleprinsen-price-monitor' ),
+			'import_export' => __( 'Import / Export', 'lilleprinsen-price-monitor' ),
 			'settings'    => __( 'Settings', 'lilleprinsen-price-monitor' ),
 			'logs'        => __( 'Logs', 'lilleprinsen-price-monitor' ),
 		);
@@ -375,6 +403,7 @@ final class AdminPage {
 				<h2><?php esc_html_e( 'Existing monitored products', 'lilleprinsen-price-monitor' ); ?></h2>
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
 			</div>
+			<?php $this->render_monitored_bulk_controls(); ?>
 			<?php $this->render_monitored_products_table( $rows, $link_counts ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_products_page', array( 'tab' => 'products' ) ); ?>
 		</section>
@@ -423,6 +452,7 @@ final class AdminPage {
 				<h2><?php esc_html_e( 'Competitor links', 'lilleprinsen-price-monitor' ); ?></h2>
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( count( $links ) ) ); ?></span>
 			</div>
+			<?php $this->render_competitor_bulk_controls(); ?>
 			<?php $this->render_competitor_links_table( $links, $monitored_product_id ); ?>
 		</section>
 
@@ -789,6 +819,208 @@ final class AdminPage {
 		<?php
 	}
 
+	public function render_import_export(): void {
+		$token   = isset( $_GET['import_token'] ) ? sanitize_key( wp_unslash( $_GET['import_token'] ) ) : '';
+		$preview = '' !== $token ? $this->get_import_preview( $token ) : null;
+		?>
+		<div class="lpm-grid lpm-grid-two">
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<div>
+						<h2><?php esc_html_e( 'CSV import', 'lilleprinsen-price-monitor' ); ?></h2>
+						<p class="lpm-card-subtitle"><?php printf( esc_html__( 'Preview first. Max %1$d rows or %2$d KB per upload.', 'lilleprinsen-price-monitor' ), (int) CsvImportService::MAX_ROWS, (int) floor( CsvImportService::MAX_BYTES / 1024 ) ); ?></p>
+					</div>
+					<?php $this->render_status_pill( __( 'Dry-run preview', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+				</div>
+				<form method="post" enctype="multipart/form-data" class="lpm-stacked-form">
+					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+					<input type="hidden" name="lpm_action" value="preview_csv_import" />
+					<label class="lpm-field">
+						<span><?php esc_html_e( 'CSV file', 'lilleprinsen-price-monitor' ); ?></span>
+						<input type="file" name="lpm_csv_file" accept=".csv,text/csv" required />
+					</label>
+					<p class="lpm-field-description"><?php esc_html_e( 'Use product_id first, or sku if product_id is blank. Title search is not used during import.', 'lilleprinsen-price-monitor' ); ?></p>
+					<div class="lpm-form-actions">
+						<button type="submit" class="button button-primary"><?php esc_html_e( 'Preview import', 'lilleprinsen-price-monitor' ); ?></button>
+					</div>
+				</form>
+				<div class="lpm-form-actions">
+					<?php $this->render_export_action_form( 'download_csv_template', __( 'Download sample CSV template', 'lilleprinsen-price-monitor' ) ); ?>
+				</div>
+			</section>
+
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<h2><?php esc_html_e( 'Supported columns', 'lilleprinsen-price-monitor' ); ?></h2>
+				</div>
+				<p><?php esc_html_e( 'Columns can be left blank when they are not needed. competitor_name is required only when competitor_url is present.', 'lilleprinsen-price-monitor' ); ?></p>
+				<code>product_id, sku, competitor_name, competitor_url, match_type, enabled, priority, strategy, min_margin_percent, min_price, check_frequency_hours, notes</code>
+				<table class="lpm-compact-table lpm-card-spaced">
+					<thead>
+						<tr>
+							<th scope="col"><?php esc_html_e( 'Example', 'lilleprinsen-price-monitor' ); ?></th>
+							<th scope="col"><?php esc_html_e( 'Value', 'lilleprinsen-price-monitor' ); ?></th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr><td><?php esc_html_e( 'Strategy', 'lilleprinsen-price-monitor' ); ?></td><td><code>match_competitor</code></td></tr>
+						<tr><td><?php esc_html_e( 'Match type', 'lilleprinsen-price-monitor' ); ?></td><td><code>exact</code></td></tr>
+						<tr><td><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></td><td><code>yes</code> / <code>no</code></td></tr>
+					</tbody>
+				</table>
+			</section>
+		</div>
+
+		<?php if ( $preview ) : ?>
+			<?php $this->render_import_preview( $preview, $token ); ?>
+		<?php endif; ?>
+
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'CSV exports', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php printf( esc_html__( 'Exports are capped at %d rows by default.', 'lilleprinsen-price-monitor' ), self::EXPORT_MAX_ROWS ); ?></p>
+				</div>
+				<?php $this->render_status_pill( __( 'Bounded', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
+			</div>
+			<div class="lpm-actions">
+				<?php $this->render_export_action_form( 'export_csv', __( 'Export monitored products and links', 'lilleprinsen-price-monitor' ), 'monitored_links' ); ?>
+				<?php $this->render_export_action_form( 'export_csv', __( 'Export pending suggestions', 'lilleprinsen-price-monitor' ), 'pending_suggestions' ); ?>
+				<?php $this->render_export_action_form( 'export_csv', __( 'Export recent failed checks', 'lilleprinsen-price-monitor' ), 'failed_checks' ); ?>
+				<?php $this->render_export_action_form( 'export_csv', __( 'Export price observations', 'lilleprinsen-price-monitor' ), 'price_observations' ); ?>
+			</div>
+		</section>
+		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $preview Preview data.
+	 */
+	private function render_import_preview( array $preview, string $token ): void {
+		$summary      = isset( $preview['summary'] ) && is_array( $preview['summary'] ) ? $preview['summary'] : array();
+		$valid_rows   = isset( $preview['valid_rows'] ) && is_array( $preview['valid_rows'] ) ? $preview['valid_rows'] : array();
+		$invalid_rows = isset( $preview['invalid_rows'] ) && is_array( $preview['invalid_rows'] ) ? $preview['invalid_rows'] : array();
+		?>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Import preview', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'Review these results before confirming. Invalid rows are never committed.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->render_status_pill( ! empty( $summary['truncated'] ) ? __( 'Truncated', 'lilleprinsen-price-monitor' ) : __( 'Ready', 'lilleprinsen-price-monitor' ), ! empty( $summary['truncated'] ) ? 'warning' : 'ok' ); ?>
+			</div>
+			<div class="lpm-grid lpm-grid-summary">
+				<?php
+				$this->render_summary_card( __( 'Valid rows', 'lilleprinsen-price-monitor' ), (int) ( $summary['valid_rows'] ?? 0 ), __( 'Can be imported', 'lilleprinsen-price-monitor' ) );
+				$this->render_summary_card( __( 'Rows with warnings', 'lilleprinsen-price-monitor' ), (int) ( $summary['rows_with_warnings'] ?? 0 ), __( 'Import with caveats', 'lilleprinsen-price-monitor' ) );
+				$this->render_summary_card( __( 'Invalid rows', 'lilleprinsen-price-monitor' ), (int) ( $summary['invalid_rows'] ?? 0 ), __( 'Will be skipped', 'lilleprinsen-price-monitor' ) );
+				$this->render_summary_card( __( 'Products found', 'lilleprinsen-price-monitor' ), (int) ( $summary['products_found'] ?? 0 ), __( 'ID or SKU match', 'lilleprinsen-price-monitor' ) );
+				$this->render_summary_card( __( 'Products not found', 'lilleprinsen-price-monitor' ), (int) ( $summary['products_not_found'] ?? 0 ), __( 'Invalid', 'lilleprinsen-price-monitor' ) );
+				$this->render_summary_card( __( 'Duplicate links', 'lilleprinsen-price-monitor' ), (int) ( $summary['duplicate_links'] ?? 0 ), __( 'Will be skipped', 'lilleprinsen-price-monitor' ) );
+				?>
+			</div>
+
+			<?php if ( ! empty( $summary['truncated'] ) ) : ?>
+				<p class="lpm-danger-note"><?php printf( esc_html__( 'Only the first %d rows were previewed. Split larger imports into smaller CSV files.', 'lilleprinsen-price-monitor' ), (int) CsvImportService::MAX_ROWS ); ?></p>
+			<?php endif; ?>
+
+			<?php if ( ! empty( $valid_rows ) ) : ?>
+				<form method="post" class="lpm-form-actions">
+					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+					<input type="hidden" name="lpm_action" value="confirm_csv_import" />
+					<input type="hidden" name="import_token" value="<?php echo esc_attr( $token ); ?>" />
+					<button type="submit" class="button button-primary"><?php esc_html_e( 'Confirm import valid rows', 'lilleprinsen-price-monitor' ); ?></button>
+				</form>
+			<?php endif; ?>
+
+			<h3><?php esc_html_e( 'Valid and warning rows', 'lilleprinsen-price-monitor' ); ?></h3>
+			<?php $this->render_import_valid_rows_table( array_slice( $valid_rows, 0, 100 ) ); ?>
+
+			<h3><?php esc_html_e( 'Invalid rows', 'lilleprinsen-price-monitor' ); ?></h3>
+			<?php $this->render_import_invalid_rows_table( array_slice( $invalid_rows, 0, 100 ) ); ?>
+		</section>
+		<?php
+	}
+
+	private function render_import_valid_rows_table( array $rows ): void {
+		if ( empty( $rows ) ) {
+			$this->render_empty_state( __( 'No valid rows in this preview.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Row', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Matched by', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Rules', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Warnings', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $rows as $row ) : ?>
+					<tr>
+						<td><?php echo esc_html( (string) ( $row['row_number'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $row['product_id'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $row['sku'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $row['product_match'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $row['competitor_name'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->shorten_text( (string) ( $row['competitor_url'] ?? '' ), 48 ) ); ?></td>
+						<td><?php echo esc_html( $this->get_import_rule_summary( $row ) ); ?></td>
+						<td><?php echo esc_html( $this->join_messages( $row['warnings'] ?? array() ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_import_invalid_rows_table( array $rows ): void {
+		if ( empty( $rows ) ) {
+			$this->render_empty_state( __( 'No invalid rows in this preview.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Row', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Errors', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $rows as $row ) : ?>
+					<tr>
+						<td><?php echo esc_html( (string) ( $row['row_number'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $row['product_id'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $row['sku'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( $this->join_messages( $row['errors'] ?? array() ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_export_action_form( string $action, string $label, string $export_type = '' ): void {
+		?>
+		<form method="post" class="lpm-inline-action">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="<?php echo esc_attr( $action ); ?>" />
+			<?php if ( '' !== $export_type ) : ?>
+				<input type="hidden" name="export_type" value="<?php echo esc_attr( $export_type ); ?>" />
+			<?php endif; ?>
+			<button type="submit" class="button"><?php echo esc_html( $label ); ?></button>
+		</form>
+		<?php
+	}
+
 	private function handle_add_monitored_product(): void {
 		$product_id = isset( $_POST['product_id'] ) ? absint( wp_unslash( $_POST['product_id'] ) ) : 0;
 		$product    = $this->get_product( $product_id );
@@ -880,6 +1112,221 @@ final class AdminPage {
 		}
 
 		$this->redirect_to_tab( 'products', 'monitored_rules_update_failed', array( 'lpm_notice_type' => 'error', 'edit_rules_id' => $monitored_product_id ) );
+	}
+
+	private function handle_bulk_monitored_products(): void {
+		$ids = $this->get_selected_ids_from_post( 'monitored_product_ids' );
+
+		if ( empty( $ids ) ) {
+			$this->redirect_to_tab( 'products', 'bulk_no_selection', array( 'lpm_notice_type' => 'warning' ) );
+		}
+
+		$bulk_action = isset( $_POST['bulk_monitored_action'] ) ? sanitize_key( wp_unslash( $_POST['bulk_monitored_action'] ) ) : '';
+		$updated     = 0;
+
+		foreach ( $ids as $id ) {
+			$monitored_product = $this->repository->get_monitored_product( $id );
+
+			if ( ! $monitored_product ) {
+				continue;
+			}
+
+			$success = false;
+
+			switch ( $bulk_action ) {
+				case 'enable':
+					$success = $this->repository->set_monitored_product_enabled( $id, true );
+					break;
+				case 'disable':
+				case 'remove':
+					$success = $this->repository->set_monitored_product_enabled( $id, false );
+					break;
+				case 'set_priority':
+				case 'set_strategy':
+				case 'set_check_frequency':
+				case 'set_min_margin':
+				case 'set_min_price':
+					$success = $this->repository->update_monitored_product_rules( $id, $this->build_bulk_monitored_rule_data( $monitored_product, $bulk_action ) );
+					break;
+				default:
+					$this->redirect_to_tab( 'products', 'bulk_action_invalid', array( 'lpm_notice_type' => 'error' ) );
+			}
+
+			if ( $success ) {
+				$updated++;
+				$this->repository->write_log(
+					'info',
+					'bulk_monitored_product_updated',
+					__( 'Bulk monitored product action applied.', 'lilleprinsen-price-monitor' ),
+					array(
+						'bulk_action'          => $bulk_action,
+						'monitored_product_id' => $id,
+					),
+					(int) $monitored_product['product_id']
+				);
+			}
+		}
+
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: %d: updated row count. */
+				__( 'Bulk action updated %d monitored products.', 'lilleprinsen-price-monitor' ),
+				$updated
+			)
+		);
+		$this->redirect_to_tab( 'products', 'bulk_action_completed' );
+	}
+
+	private function handle_bulk_competitor_links(): void {
+		$ids = $this->get_selected_ids_from_post( 'competitor_link_ids' );
+
+		if ( empty( $ids ) ) {
+			$this->redirect_to_tab( 'competitors', 'bulk_no_selection', array( 'lpm_notice_type' => 'warning' ) );
+		}
+
+		$bulk_action = isset( $_POST['bulk_competitor_action'] ) ? sanitize_key( wp_unslash( $_POST['bulk_competitor_action'] ) ) : '';
+		$match_type  = isset( $_POST['bulk_match_type'] ) ? sanitize_key( wp_unslash( $_POST['bulk_match_type'] ) ) : 'unknown';
+		$updated     = 0;
+		$redirect_id = 0;
+
+		foreach ( $ids as $id ) {
+			$link = $this->repository->get_competitor_link( $id );
+
+			if ( ! $link ) {
+				continue;
+			}
+
+			$redirect_id = (int) $link['monitored_product_id'];
+			$success     = false;
+
+			switch ( $bulk_action ) {
+				case 'enable':
+					$success = $this->repository->set_competitor_link_enabled( $id, true );
+					break;
+				case 'disable':
+					$success = $this->repository->set_competitor_link_enabled( $id, false );
+					break;
+				case 'delete':
+					$success = $this->repository->delete_competitor_link( $id );
+					break;
+				case 'set_match_type':
+					$success = $this->repository->set_competitor_link_match_type( $id, $match_type );
+					break;
+				default:
+					$this->redirect_to_competitors( $redirect_id, 'bulk_action_invalid', 'error' );
+			}
+
+			if ( $success ) {
+				$updated++;
+				$this->repository->write_log(
+					'info',
+					'bulk_competitor_link_updated',
+					__( 'Bulk competitor link action applied.', 'lilleprinsen-price-monitor' ),
+					array(
+						'bulk_action'       => $bulk_action,
+						'competitor_link_id' => $id,
+						'match_type'        => $match_type,
+					),
+					null
+				);
+			}
+		}
+
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: %d: updated row count. */
+				__( 'Bulk action updated %d competitor links.', 'lilleprinsen-price-monitor' ),
+				$updated
+			)
+		);
+
+		if ( $redirect_id > 0 ) {
+			$this->redirect_to_competitors( $redirect_id, 'bulk_action_completed' );
+		}
+
+		$this->redirect_to_tab( 'competitors', 'bulk_action_completed' );
+	}
+
+	private function handle_preview_csv_import(): void {
+		$file    = isset( $_FILES['lpm_csv_file'] ) && is_array( $_FILES['lpm_csv_file'] ) ? $_FILES['lpm_csv_file'] : array();
+		$preview = $this->csv_import_service->preview_upload( $file );
+
+		if ( empty( $preview['success'] ) ) {
+			$this->set_admin_notice( (string) ( $preview['message'] ?? __( 'Could not preview CSV import.', 'lilleprinsen-price-monitor' ) ), 'error' );
+			$this->redirect_to_tab( 'import_export', 'csv_import_preview_failed', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$token = wp_generate_password( 20, false, false );
+		set_transient( $this->get_import_transient_key( $token ), $preview, HOUR_IN_SECONDS );
+		$this->set_admin_notice( __( 'CSV import preview is ready. Review rows before confirming.', 'lilleprinsen-price-monitor' ) );
+		$this->redirect_to_tab( 'import_export', 'csv_import_preview_ready', array( 'import_token' => $token ) );
+	}
+
+	private function handle_confirm_csv_import(): void {
+		$token   = isset( $_POST['import_token'] ) ? sanitize_key( wp_unslash( $_POST['import_token'] ) ) : '';
+		$preview = $this->get_import_preview( $token );
+
+		if ( ! $preview ) {
+			$this->redirect_to_tab( 'import_export', 'csv_import_preview_missing', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$summary = $this->csv_import_service->commit_preview( $preview );
+		delete_transient( $this->get_import_transient_key( $token ) );
+		$this->repository->write_log( 'info', 'csv_import_confirmed', __( 'CSV import confirmed.', 'lilleprinsen-price-monitor' ), $summary, null );
+		$this->set_admin_notice(
+			sprintf(
+				/* translators: 1: imported rows, 2: created links, 3: skipped links. */
+				__( 'CSV import complete: %1$d rows imported, %2$d links created, %3$d links skipped.', 'lilleprinsen-price-monitor' ),
+				(int) $summary['imported_rows'],
+				(int) $summary['created_links'],
+				(int) $summary['skipped_links']
+			)
+		);
+		$this->redirect_to_tab( 'import_export', 'csv_import_confirmed' );
+	}
+
+	private function handle_download_csv_template(): void {
+		$this->stream_csv(
+			'lpm-import-template.csv',
+			$this->get_import_csv_headers(),
+			array(
+				array(
+					'123',
+					'',
+					'Example Competitor',
+					'https://example.com/product',
+					'exact',
+					'yes',
+					'normal',
+					'match_competitor',
+					'',
+					'1190',
+					'24',
+					'Optional note',
+				),
+			)
+		);
+	}
+
+	private function handle_export_csv(): void {
+		$export_type = isset( $_POST['export_type'] ) ? sanitize_key( wp_unslash( $_POST['export_type'] ) ) : '';
+
+		switch ( $export_type ) {
+			case 'monitored_links':
+				$this->stream_monitored_links_export();
+				break;
+			case 'pending_suggestions':
+				$this->stream_pending_suggestions_export();
+				break;
+			case 'failed_checks':
+				$this->stream_failed_checks_export();
+				break;
+			case 'price_observations':
+				$this->stream_price_observations_export();
+				break;
+			default:
+				$this->redirect_to_tab( 'import_export', 'export_type_invalid', array( 'lpm_notice_type' => 'error' ) );
+		}
 	}
 
 	private function handle_save_competitor_link( string $action ): void {
@@ -1329,6 +1776,50 @@ final class AdminPage {
 	}
 
 	/**
+	 * @return array<int, int>
+	 */
+	private function get_selected_ids_from_post( string $key ): array {
+		if ( empty( $_POST[ $key ] ) || ! is_array( $_POST[ $key ] ) ) {
+			return array();
+		}
+
+		$ids = array_values( array_unique( array_filter( array_map( 'absint', wp_unslash( $_POST[ $key ] ) ) ) ) );
+
+		return array_slice( $ids, 0, self::BULK_MAX_IDS );
+	}
+
+	/**
+	 * @param array<string, mixed> $monitored_product Current monitored product row.
+	 * @return array<string, mixed>
+	 */
+	private function build_bulk_monitored_rule_data( array $monitored_product, string $bulk_action ): array {
+		$data = $this->monitored_rule_log_snapshot( $monitored_product );
+
+		if ( 'set_priority' === $bulk_action ) {
+			$data['priority'] = isset( $_POST['bulk_priority'] ) ? sanitize_key( wp_unslash( $_POST['bulk_priority'] ) ) : $data['priority'];
+		}
+
+		if ( 'set_strategy' === $bulk_action ) {
+			$data['strategy'] = isset( $_POST['bulk_strategy'] ) ? sanitize_key( wp_unslash( $_POST['bulk_strategy'] ) ) : $data['strategy'];
+		}
+
+		if ( 'set_check_frequency' === $bulk_action ) {
+			$frequency = isset( $_POST['bulk_check_frequency_hours'] ) ? absint( wp_unslash( $_POST['bulk_check_frequency_hours'] ) ) : (int) $data['check_frequency_hours'];
+			$data['check_frequency_hours'] = min( 720, max( 1, $frequency ) );
+		}
+
+		if ( 'set_min_margin' === $bulk_action ) {
+			$data['min_margin_percent'] = $this->sanitize_decimal_post_value( 'bulk_min_margin_percent' );
+		}
+
+		if ( 'set_min_price' === $bulk_action ) {
+			$data['min_price'] = $this->sanitize_decimal_post_value( 'bulk_min_price' );
+		}
+
+		return $data;
+	}
+
+	/**
 	 * @param array<string, mixed> $monitored_product Monitored product row.
 	 * @return array<string, mixed>
 	 */
@@ -1431,6 +1922,7 @@ final class AdminPage {
 		<table class="lpm-compact-table">
 			<thead>
 				<tr>
+					<th scope="col"><?php esc_html_e( 'Select', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th>
@@ -1449,6 +1941,7 @@ final class AdminPage {
 				<?php foreach ( $rows as $row ) : ?>
 					<?php $product = $this->get_product( (int) $row['product_id'] ); ?>
 					<tr>
+						<td><input form="lpm-products-bulk-form" type="checkbox" name="monitored_product_ids[]" value="<?php echo esc_attr( (string) $row['id'] ); ?>" /></td>
 						<td>
 							<div class="lpm-product-cell">
 								<?php echo wp_kses_post( $product ? $this->get_product_thumbnail( $product ) : '' ); ?>
@@ -1477,6 +1970,84 @@ final class AdminPage {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+		<?php
+	}
+
+	private function render_monitored_bulk_controls(): void {
+		?>
+		<form id="lpm-products-bulk-form" method="post" class="lpm-filters">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="bulk_monitored_products" />
+			<label>
+				<span><?php esc_html_e( 'Bulk action', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="bulk_monitored_action">
+					<option value="enable"><?php esc_html_e( 'Enable selected', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="disable"><?php esc_html_e( 'Disable selected', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_priority"><?php esc_html_e( 'Set priority', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_strategy"><?php esc_html_e( 'Set strategy', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_check_frequency"><?php esc_html_e( 'Set check frequency', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_min_margin"><?php esc_html_e( 'Set min margin', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_min_price"><?php esc_html_e( 'Set min price', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="remove"><?php esc_html_e( 'Disable selected monitoring rows', 'lilleprinsen-price-monitor' ); ?></option>
+				</select>
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Priority', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="bulk_priority">
+					<?php foreach ( $this->get_priority_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Strategy', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="bulk_strategy">
+					<?php foreach ( $this->get_pricing_strategy_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Frequency hours', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="1" max="720" step="1" name="bulk_check_frequency_hours" value="24" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Min margin', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="0" step="0.01" name="bulk_min_margin_percent" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Min price', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="0" step="0.01" name="bulk_min_price" />
+			</label>
+			<button type="submit" class="button button-primary"><?php esc_html_e( 'Apply to selected', 'lilleprinsen-price-monitor' ); ?></button>
+		</form>
+		<?php
+	}
+
+	private function render_competitor_bulk_controls(): void {
+		?>
+		<form id="lpm-competitors-bulk-form" method="post" class="lpm-filters">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="bulk_competitor_links" />
+			<label>
+				<span><?php esc_html_e( 'Bulk action', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="bulk_competitor_action">
+					<option value="enable"><?php esc_html_e( 'Enable selected', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="disable"><?php esc_html_e( 'Disable selected', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="set_match_type"><?php esc_html_e( 'Set match type', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="delete"><?php esc_html_e( 'Delete selected', 'lilleprinsen-price-monitor' ); ?></option>
+				</select>
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Match type', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="bulk_match_type">
+					<?php foreach ( $this->get_match_type_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>"><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+			</label>
+			<button type="submit" class="button button-primary"><?php esc_html_e( 'Apply to selected', 'lilleprinsen-price-monitor' ); ?></button>
+		</form>
 		<?php
 	}
 
@@ -1649,6 +2220,7 @@ final class AdminPage {
 		<table class="lpm-compact-table">
 			<thead>
 				<tr>
+					<th scope="col"><?php esc_html_e( 'Select', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Competitor name', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Match type', 'lilleprinsen-price-monitor' ); ?></th>
@@ -1664,6 +2236,7 @@ final class AdminPage {
 			<tbody>
 				<?php foreach ( $links as $link ) : ?>
 					<tr>
+						<td><input form="lpm-competitors-bulk-form" type="checkbox" name="competitor_link_ids[]" value="<?php echo esc_attr( (string) $link['id'] ); ?>" /></td>
 						<td><?php echo esc_html( (string) $link['competitor_name'] ); ?></td>
 						<td><a href="<?php echo esc_url( (string) $link['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $this->shorten_text( (string) $link['competitor_url'], 48 ) ); ?></a></td>
 						<td><?php echo esc_html( (string) $link['match_type'] ); ?></td>
@@ -2719,6 +3292,213 @@ final class AdminPage {
 		$this->notice_store->set( $message, $type );
 	}
 
+	private function get_import_transient_key( string $token ): string {
+		return self::IMPORT_TRANSIENT_PREFIX . get_current_user_id() . '_' . sanitize_key( $token );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	private function get_import_preview( string $token ): ?array {
+		if ( '' === $token ) {
+			return null;
+		}
+
+		$preview = get_transient( $this->get_import_transient_key( $token ) );
+
+		return is_array( $preview ) ? $preview : null;
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	private function get_import_csv_headers(): array {
+		return array(
+			'product_id',
+			'sku',
+			'competitor_name',
+			'competitor_url',
+			'match_type',
+			'enabled',
+			'priority',
+			'strategy',
+			'min_margin_percent',
+			'min_price',
+			'check_frequency_hours',
+			'notes',
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $row Preview row.
+	 */
+	private function get_import_rule_summary( array $row ): string {
+		$parts = array();
+
+		foreach ( array( 'enabled', 'priority', 'strategy', 'min_margin_percent', 'min_price', 'check_frequency_hours' ) as $key ) {
+			if ( array_key_exists( $key, $row ) && null !== $row[ $key ] && '' !== $row[ $key ] ) {
+				$parts[] = $key . '=' . (string) $row[ $key ];
+			}
+		}
+
+		return empty( $parts ) ? '—' : $this->shorten_text( implode( ', ', $parts ), 120 );
+	}
+
+	/**
+	 * @param mixed $messages Messages.
+	 */
+	private function join_messages( $messages ): string {
+		if ( ! is_array( $messages ) || empty( $messages ) ) {
+			return '—';
+		}
+
+		return $this->shorten_text( implode( ' ', array_map( 'strval', $messages ) ), 160 );
+	}
+
+	private function stream_monitored_links_export(): void {
+		$headers = array(
+			'product_id',
+			'sku',
+			'product_name',
+			'enabled',
+			'priority',
+			'strategy',
+			'min_margin_percent',
+			'min_price',
+			'check_frequency_hours',
+			'competitor_name',
+			'competitor_url',
+			'match_type',
+			'last_price',
+			'last_checked_at',
+			'last_error',
+		);
+		$rows = array();
+
+		foreach ( $this->repository->get_monitored_products_export_rows( self::EXPORT_MAX_ROWS ) as $row ) {
+			$product = $this->get_product( (int) $row['product_id'] );
+			$rows[] = array(
+				(int) $row['product_id'],
+				(string) ( $row['sku'] ?? '' ),
+				$product ? $this->get_product_name( $product ) : '',
+				(int) ( $row['enabled'] ?? 0 ),
+				(string) ( $row['priority'] ?? '' ),
+				(string) ( $row['strategy'] ?? '' ),
+				(string) ( $row['min_margin_percent'] ?? '' ),
+				(string) ( $row['min_price'] ?? '' ),
+				(int) ( $row['check_frequency_hours'] ?? 0 ),
+				(string) ( $row['competitor_name'] ?? '' ),
+				(string) ( $row['competitor_url'] ?? '' ),
+				(string) ( $row['match_type'] ?? '' ),
+				(string) ( $row['last_price'] ?? '' ),
+				(string) ( $row['last_checked_at'] ?? '' ),
+				(string) ( $row['last_error'] ?? '' ),
+			);
+		}
+
+		$this->stream_csv( 'lpm-monitored-products-links.csv', $headers, $rows );
+	}
+
+	private function stream_pending_suggestions_export(): void {
+		$headers     = array( 'id', 'product_id', 'competitor_name', 'suggestion_type', 'status', 'current_price', 'competitor_price', 'suggested_price', 'difference', 'margin_after_change', 'reason', 'warnings', 'rule_details', 'created_at' );
+		$suggestions = $this->repository->get_price_suggestions( array( 'view' => 'pending' ), 1, self::EXPORT_MAX_ROWS );
+		$rows        = array();
+
+		foreach ( $suggestions as $suggestion ) {
+			$rows[] = array(
+				(int) $suggestion['id'],
+				(int) $suggestion['product_id'],
+				(string) ( $suggestion['competitor_name'] ?? '' ),
+				(string) ( $suggestion['suggestion_type'] ?? '' ),
+				(string) ( $suggestion['status'] ?? '' ),
+				(string) ( $suggestion['current_price'] ?? '' ),
+				(string) ( $suggestion['competitor_price'] ?? '' ),
+				(string) ( $suggestion['suggested_price'] ?? '' ),
+				(string) ( $suggestion['difference'] ?? '' ),
+				(string) ( $suggestion['margin_after_change'] ?? '' ),
+				(string) ( $suggestion['reason'] ?? '' ),
+				(string) ( $suggestion['warnings'] ?? '' ),
+				(string) ( $suggestion['rule_details'] ?? '' ),
+				(string) ( $suggestion['created_at'] ?? '' ),
+			);
+		}
+
+		$this->stream_csv( 'lpm-pending-suggestions.csv', $headers, $rows );
+	}
+
+	private function stream_failed_checks_export(): void {
+		$headers = array( 'id', 'created_at', 'level', 'event', 'product_id', 'message', 'context' );
+		$logs    = $this->repository->get_logs( array( 'level' => 'error', 'event' => 'competitor_check_failed' ), 1, self::EXPORT_MAX_ROWS );
+		$rows    = array();
+
+		foreach ( $logs as $log ) {
+			$rows[] = array(
+				(int) $log['id'],
+				(string) ( $log['created_at'] ?? '' ),
+				(string) ( $log['level'] ?? '' ),
+				(string) ( $log['event'] ?? '' ),
+				(string) ( $log['product_id'] ?? '' ),
+				(string) ( $log['message'] ?? '' ),
+				(string) ( $log['context'] ?? '' ),
+			);
+		}
+
+		$this->stream_csv( 'lpm-recent-failed-checks.csv', $headers, $rows );
+	}
+
+	private function stream_price_observations_export(): void {
+		$headers      = array( 'id', 'checked_at', 'product_id', 'monitored_product_id', 'competitor_link_id', 'competitor_name', 'observed_price', 'currency', 'extraction_method', 'http_status', 'success', 'error_message', 'response_time_ms' );
+		$observations = $this->repository->get_price_observations( array(), 1, self::EXPORT_MAX_ROWS );
+		$rows         = array();
+
+		foreach ( $observations as $observation ) {
+			$rows[] = array(
+				(int) $observation['id'],
+				(string) ( $observation['checked_at'] ?? '' ),
+				(int) ( $observation['product_id'] ?? 0 ),
+				(int) ( $observation['monitored_product_id'] ?? 0 ),
+				(int) ( $observation['competitor_link_id'] ?? 0 ),
+				(string) ( $observation['competitor_name'] ?? '' ),
+				(string) ( $observation['observed_price'] ?? '' ),
+				(string) ( $observation['currency'] ?? '' ),
+				(string) ( $observation['extraction_method'] ?? '' ),
+				(string) ( $observation['http_status'] ?? '' ),
+				(int) ( $observation['success'] ?? 0 ),
+				(string) ( $observation['error_message'] ?? '' ),
+				(string) ( $observation['response_time_ms'] ?? '' ),
+			);
+		}
+
+		$this->stream_csv( 'lpm-price-observations.csv', $headers, $rows );
+	}
+
+	/**
+	 * @param array<int, string> $headers CSV headers.
+	 * @param array<int, array<int, mixed>> $rows CSV rows.
+	 */
+	private function stream_csv( string $filename, array $headers, array $rows ): void {
+		if ( function_exists( 'nocache_headers' ) ) {
+			nocache_headers();
+		}
+
+		header( 'Content-Type: text/csv; charset=utf-8' );
+		header( 'Content-Disposition: attachment; filename="' . sanitize_file_name( $filename ) . '"' );
+
+		$output = fopen( 'php://output', 'w' );
+
+		if ( false !== $output ) {
+			fputcsv( $output, $headers );
+
+			foreach ( $rows as $row ) {
+				fputcsv( $output, $row );
+			}
+
+			fclose( $output );
+		}
+
+		exit;
+	}
+
 	private function get_notice_message( string $notice ): string {
 		$messages = array(
 			'unknown_action'                  => __( 'Unknown action.', 'lilleprinsen-price-monitor' ),
@@ -2733,6 +3513,14 @@ final class AdminPage {
 			'monitored_rules_updated'         => __( 'Product monitoring rules updated.', 'lilleprinsen-price-monitor' ),
 			'monitored_rules_update_failed'   => __( 'Could not update product monitoring rules.', 'lilleprinsen-price-monitor' ),
 			'monitored_rules_invalid'         => __( 'Product monitoring rule values are invalid.', 'lilleprinsen-price-monitor' ),
+			'bulk_no_selection'               => __( 'Select at least one row before applying a bulk action.', 'lilleprinsen-price-monitor' ),
+			'bulk_action_invalid'             => __( 'Bulk action is invalid.', 'lilleprinsen-price-monitor' ),
+			'bulk_action_completed'           => __( 'Bulk action completed.', 'lilleprinsen-price-monitor' ),
+			'csv_import_preview_failed'       => __( 'Could not preview CSV import.', 'lilleprinsen-price-monitor' ),
+			'csv_import_preview_ready'        => __( 'CSV import preview is ready.', 'lilleprinsen-price-monitor' ),
+			'csv_import_preview_missing'      => __( 'CSV import preview expired or was not found.', 'lilleprinsen-price-monitor' ),
+			'csv_import_confirmed'            => __( 'CSV import confirmed.', 'lilleprinsen-price-monitor' ),
+			'export_type_invalid'             => __( 'Export type is invalid.', 'lilleprinsen-price-monitor' ),
 			'competitor_name_required'        => __( 'Competitor name is required.', 'lilleprinsen-price-monitor' ),
 			'competitor_url_invalid'          => __( 'Competitor URL must be a valid http or https URL.', 'lilleprinsen-price-monitor' ),
 			'competitor_link_added'           => __( 'Competitor link added.', 'lilleprinsen-price-monitor' ),

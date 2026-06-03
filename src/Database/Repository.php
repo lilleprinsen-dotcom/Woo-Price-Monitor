@@ -449,6 +449,50 @@ final class Repository {
 	}
 
 	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_competitor_link_by_url( int $monitored_product_id, string $url ): ?array {
+		$table = $this->tables['competitor_links'];
+		$url   = esc_url_raw( $url );
+
+		if ( '' === $url || ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE monitored_product_id = %d AND competitor_url = %s LIMIT 1",
+				absint( $monitored_product_id ),
+				$url
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	public function set_competitor_link_match_type( int $competitor_link_id, string $match_type ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'match_type' => $this->sanitize_match_type( $match_type ),
+				'updated_at' => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
 	 * @return array<int, array<string, mixed>>
 	 */
 	public function get_due_competitor_links( int $limit ): array {
@@ -1032,6 +1076,45 @@ final class Repository {
 	}
 
 	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_monitored_products_export_rows( int $limit ): array {
+		$monitored_table = $this->tables['monitored_products'];
+		$links_table     = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $monitored_table ) || ! $this->table_exists( $links_table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_export_limit( $limit );
+		$sql   = $this->wpdb->prepare(
+			"SELECT
+				mp.product_id,
+				mp.sku,
+				mp.enabled,
+				mp.priority,
+				mp.strategy,
+				mp.min_margin_percent,
+				mp.min_price,
+				mp.check_frequency_hours,
+				cl.competitor_name,
+				cl.competitor_url,
+				cl.match_type,
+				cl.last_price,
+				cl.last_checked_at,
+				cl.last_error
+			FROM {$monitored_table} mp
+			LEFT JOIN {$links_table} cl ON mp.id = cl.monitored_product_id
+			ORDER BY mp.updated_at DESC, mp.id DESC, cl.id ASC
+			LIMIT %d",
+			$limit
+		);
+		$rows  = $this->wpdb->get_results( $sql, ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
+	/**
 	 * @param array<int, mixed> $params Prepare parameters.
 	 */
 	private function count_where( string $table_key, string $where_sql, array $params ): int {
@@ -1309,6 +1392,10 @@ final class Repository {
 
 	private function sanitize_per_page( int $per_page ): int {
 		return min( 200, max( 1, absint( $per_page ) ) );
+	}
+
+	private function sanitize_export_limit( int $limit ): int {
+		return min( 1000, max( 1, absint( $limit ) ) );
 	}
 
 	/**
