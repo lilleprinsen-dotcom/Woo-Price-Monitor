@@ -2,6 +2,14 @@
 
 Use a staging WooCommerce site with a small set of products. Keep dry-run mode enabled unless specifically testing blocked real-update settings.
 
+## Local CLI QA
+
+- [ ] Run `bash tools/lint-php.sh` or `composer run lint:php`.
+- [ ] Run `bash tools/run-local-tests.sh` or `composer run test:local`.
+- [ ] Run `composer run qa` when Composer is available.
+- [ ] Confirm local tests pass for `PriceParser`, `PricingRuleService`, and `PriceRecoveryService`.
+- [ ] Remember local tests use minimal WordPress stubs only; they do not replace staging admin, WooCommerce, database, HTTP, Action Scheduler, WP-CLI, or webhook testing.
+
 ## Checklist
 
 - [ ] Activate the plugin from WordPress admin.

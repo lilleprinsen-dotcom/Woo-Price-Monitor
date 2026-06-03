@@ -2,6 +2,11 @@
   "name": "lilleprinsen/price-monitor",
   "type": "wordpress-plugin",
   "scripts": {
-    "lint:php": "bash tools/lint-php.sh"
+    "lint:php": "bash tools/lint-php.sh",
+    "test:local": "bash tools/run-local-tests.sh",
+    "qa": [
+      "@lint:php",
+      "@test:local"
+    ]
   }
 }
