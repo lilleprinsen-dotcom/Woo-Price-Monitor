@@ -68,6 +68,7 @@ final class Settings {
 			'recovery_if_competitor_still_below_previous_sale_price' => 'suggest_match_competitor',
 			'recovery_if_competitor_above_previous_regular_price' => 'suggest_restore_previous_regular_price',
 			'multiple_competitor_recovery_basis' => 'lowest_valid_competitor',
+			'recovery_max_competitor_price_age_hours' => 48,
 			'price_match_write_mode'          => 'sale_price',
 			'notifications_enabled'           => 0,
 			'notify_on_new_suggestion'        => 1,
@@ -239,6 +240,7 @@ final class Settings {
 				),
 				(string) $defaults['multiple_competitor_recovery_basis']
 			),
+			'recovery_max_competitor_price_age_hours' => $this->sanitize_int( $settings['recovery_max_competitor_price_age_hours'] ?? $defaults['recovery_max_competitor_price_age_hours'], 1, 720, (int) $defaults['recovery_max_competitor_price_age_hours'] ),
 			'price_match_write_mode'          => $this->sanitize_choice(
 				$settings['price_match_write_mode'] ?? $defaults['price_match_write_mode'],
 				array(

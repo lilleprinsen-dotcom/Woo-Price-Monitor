@@ -163,5 +163,24 @@ lpm_run_tests(
 			lpm_assert_same( 'blocked', $result['status'], 'Large increase should be blocked even from manual review.' );
 			lpm_assert_contains( 'Price increase', $result['reason'], 'Max increase block should be explained.' );
 		},
+		'manual review is not skipped by minimum difference' => static function () use ( $service, $settings ): void {
+			$result = $service->calculate_suggestion(
+				array(
+					'product_id'            => 123,
+					'current_price'         => 1199,
+					'competitor_price'      => 1599,
+					'suggestion_type'       => 'manual_review',
+					'status'                => 'manual_review',
+					'base_suggested_price'  => 1199,
+					'base_reason'           => 'Recovery needs manual review.',
+					'monitored_product'     => array(),
+					'currency'              => 'NOK',
+				),
+				array_merge( $settings, array( 'min_price_difference_to_suggest' => 10 ) )
+			);
+
+			lpm_assert_same( 'manual_review', $result['status'], 'Explicit manual review should survive minimum difference filtering.' );
+			lpm_assert_float_equals( 1199, $result['suggested_price'], 'Manual review should keep the supplied safe current price.' );
+		},
 	)
 );

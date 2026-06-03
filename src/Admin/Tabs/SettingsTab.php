@@ -185,6 +185,7 @@ final class SettingsTab extends AdminViewHelpers {
 							'all_competitors_must_increase' => __( 'All competitors must increase', 'lilleprinsen-price-monitor' ),
 						)
 					);
+					$this->render_number_field( 'recovery_max_competitor_price_age_hours', __( 'Max competitor price age for recovery (hours)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_select_field(
 						'price_match_write_mode',
 						__( 'Future price match write mode', 'lilleprinsen-price-monitor' ),

@@ -17,6 +17,10 @@ if ( PHP_SAPI !== 'cli' ) {
 define( 'ABSPATH', dirname( __DIR__ ) . '/' );
 define( 'LPM_TEST_ROOT', dirname( __DIR__ ) );
 
+if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
+	define( 'HOUR_IN_SECONDS', 3600 );
+}
+
 if ( ! function_exists( '__' ) ) {
 	function __( $text, $domain = 'default' ) {
 		unset( $domain );
@@ -73,6 +77,16 @@ if ( ! function_exists( 'wp_strip_all_tags' ) ) {
 		}
 
 		return $text;
+	}
+}
+
+if ( ! function_exists( 'current_time' ) ) {
+	function current_time( $type ) {
+		if ( 'timestamp' === $type ) {
+			return time();
+		}
+
+		return gmdate( 'Y-m-d H:i:s' );
 	}
 }
 

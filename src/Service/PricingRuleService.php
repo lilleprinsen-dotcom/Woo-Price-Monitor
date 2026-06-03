@@ -111,7 +111,7 @@ final class PricingRuleService {
 		$min_difference = $this->setting_float( $settings, 'min_price_difference_to_suggest', 10.0 );
 		$difference     = abs( $suggested_price - $current_price );
 
-		if ( $difference < $min_difference && 'blocked' !== $status ) {
+		if ( $difference < $min_difference && 'blocked' !== $status && 'manual_review' !== $status ) {
 			return $this->result(
 				$suggested_price,
 				'skipped',

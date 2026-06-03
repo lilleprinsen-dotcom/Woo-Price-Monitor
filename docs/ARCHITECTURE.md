@@ -37,7 +37,7 @@ Current custom tables:
 
 `src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, observation history, suggestion review state, competitor link state, and price match session helpers.
 
-Competitor links include retry/backoff state through `consecutive_failures` and `next_check_after`. Failed checks delay the next batch attempt by 1 hour, 6 hours, then 24 hours for later failures. Successful checks reset the failure counter and clear the backoff timestamp.
+Competitor links include recovery, retry, and backoff state through `is_primary`, `consecutive_failures`, and `next_check_after`. Failed checks delay the next batch attempt by 1 hour, 6 hours, then 24 hours for later failures. Successful checks reset the failure counter and clear the backoff timestamp. Only one primary competitor link is kept per monitored product.
 
 ### Admin UI
 
@@ -55,7 +55,7 @@ Current admin split:
 The Competitors tab has two layers:
 
 - Global competitor profiles in `lpm_competitors` for reusable domain, delay, timeout, extraction mode, selector, stock text, reliability, and JavaScript-requirement metadata.
-- Product-specific direct competitor links in `lpm_competitor_links`, optionally attached to a profile through nullable `competitor_id`.
+- Product-specific direct competitor links in `lpm_competitor_links`, optionally attached to a profile through nullable `competitor_id`. A link may be marked primary for recovery rules.
 
 `src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
 
@@ -122,11 +122,23 @@ Suggestion types include:
 
 ### Price Recovery
 
-`src/Service/PriceRecoveryService.php` determines future price-up or restore suggestions from an active price match session. It does not update WooCommerce prices. It checks prior active, sale, and regular price state and avoids recovery suggestions when another active competitor still has a lower valid last price than the proposed recovery price.
+`src/Service/PriceRecoveryService.php` determines future price-up or restore suggestions from an active price match session. It does not update WooCommerce prices. It checks prior active, sale, and regular price state and returns manual-review or skipped outcomes when recovery would be ambiguous.
+
+Recovery basis modes:
+
+- `lowest_valid_competitor`: ignore disabled, stale, and `not_comparable` links; skip recovery if another comparable competitor is still below the proposed recovery price.
+- `primary_competitor`: require one fresh enabled primary competitor. If no primary competitor is set, or its data is stale/missing, return manual review.
+- `all_competitors_must_increase`: require all enabled exact/similar competitors to have fresh valid prices. If any exact/similar competitor is stale or lower than the proposed recovery price, avoid recovery.
+
+Recovery also avoids automatic suggestions when the product price has changed since the active real price-match session was created, when original session price fields are missing, or when the proposed recovery price exceeds the configured maximum increase percent.
+
+The History tab shows the latest active price match sessions. Dry-run sessions can be ended manually without changing WooCommerce prices. Real sessions are ended only through the guarded restore/update path.
 
 ### Guarded Price Updates
 
 `src/Service/PriceUpdateService.php` is the first guarded real-update foundation. It uses WooCommerce CRUD APIs and never direct SQL price metadata writes. It validates dry-run mode, emergency disable, explicit allow setting, manual approval, suggestion status, allowed suggestion type, positive suggested price, unchanged product price snapshot, and maximum drop limit.
+
+Restore suggestion types use captured price match session state. Previous regular, sale, active price, and sale schedule fields are validated before restore actions. If a previous active price cannot be mapped safely back to captured sale or regular price state, the update fails instead of guessing silently.
 
 This service is present for future controlled use. Defaults keep real updates blocked.
 
@@ -200,6 +212,7 @@ Important conservative defaults:
 - `cost_source = none`
 - `block_if_cost_missing = 0`
 - `max_allowed_price_increase_percent = 50`
+- `recovery_max_competitor_price_age_hours = 48`
 - `block_suggestions_for_sale_products = 0`
 - `block_suggestions_for_out_of_stock_products = 0`
 - `rows_per_page = 25`

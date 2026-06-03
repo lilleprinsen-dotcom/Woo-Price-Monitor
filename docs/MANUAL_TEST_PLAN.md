@@ -48,6 +48,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Click Manage competitors for the monitored product.
 - [ ] Add a competitor link with a valid http/https URL and attach the competitor profile.
 - [ ] Add a competitor link with "No profile / custom name" and confirm custom-name links still work.
+- [ ] Mark one competitor link as primary and confirm any previous primary link for the same monitored product is cleared.
 - [ ] Leave competitor name blank while selecting a profile and confirm the profile name is used.
 - [ ] Try an invalid URL and confirm validation blocks it.
 - [ ] Edit the competitor link and confirm changes persist.
@@ -66,6 +67,11 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm blocked suggestions are created when the drop exceeds the max allowed drop percent.
 - [ ] If webhook notifications are enabled for blocked suggestions, confirm a blocked suggestion sends a webhook payload.
 - [ ] If webhook notifications are enabled for recovery suggestions, create a staging recovery suggestion and confirm it sends a webhook payload.
+- [ ] Set recovery basis to `primary_competitor`, create a fresh primary competitor price, and confirm recovery uses it.
+- [ ] Set recovery basis to `primary_competitor` with no primary link and confirm recovery becomes manual review.
+- [ ] Set recovery basis to `all_competitors_must_increase` and confirm recovery is skipped while any enabled exact/similar competitor remains lower.
+- [ ] Set `recovery_max_competitor_price_age_hours` low on staging and confirm stale primary/exact/similar competitor data forces manual review.
+- [ ] Confirm recovery suggestions show original regular, original sale, original active, current WooCommerce, new competitor, and suggested recovery prices.
 - [ ] Open Approvals and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
 - [ ] Edit a suggested price and confirm the old/new price is logged.
 - [ ] Approve a pending suggestion as dry-run and confirm WooCommerce product price is unchanged.
@@ -76,6 +82,9 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Open Logs and test filters for level, event, and product ID.
 - [ ] Confirm log pagination does not load all rows at once.
 - [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.
+- [ ] Confirm History shows active price match sessions with original active price, matched price, recovery strategy, status, and actions.
+- [ ] End an `active_dry_run` price match session from History and confirm WooCommerce price is unchanged.
+- [ ] Confirm real active sessions cannot be ended from the dry-run-only History action.
 - [ ] Confirm the competitor management screen shows the latest five checks for the selected monitored product.
 - [ ] Open Import / Export and download the sample CSV template.
 - [ ] Upload a small valid CSV and confirm the preview shows valid rows before anything is committed.

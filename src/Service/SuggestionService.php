@@ -80,6 +80,12 @@ final class SuggestionService {
 		$suggestion_type = 'manual_review' === (string) $rule['status'] ? 'manual_review' : (string) $base_plan['suggestion_type'];
 		$reason          = $this->merge_reasons( (string) $base_plan['reason'], (string) $rule['reason'] );
 		$suggested_price = (float) $rule['suggested_price'];
+		$rule_details    = $rule['rule_details'];
+
+		if ( $active_session && $this->is_recovery_suggestion_type( $suggestion_type ) ) {
+			$rule_details['recovery_session'] = $this->get_recovery_session_summary( $active_session );
+		}
+
 		$suggestion      = array(
 			'monitored_product_id' => (int) $monitored_product['id'],
 			'competitor_link_id'   => (int) $competitor_link['id'],
@@ -92,7 +98,7 @@ final class SuggestionService {
 			'status'               => $db_status,
 			'reason'               => $reason,
 			'margin_after_change'  => $rule['margin_after_change'],
-			'rule_details'         => $rule['rule_details'],
+			'rule_details'         => $rule_details,
 			'warnings'             => $rule['warnings'],
 		);
 
@@ -113,7 +119,7 @@ final class SuggestionService {
 			'suggested_price'     => $suggested_price,
 			'margin_after_change' => $rule['margin_after_change'],
 			'warnings'            => $rule['warnings'],
-			'rule_details'        => $rule['rule_details'],
+			'rule_details'        => $rule_details,
 		);
 	}
 
@@ -195,6 +201,39 @@ final class SuggestionService {
 		}
 
 		return $base_reason . ' ' . $rule_reason;
+	}
+
+	private function is_recovery_suggestion_type( string $suggestion_type ): bool {
+		return in_array(
+			$suggestion_type,
+			array(
+				'price_match_up',
+				'restore_previous_active_price',
+				'restore_previous_regular_price',
+				'restore_previous_sale_price',
+				'manual_review',
+			),
+			true
+		);
+	}
+
+	/**
+	 * @param array<string, mixed> $session Active price match session.
+	 * @return array<string, mixed>
+	 */
+	private function get_recovery_session_summary( array $session ): array {
+		return array(
+			'id'                         => isset( $session['id'] ) ? (int) $session['id'] : 0,
+			'original_regular_price'     => $session['original_regular_price'] ?? null,
+			'original_sale_price'        => $session['original_sale_price'] ?? null,
+			'original_active_price'      => $session['original_active_price'] ?? null,
+			'original_sale_start'        => $session['original_sale_start'] ?? null,
+			'original_sale_end'          => $session['original_sale_end'] ?? null,
+			'matched_price'              => $session['matched_price'] ?? null,
+			'matched_at'                 => $session['matched_at'] ?? null,
+			'recovery_strategy'          => $session['recovery_strategy'] ?? null,
+			'last_lowest_competitor_price' => $session['last_lowest_competitor_price'] ?? null,
+		);
 	}
 
 	/**

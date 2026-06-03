@@ -559,13 +559,20 @@ final class Repository {
 				'competitor_url'       => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
 				'match_type'           => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
 				'enabled'              => ! empty( $data['enabled'] ) ? 1 : 0,
+				'is_primary'           => ! empty( $data['is_primary'] ) ? 1 : 0,
 				'created_at'           => $now,
 				'updated_at'           => $now,
 			),
-			array( '%d', '%d', '%s', '%s', '%s', '%d', '%s', '%s' )
+			array( '%d', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%s' )
 		);
 
-		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+		$link_id = false !== $inserted ? (int) $this->wpdb->insert_id : 0;
+
+		if ( $link_id > 0 && ! empty( $data['is_primary'] ) ) {
+			$this->unset_primary_competitor_links( absint( $data['monitored_product_id'] ?? 0 ), $link_id );
+		}
+
+		return $link_id;
 	}
 
 	/**
@@ -586,12 +593,17 @@ final class Repository {
 				'competitor_url'  => esc_url_raw( (string) ( $data['competitor_url'] ?? '' ) ),
 				'match_type'      => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
 				'enabled'         => ! empty( $data['enabled'] ) ? 1 : 0,
+				'is_primary'      => ! empty( $data['is_primary'] ) ? 1 : 0,
 				'updated_at'      => current_time( 'mysql' ),
 			),
 			array( 'id' => absint( $competitor_link_id ) ),
-			array( '%d', '%s', '%s', '%s', '%d', '%s' ),
+			array( '%d', '%s', '%s', '%s', '%d', '%d', '%s' ),
 			array( '%d' )
 		);
+
+		if ( false !== $updated && ! empty( $data['is_primary'] ) ) {
+			$this->unset_primary_competitor_links( absint( $data['monitored_product_id'] ?? 0 ), $competitor_link_id );
+		}
 
 		return false !== $updated;
 	}
@@ -731,6 +743,25 @@ final class Repository {
 		);
 
 		return false !== $updated;
+	}
+
+	private function unset_primary_competitor_links( int $monitored_product_id, int $except_link_id ): void {
+		$table = $this->tables['competitor_links'];
+
+		if ( $monitored_product_id <= 0 || ! $this->table_exists( $table ) ) {
+			return;
+		}
+
+		$this->wpdb->query(
+			$this->wpdb->prepare(
+				"UPDATE {$table}
+				SET is_primary = 0, updated_at = %s
+				WHERE monitored_product_id = %d AND id <> %d",
+				current_time( 'mysql' ),
+				absint( $monitored_product_id ),
+				absint( $except_link_id )
+			)
+		);
 	}
 
 	/**
@@ -1376,6 +1407,69 @@ final class Repository {
 
 	public function count_active_price_match_sessions(): int {
 		return $this->count_where( 'price_match_sessions', 'status IN (%s, %s)', array( 'active', 'active_dry_run' ) );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_price_match_session( int $session_id ): ?array {
+		$table = $this->tables['price_match_sessions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare( "SELECT * FROM {$table} WHERE id = %d LIMIT 1", absint( $session_id ) ),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_active_price_match_sessions( int $limit = 10 ): array {
+		$table     = $this->tables['price_match_sessions'];
+		$monitored = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_per_page( $limit );
+
+		if ( $this->table_exists( $monitored ) ) {
+			$rows = $this->wpdb->get_results(
+				$this->wpdb->prepare(
+					"SELECT pms.*, mp.sku
+					FROM {$table} pms
+					LEFT JOIN {$monitored} mp ON pms.monitored_product_id = mp.id
+					WHERE pms.status IN (%s, %s)
+					ORDER BY pms.matched_at DESC, pms.id DESC
+					LIMIT %d",
+					'active',
+					'active_dry_run',
+					$limit
+				),
+				ARRAY_A
+			);
+
+			return is_array( $rows ) ? $rows : array();
+		}
+
+		$rows = $this->wpdb->get_results(
+			$this->wpdb->prepare(
+				"SELECT * FROM {$table} WHERE status IN (%s, %s) ORDER BY matched_at DESC, id DESC LIMIT %d",
+				'active',
+				'active_dry_run',
+				$limit
+			),
+			ARRAY_A
+		);
+
+		return is_array( $rows ) ? $rows : array();
 	}
 
 	private function count_price_suggestions_by_view( string $view ): int {
