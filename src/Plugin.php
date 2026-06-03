@@ -13,6 +13,14 @@ use Lilleprinsen\PriceMonitor\Admin\Notices;
 use Lilleprinsen\PriceMonitor\Assets\AdminAssets;
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
+use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
+use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
+use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
+use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
+use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
+use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
+use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
+use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -39,9 +47,16 @@ final class Plugin {
 
 		$this->initialized = true;
 
-		$settings   = new Settings();
-		$repository = new Repository();
-		$admin_page = new AdminPage( $repository, $settings );
+		$settings             = new Settings();
+		$repository           = new Repository();
+		$price_recovery       = new PriceRecoveryService();
+		$price_check          = new PriceCheckService();
+		$suggestion_service   = new SuggestionService( $repository, $price_recovery );
+		$notification_service = new NotificationService( array( new LogNotificationChannel( $repository ) ) );
+		$price_update         = new PriceUpdateService( $repository, $price_recovery );
+		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
+		$job_scheduler        = new JobScheduler( $settings, $check_job, $repository );
+		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update );
 
 		add_action( 'admin_init', array( Schema::class, 'maybe_upgrade' ) );
 		add_action( 'admin_init', array( $settings, 'handle_settings_save' ) );
@@ -49,6 +64,7 @@ final class Plugin {
 		add_action( 'admin_menu', array( new AdminMenu( $admin_page ), 'register' ) );
 		add_action( 'admin_notices', array( new Notices(), 'render' ) );
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );
+		$job_scheduler->register();
 	}
 
 	public static function can_manage(): bool {
