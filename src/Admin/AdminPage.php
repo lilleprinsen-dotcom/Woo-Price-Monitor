@@ -422,7 +422,16 @@ final class AdminPage {
 		$per_page     = (int) $this->settings->get( 'rows_per_page', 25 );
 		$observations = $this->repository->get_price_observations( $filters, $page, $per_page );
 		$total        = $this->repository->count_price_observations( $filters );
+		$sessions     = $this->repository->get_active_price_match_sessions( 10 );
 		?>
+		<section class="lpm-card">
+			<div class="lpm-card-header">
+				<h2><?php esc_html_e( 'Active price match sessions', 'lilleprinsen-price-monitor' ); ?></h2>
+				<span class="lpm-pill lpm-pill-muted"><?php esc_html_e( 'Latest 10', 'lilleprinsen-price-monitor' ); ?></span>
+			</div>
+			<?php $this->render_active_price_match_sessions_table( $sessions ); ?>
+		</section>
+
 		<section class="lpm-card">
 			<div class="lpm-card-header">
 				<div>
@@ -1076,6 +1085,7 @@ final class AdminPage {
 		$url           = isset( $_POST['competitor_url'] ) ? esc_url_raw( wp_unslash( $_POST['competitor_url'] ) ) : '';
 		$match_type    = isset( $_POST['match_type'] ) ? sanitize_key( wp_unslash( $_POST['match_type'] ) ) : 'unknown';
 		$enabled       = ! empty( $_POST['enabled'] );
+		$is_primary    = ! empty( $_POST['is_primary'] );
 
 		if ( $competitor_id > 0 && ! $profile ) {
 			$this->redirect_to_competitors( $monitored_product_id, 'competitor_profile_not_found', 'error' );
@@ -1100,6 +1110,7 @@ final class AdminPage {
 			'competitor_url'       => $url,
 			'match_type'           => $match_type,
 			'enabled'              => $enabled ? 1 : 0,
+			'is_primary'           => $is_primary ? 1 : 0,
 		);
 
 		if ( 'update_competitor_link' === $action ) {
@@ -1528,6 +1539,34 @@ final class AdminPage {
 			)
 		);
 		$this->redirect_to_tab( 'settings', 'retention_cleanup_completed' );
+	}
+
+	public function handle_end_price_match_session(): void {
+		$session_id = isset( $_POST['session_id'] ) ? absint( wp_unslash( $_POST['session_id'] ) ) : 0;
+		$session    = $this->repository->get_price_match_session( $session_id );
+
+		if ( ! $session ) {
+			$this->redirect_to_tab( 'history', 'price_match_session_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		if ( 'active_dry_run' !== (string) $session['status'] ) {
+			$this->redirect_to_tab( 'history', 'price_match_session_end_requires_real_update', array( 'lpm_notice_type' => 'warning' ) );
+		}
+
+		$ended = $this->repository->end_price_match_session( $session_id, 'ended_manual_dry_run' );
+
+		if ( $ended ) {
+			$this->repository->write_log(
+				'info',
+				'price_match_session_ended_dry_run',
+				__( 'Dry-run price match session ended manually. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+				array( 'session_id' => $session_id ),
+				(int) $session['product_id']
+			);
+			$this->redirect_to_tab( 'history', 'price_match_session_ended' );
+		}
+
+		$this->redirect_to_tab( 'history', 'price_match_session_end_failed', array( 'lpm_notice_type' => 'error' ) );
 	}
 
 	public function handle_approve_and_update_price(): void {
@@ -2425,6 +2464,15 @@ final class AdminPage {
 				<span><strong><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></strong></span>
 			</label>
 
+			<label class="lpm-field lpm-field-checkbox">
+				<input type="hidden" name="is_primary" value="0" />
+				<input type="checkbox" name="is_primary" value="1" <?php checked( $is_edit ? ! empty( $editing_link['is_primary'] ) : false ); ?> />
+				<span>
+					<strong><?php esc_html_e( 'Primary competitor for recovery', 'lilleprinsen-price-monitor' ); ?></strong>
+					<small><?php esc_html_e( 'Only one primary competitor is kept per monitored product.', 'lilleprinsen-price-monitor' ); ?></small>
+				</span>
+			</label>
+
 			<div class="lpm-form-actions">
 				<button type="submit" class="button button-primary"><?php echo esc_html( $is_edit ? __( 'Save competitor link', 'lilleprinsen-price-monitor' ) : __( 'Add competitor link', 'lilleprinsen-price-monitor' ) ); ?></button>
 				<?php if ( $is_edit ) : ?>
@@ -2449,6 +2497,7 @@ final class AdminPage {
 					<th scope="col"><?php esc_html_e( 'Profile', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Match type', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Primary', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Last price', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Last currency', 'lilleprinsen-price-monitor' ); ?></th>
@@ -2475,6 +2524,7 @@ final class AdminPage {
 						</td>
 						<td><a href="<?php echo esc_url( (string) $link['competitor_url'] ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( $this->shorten_text( (string) $link['competitor_url'], 48 ) ); ?></a></td>
 						<td><?php echo esc_html( (string) $link['match_type'] ); ?></td>
+						<td><?php $this->render_status_pill( ! empty( $link['is_primary'] ) ? __( 'Primary', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $link['is_primary'] ) ? 'ok' : 'muted' ); ?></td>
 						<td><?php $this->render_status_pill( ! empty( $link['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $link['enabled'] ) ? 'ok' : 'muted' ); ?></td>
 						<td><?php echo esc_html( $this->format_nullable_value( $link['last_price'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( $this->format_nullable_value( $link['last_currency'] ?? null ) ); ?></td>
@@ -2566,7 +2616,10 @@ final class AdminPage {
 						<td><?php $this->render_warnings_summary( (string) ( $suggestion['warnings'] ?? '' ) ); ?></td>
 						<td><?php echo esc_html( $this->get_rule_details_summary( (string) ( $suggestion['rule_details'] ?? '' ) ) ); ?></td>
 						<td><?php $this->render_status_pill( $this->get_suggestion_status_label( (string) $suggestion['status'] ), $this->get_suggestion_status_pill_type( (string) $suggestion['status'] ) ); ?></td>
-						<td class="lpm-suggestion-reason"><?php echo esc_html( $this->shorten_text( (string) ( $suggestion['reason'] ?? '' ), 120 ) ); ?></td>
+						<td class="lpm-suggestion-reason">
+							<?php echo esc_html( $this->shorten_text( (string) ( $suggestion['reason'] ?? '' ), 120 ) ); ?>
+							<?php $this->render_recovery_details_summary( (string) ( $suggestion['rule_details'] ?? '' ), (float) $suggestion['current_price'], (float) $suggestion['competitor_price'], (float) $suggestion['suggested_price'], $currency ); ?>
+						</td>
 						<td><?php echo esc_html( $this->format_datetime( $suggestion['created_at'] ?? null ) ); ?></td>
 						<td>
 							<div class="lpm-actions lpm-inbox-actions">
@@ -2743,6 +2796,64 @@ final class AdminPage {
 						<td><?php echo esc_html( $this->format_nullable_value( $log['product_id'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( $this->shorten_text( (string) ( $log['message'] ?? '' ), 90 ) ); ?></td>
 						<td><?php $this->render_context_summary( (string) ( $log['context'] ?? '' ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_active_price_match_sessions_table( array $sessions ): void {
+		if ( empty( $sessions ) ) {
+			$this->render_empty_state( __( 'No active price match sessions are currently stored.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Original active price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Matched price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Matched at', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Recovery strategy', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Last lowest competitor price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $sessions as $session ) : ?>
+					<tr>
+						<td>
+							<?php printf( esc_html__( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $session['product_id'] ); ?>
+							<?php if ( ! empty( $session['sku'] ) ) : ?>
+								<small><?php echo esc_html( (string) $session['sku'] ); ?></small>
+							<?php endif; ?>
+						</td>
+						<td><?php echo esc_html( $this->format_nullable_value( $session['original_active_price'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $session['matched_price'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_datetime( $session['matched_at'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $session['recovery_strategy'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $session['last_lowest_competitor_price'] ?? null ) ); ?></td>
+						<td><?php $this->render_status_pill( (string) $session['status'], 'active_dry_run' === (string) $session['status'] ? 'ok' : 'warning' ); ?></td>
+						<td>
+							<div class="lpm-actions">
+								<?php if ( ! empty( $session['suggestion_id'] ) ) : ?>
+									<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'approvals', 'lpm_approval_view' => 'all' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'View related suggestion', 'lilleprinsen-price-monitor' ); ?></a>
+								<?php endif; ?>
+								<?php if ( 'active_dry_run' === (string) $session['status'] ) : ?>
+									<form method="post" class="lpm-inline-action-form">
+										<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+										<input type="hidden" name="lpm_action" value="end_price_match_session" />
+										<input type="hidden" name="session_id" value="<?php echo esc_attr( (string) $session['id'] ); ?>" />
+										<button type="submit" class="button button-small"><?php esc_html_e( 'End session', 'lilleprinsen-price-monitor' ); ?></button>
+									</form>
+								<?php else : ?>
+									<span class="lpm-field-description"><?php esc_html_e( 'Real sessions end only through guarded restore/update flow.', 'lilleprinsen-price-monitor' ); ?></span>
+								<?php endif; ?>
+							</div>
+						</td>
 					</tr>
 				<?php endforeach; ?>
 			</tbody>
@@ -2984,6 +3095,33 @@ final class AdminPage {
 				<?php foreach ( $warnings as $warning ) : ?>
 					<li><?php echo esc_html( (string) $warning ); ?></li>
 				<?php endforeach; ?>
+			</ul>
+		</details>
+		<?php
+	}
+
+	private function render_recovery_details_summary( string $rule_details_json, float $current_price, float $competitor_price, float $suggested_price, string $currency ): void {
+		if ( '' === $rule_details_json ) {
+			return;
+		}
+
+		$details = json_decode( $rule_details_json, true );
+
+		if ( ! is_array( $details ) || empty( $details['recovery_session'] ) || ! is_array( $details['recovery_session'] ) ) {
+			return;
+		}
+
+		$session = $details['recovery_session'];
+		?>
+		<details class="lpm-context">
+			<summary><?php esc_html_e( 'Recovery details', 'lilleprinsen-price-monitor' ); ?></summary>
+			<ul class="lpm-check-list">
+				<li><?php printf( esc_html__( 'Original regular price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $session['original_regular_price'] ?? null ) ) ); ?></li>
+				<li><?php printf( esc_html__( 'Original sale price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $session['original_sale_price'] ?? null ) ) ); ?></li>
+				<li><?php printf( esc_html__( 'Original active price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $session['original_active_price'] ?? null ) ) ); ?></li>
+				<li><?php printf( esc_html__( 'Current WooCommerce price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_price_amount( $current_price, $currency ) ) ); ?></li>
+				<li><?php printf( esc_html__( 'New competitor price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_price_amount( $competitor_price, $currency ) ) ); ?></li>
+				<li><?php printf( esc_html__( 'Suggested recovery price: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_price_amount( $suggested_price, $currency ) ) ); ?></li>
 			</ul>
 		</details>
 		<?php
@@ -3415,12 +3553,12 @@ final class AdminPage {
 
 	private function get_suggestion_type_label( string $suggestion_type ): string {
 		$labels = array(
-			'price_match_down'               => __( 'Price match down', 'lilleprinsen-price-monitor' ),
-			'price_match_up'                 => __( 'Price match up', 'lilleprinsen-price-monitor' ),
+			'price_match_down'               => __( 'Lower to competitor price', 'lilleprinsen-price-monitor' ),
+			'price_match_up'                 => __( 'Raise to competitor price', 'lilleprinsen-price-monitor' ),
 			'restore_previous_active_price'  => __( 'Restore previous active price', 'lilleprinsen-price-monitor' ),
 			'restore_previous_regular_price' => __( 'Restore previous regular price', 'lilleprinsen-price-monitor' ),
 			'restore_previous_sale_price'    => __( 'Restore previous sale price', 'lilleprinsen-price-monitor' ),
-			'manual_review'                  => __( 'Manual review', 'lilleprinsen-price-monitor' ),
+			'manual_review'                  => __( 'Needs manual review', 'lilleprinsen-price-monitor' ),
 			'blocked'                        => __( 'Blocked', 'lilleprinsen-price-monitor' ),
 		);
 
@@ -3915,6 +4053,10 @@ final class AdminPage {
 			'test_webhook_sent'               => __( 'Test webhook sent.', 'lilleprinsen-price-monitor' ),
 			'test_webhook_failed'             => __( 'Test webhook failed. Check the webhook URL and logs.', 'lilleprinsen-price-monitor' ),
 			'retention_cleanup_completed'     => __( 'Retention cleanup completed.', 'lilleprinsen-price-monitor' ),
+			'price_match_session_not_found'   => __( 'Price match session was not found.', 'lilleprinsen-price-monitor' ),
+			'price_match_session_ended'       => __( 'Dry-run price match session ended. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+			'price_match_session_end_failed'  => __( 'Could not end the price match session.', 'lilleprinsen-price-monitor' ),
+			'price_match_session_end_requires_real_update' => __( 'Only dry-run sessions can be ended here. Real sessions must use a guarded restore/update flow.', 'lilleprinsen-price-monitor' ),
 			'real_update_confirmation_required' => __( 'Real price update confirmation is required.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_failed'        => __( 'Real price update failed.', 'lilleprinsen-price-monitor' ),
 			'real_price_update_applied'       => __( 'WooCommerce price updated after explicit approval.', 'lilleprinsen-price-monitor' ),

@@ -27,26 +27,41 @@ final class PriceRecoveryService {
 	public function determine_recovery_suggestion( float $current_price, float $new_competitor_price, array $session, array $settings, array $competitor_links = array() ): array {
 		$original_sale_price    = $this->nullable_float( $session['original_sale_price'] ?? null );
 		$original_regular_price = $this->nullable_float( $session['original_regular_price'] ?? null );
+		$original_active_price  = $this->nullable_float( $session['original_active_price'] ?? null );
+		$matched_price          = $this->nullable_float( $session['matched_price'] ?? null );
 		$plan                   = $this->manual_review(
 			$current_price,
 			__( 'Competitor price increased during an active price match session. Manual dry-run review is required.', 'lilleprinsen-price-monitor' )
 		);
 
+		if ( empty( $session ) ) {
+			return $plan;
+		}
+
+		if ( null === $original_active_price && null === $original_regular_price && null === $original_sale_price ) {
+			return $this->manual_review( $current_price, __( 'Original price state is missing from the price match session, so recovery needs manual review.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( null !== $matched_price && 'active_dry_run' !== (string) ( $session['status'] ?? '' ) && abs( $current_price - $matched_price ) > 0.0001 ) {
+			return $this->manual_review( $current_price, __( 'WooCommerce product price changed since the price match session was created. Recovery needs manual review before any future update.', 'lilleprinsen-price-monitor' ) );
+		}
+
 		if ( null !== $original_sale_price && $new_competitor_price < $original_sale_price ) {
 			$plan = $this->plan_for_below_previous_sale_price( $current_price, $new_competitor_price, $settings );
 		} elseif ( null !== $original_regular_price && $new_competitor_price > $original_regular_price ) {
-			$plan = $this->plan_for_above_previous_regular_price( $current_price, $new_competitor_price, $original_regular_price, $settings );
+			$plan = $this->plan_for_above_previous_regular_price( $current_price, $new_competitor_price, $original_regular_price, $original_active_price, $settings );
 		} elseif ( null !== $original_sale_price && null !== $original_regular_price && $new_competitor_price > $original_sale_price && $new_competitor_price < $original_regular_price ) {
-			$plan = $this->plan_for_between_sale_and_regular_price( $current_price, $new_competitor_price, $original_sale_price, $settings );
+			$plan = $this->plan_for_between_sale_and_regular_price( $current_price, $new_competitor_price, $original_sale_price, $original_regular_price, $original_active_price, $settings );
 		}
 
-		if ( $this->has_lower_active_competitor( $competitor_links, $new_competitor_price, (float) $plan['suggested_price'], $settings ) ) {
-			return array(
-				'suggestion_type' => 'manual_review',
-				'suggested_price' => $current_price,
-				'status'          => 'skipped',
-				'reason'          => __( 'Recovery suggestion skipped because another active competitor still has a lower last checked price than the proposed recovery price.', 'lilleprinsen-price-monitor' ),
-			);
+		$basis_blocker = $this->get_recovery_basis_blocker( $competitor_links, $new_competitor_price, (float) $plan['suggested_price'], $current_price, $settings );
+
+		if ( null !== $basis_blocker ) {
+			return $basis_blocker;
+		}
+
+		if ( $this->exceeds_max_increase( $current_price, (float) $plan['suggested_price'], $settings ) ) {
+			return $this->skipped( $current_price, __( 'Recovery suggestion skipped because the suggested price increase exceeds the configured maximum increase percent.', 'lilleprinsen-price-monitor' ) );
 		}
 
 		return $plan;
@@ -138,8 +153,21 @@ final class PriceRecoveryService {
 	 * @param array<string, mixed> $settings Sanitized settings.
 	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}
 	 */
-	private function plan_for_between_sale_and_regular_price( float $current_price, float $competitor_price, float $original_sale_price, array $settings ): array {
+	private function plan_for_between_sale_and_regular_price( float $current_price, float $competitor_price, float $original_sale_price, float $original_regular_price, ?float $original_active_price, array $settings ): array {
 		$strategy = $this->setting_choice( $settings, 'recovery_when_competitor_increases', 'suggest_only' );
+
+		if ( 'suggest_restore_previous_active_price' === $strategy ) {
+			if ( null === $original_active_price ) {
+				return $this->manual_review( $current_price, __( 'Previous active price is missing from the session, so active-price restore needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			return array(
+				'suggestion_type' => 'restore_previous_active_price',
+				'suggested_price' => $original_active_price,
+				'status'          => 'pending',
+				'reason'          => __( 'Competitor price increased above the previous sale price but below regular price. Suggesting restore to the previous active price captured before the match.', 'lilleprinsen-price-monitor' ),
+			);
+		}
 
 		if ( 'suggest_restore_previous_sale_price' === $strategy ) {
 			return array(
@@ -159,6 +187,15 @@ final class PriceRecoveryService {
 			);
 		}
 
+		if ( 'suggest_restore_previous_regular_price' === $strategy ) {
+			return array(
+				'suggestion_type' => 'restore_previous_regular_price',
+				'suggested_price' => $original_regular_price,
+				'status'          => 'pending',
+				'reason'          => __( 'Competitor price increased above the previous sale price but remains below regular price. Settings suggest restoring the previous regular price for manual review.', 'lilleprinsen-price-monitor' ),
+			);
+		}
+
 		return $this->manual_review( $current_price, __( 'Competitor price increased above the previous sale price but remains below regular price. Manual review is required by the configured recovery strategy.', 'lilleprinsen-price-monitor' ) );
 	}
 
@@ -166,8 +203,21 @@ final class PriceRecoveryService {
 	 * @param array<string, mixed> $settings Sanitized settings.
 	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}
 	 */
-	private function plan_for_above_previous_regular_price( float $current_price, float $competitor_price, float $original_regular_price, array $settings ): array {
+	private function plan_for_above_previous_regular_price( float $current_price, float $competitor_price, float $original_regular_price, ?float $original_active_price, array $settings ): array {
 		$strategy = $this->setting_choice( $settings, 'recovery_if_competitor_above_previous_regular_price', 'suggest_restore_previous_regular_price' );
+
+		if ( 'suggest_restore_previous_active_price' === $strategy ) {
+			if ( null === $original_active_price ) {
+				return $this->manual_review( $current_price, __( 'Previous active price is missing from the session, so active-price restore needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			return array(
+				'suggestion_type' => 'restore_previous_active_price',
+				'suggested_price' => $original_active_price,
+				'status'          => 'pending',
+				'reason'          => __( 'Competitor is now above the previous regular price. Suggesting restore to the previous active price captured before the match.', 'lilleprinsen-price-monitor' ),
+			);
+		}
 
 		if ( 'suggest_restore_previous_regular_price' === $strategy || 'suggest_only' === $strategy ) {
 			return array(
@@ -193,17 +243,21 @@ final class PriceRecoveryService {
 	/**
 	 * @param array<int, array<string, mixed>> $competitor_links Known competitor links.
 	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}|null
 	 */
-	private function has_lower_active_competitor( array $competitor_links, float $triggering_competitor_price, float $proposed_price, array $settings ): bool {
+	private function get_recovery_basis_blocker( array $competitor_links, float $triggering_competitor_price, float $proposed_price, float $current_price, array $settings ): ?array {
 		$basis = $this->setting_choice( $settings, 'multiple_competitor_recovery_basis', 'lowest_valid_competitor' );
 
-		if ( 'lowest_valid_competitor' !== $basis ) {
-			// TODO: Implement primary_competitor and all_competitors_must_increase safely once primary link state exists.
-			return true;
+		if ( 'primary_competitor' === $basis ) {
+			return $this->get_primary_competitor_blocker( $competitor_links, $proposed_price, $current_price, $settings );
+		}
+
+		if ( 'all_competitors_must_increase' === $basis ) {
+			return $this->get_all_competitors_blocker( $competitor_links, $proposed_price, $current_price, $settings );
 		}
 
 		foreach ( $competitor_links as $link ) {
-			if ( empty( $link['enabled'] ) || empty( $link['last_price'] ) ) {
+			if ( ! $this->is_comparable_link( $link, false ) || $this->is_link_stale( $link, $settings ) || empty( $link['last_price'] ) ) {
 				continue;
 			}
 
@@ -214,11 +268,136 @@ final class PriceRecoveryService {
 			}
 
 			if ( $last_price < $proposed_price ) {
-				return true;
+				return $this->skipped( $current_price, __( 'Recovery suggestion skipped because another active comparable competitor still has a lower last checked price than the proposed recovery price.', 'lilleprinsen-price-monitor' ) );
 			}
 		}
 
-		return false;
+		return null;
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $competitor_links Known competitor links.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}|null
+	 */
+	private function get_primary_competitor_blocker( array $competitor_links, float $proposed_price, float $current_price, array $settings ): ?array {
+		foreach ( $competitor_links as $link ) {
+			if ( empty( $link['is_primary'] ) || ! $this->is_comparable_link( $link, false ) ) {
+				continue;
+			}
+
+			if ( $this->is_link_stale( $link, $settings ) || empty( $link['last_price'] ) ) {
+				return $this->manual_review( $current_price, __( 'Primary competitor price data is missing or stale, so recovery needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			$last_price = $this->nullable_float( $link['last_price'] );
+
+			if ( null === $last_price ) {
+				return $this->manual_review( $current_price, __( 'Primary competitor does not have a valid last price, so recovery needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			if ( $last_price < $proposed_price ) {
+				return $this->skipped( $current_price, __( 'Recovery suggestion skipped because the primary competitor is still below the proposed recovery price.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			return null;
+		}
+
+		return $this->manual_review( $current_price, __( 'Recovery basis is primary competitor, but no primary competitor is set for this monitored product.', 'lilleprinsen-price-monitor' ) );
+	}
+
+	/**
+	 * @param array<int, array<string, mixed>> $competitor_links Known competitor links.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}|null
+	 */
+	private function get_all_competitors_blocker( array $competitor_links, float $proposed_price, float $current_price, array $settings ): ?array {
+		$comparable_count = 0;
+
+		foreach ( $competitor_links as $link ) {
+			if ( ! $this->is_comparable_link( $link, true ) ) {
+				continue;
+			}
+
+			$comparable_count++;
+
+			if ( $this->is_link_stale( $link, $settings ) || empty( $link['last_price'] ) ) {
+				return $this->manual_review( $current_price, __( 'At least one exact or similar competitor has missing or stale price data, so all-competitor recovery needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			$last_price = $this->nullable_float( $link['last_price'] );
+
+			if ( null === $last_price ) {
+				return $this->manual_review( $current_price, __( 'At least one exact or similar competitor lacks a valid last price, so all-competitor recovery needs manual review.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			if ( $last_price < $proposed_price ) {
+				return $this->skipped( $current_price, __( 'Recovery suggestion skipped because an exact or similar competitor is still below the proposed recovery price.', 'lilleprinsen-price-monitor' ) );
+			}
+		}
+
+		if ( 0 === $comparable_count ) {
+			return $this->manual_review( $current_price, __( 'All-competitor recovery requires at least one enabled exact or similar competitor with fresh price data.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		return null;
+	}
+
+	/**
+	 * @param array<string, mixed> $link Competitor link row.
+	 */
+	private function is_comparable_link( array $link, bool $exact_or_similar_only ): bool {
+		if ( empty( $link['enabled'] ) ) {
+			return false;
+		}
+
+		$match_type = sanitize_key( (string) ( $link['match_type'] ?? 'unknown' ) );
+
+		if ( 'not_comparable' === $match_type ) {
+			return false;
+		}
+
+		if ( $exact_or_similar_only ) {
+			return in_array( $match_type, array( 'exact', 'similar' ), true );
+		}
+
+		return true;
+	}
+
+	/**
+	 * @param array<string, mixed> $link Competitor link row.
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 */
+	private function is_link_stale( array $link, array $settings ): bool {
+		if ( empty( $link['last_checked_at'] ) ) {
+			return false;
+		}
+
+		$checked_at = strtotime( (string) $link['last_checked_at'] );
+
+		if ( false === $checked_at ) {
+			return true;
+		}
+
+		$max_age_hours = max( 1, (int) ( $settings['recovery_max_competitor_price_age_hours'] ?? 48 ) );
+
+		return $checked_at < ( $this->current_timestamp() - ( $max_age_hours * HOUR_IN_SECONDS ) );
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Sanitized settings.
+	 */
+	private function exceeds_max_increase( float $current_price, float $suggested_price, array $settings ): bool {
+		if ( $current_price <= 0 || $suggested_price <= $current_price ) {
+			return false;
+		}
+
+		$increase_percent = ( ( $suggested_price - $current_price ) / $current_price ) * 100;
+		$max_increase     = isset( $settings['max_allowed_price_increase_percent'] ) && is_numeric( $settings['max_allowed_price_increase_percent'] )
+			? (float) $settings['max_allowed_price_increase_percent']
+			: 50.0;
+
+		return $increase_percent > $max_increase;
 	}
 
 	/**
@@ -229,6 +408,18 @@ final class PriceRecoveryService {
 			'suggestion_type' => 'manual_review',
 			'suggested_price' => $current_price,
 			'status'          => 'pending',
+			'reason'          => $reason,
+		);
+	}
+
+	/**
+	 * @return array{suggestion_type: string, suggested_price: float, status: string, reason: string}
+	 */
+	private function skipped( float $current_price, string $reason ): array {
+		return array(
+			'suggestion_type' => 'manual_review',
+			'suggested_price' => $current_price,
+			'status'          => 'skipped',
 			'reason'          => $reason,
 		);
 	}
@@ -249,6 +440,10 @@ final class PriceRecoveryService {
 		}
 
 		return (float) $value;
+	}
+
+	private function current_timestamp(): int {
+		return function_exists( 'current_time' ) ? (int) current_time( 'timestamp' ) : time();
 	}
 
 	/**

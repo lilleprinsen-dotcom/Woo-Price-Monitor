@@ -113,6 +113,9 @@ final class AdminActionHandler {
 			case 'run_retention_cleanup':
 				$this->page->handle_run_retention_cleanup();
 				break;
+			case 'end_price_match_session':
+				$this->page->handle_end_price_match_session();
+				break;
 			case 'approve_and_update_price':
 				$this->page->handle_approve_and_update_price();
 				break;

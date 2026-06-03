@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.7.0';
+	public const VERSION = '1.8.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -110,6 +110,7 @@ final class Schema {
 			competitor_url text NOT NULL,
 			match_type varchar(50) NOT NULL DEFAULT 'unknown',
 			enabled tinyint(1) NOT NULL DEFAULT 1,
+			is_primary tinyint(1) NOT NULL DEFAULT 0,
 			last_price decimal(20,4) DEFAULT NULL,
 			last_currency varchar(10) DEFAULT NULL,
 			last_stock_status varchar(50) DEFAULT NULL,
@@ -124,6 +125,7 @@ final class Schema {
 			KEY competitor_id (competitor_id),
 			KEY competitor_name (competitor_name),
 			KEY enabled (enabled),
+			KEY is_primary (is_primary),
 			KEY enabled_last_checked_at (enabled, last_checked_at),
 			KEY next_check_after (next_check_after),
 			KEY last_checked_at (last_checked_at)

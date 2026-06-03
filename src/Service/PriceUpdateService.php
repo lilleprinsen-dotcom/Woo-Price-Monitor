@@ -53,9 +53,25 @@ final class PriceUpdateService {
 		$old_state = $this->capture_product_state( $product );
 		$write_mode = sanitize_key( (string) ( $settings['price_match_write_mode'] ?? 'sale_price' ) );
 		$price = round( (float) $suggestion['suggested_price'], 4 );
+		$restore_session = null;
+
+		if ( $this->is_restore_suggestion( (string) $suggestion['suggestion_type'] ) ) {
+			$restore_session = $this->repository->get_active_price_match_session_for_product( (int) $suggestion['product_id'] );
+			$restore_check   = $this->validate_restore_session( (string) $suggestion['suggestion_type'], $restore_session );
+
+			if ( ! $restore_check['success'] ) {
+				$this->repository->mark_suggestion_failed( $suggestion_id, (string) $restore_check['message'] );
+				return $restore_check;
+			}
+		}
 
 		try {
-			$this->apply_price_to_product( $product, $price, $write_mode );
+			if ( $restore_session ) {
+				$this->apply_restore_to_product( $product, (string) $suggestion['suggestion_type'], $restore_session );
+				$write_mode = (string) $suggestion['suggestion_type'];
+			} else {
+				$this->apply_price_to_product( $product, $price, $write_mode );
+			}
 			$product->save();
 		} catch ( \Throwable $throwable ) {
 			$message = $throwable->getMessage();
@@ -176,6 +192,108 @@ final class PriceUpdateService {
 		if ( method_exists( $product, 'set_price' ) ) {
 			$product->set_price( (string) $price );
 		}
+	}
+
+	/**
+	 * @param array<string, mixed> $session Active price match session.
+	 */
+	private function apply_restore_to_product( object $product, string $suggestion_type, array $session ): void {
+		$restore_type = $suggestion_type;
+
+		if ( 'restore_previous_active_price' === $suggestion_type ) {
+			$restore_type = $this->resolve_active_restore_type( $session );
+		}
+
+		if ( 'restore_previous_regular_price' === $restore_type ) {
+			$regular_price = (string) $session['original_regular_price'];
+
+			if ( method_exists( $product, 'set_regular_price' ) ) {
+				$product->set_regular_price( $regular_price );
+			}
+
+			$this->restore_sale_state_if_available( $product, $session );
+
+			if ( method_exists( $product, 'set_price' ) ) {
+				$product->set_price( ! empty( $session['original_sale_price'] ) ? (string) $session['original_sale_price'] : $regular_price );
+			}
+			return;
+		}
+
+		if ( 'restore_previous_sale_price' === $restore_type ) {
+			if ( ! empty( $session['original_regular_price'] ) && method_exists( $product, 'set_regular_price' ) ) {
+				$product->set_regular_price( (string) $session['original_regular_price'] );
+			}
+
+			$this->restore_sale_state_if_available( $product, $session );
+
+			if ( method_exists( $product, 'set_price' ) ) {
+				$product->set_price( (string) $session['original_sale_price'] );
+			}
+		}
+	}
+
+	/**
+	 * @param array<string, mixed> $session Active price match session.
+	 */
+	private function restore_sale_state_if_available( object $product, array $session ): void {
+		if ( ! empty( $session['original_sale_price'] ) && method_exists( $product, 'set_sale_price' ) ) {
+			$product->set_sale_price( (string) $session['original_sale_price'] );
+		}
+
+		if ( method_exists( $product, 'set_date_on_sale_from' ) ) {
+			$product->set_date_on_sale_from( ! empty( $session['original_sale_start'] ) ? (string) $session['original_sale_start'] : null );
+		}
+
+		if ( method_exists( $product, 'set_date_on_sale_to' ) ) {
+			$product->set_date_on_sale_to( ! empty( $session['original_sale_end'] ) ? (string) $session['original_sale_end'] : null );
+		}
+	}
+
+	/**
+	 * @param array<string, mixed> $session Active price match session.
+	 */
+	private function resolve_active_restore_type( array $session ): string {
+		$active  = isset( $session['original_active_price'] ) ? (float) $session['original_active_price'] : 0.0;
+		$sale    = isset( $session['original_sale_price'] ) ? (float) $session['original_sale_price'] : 0.0;
+		$regular = isset( $session['original_regular_price'] ) ? (float) $session['original_regular_price'] : 0.0;
+
+		if ( $sale > 0 && abs( $active - $sale ) <= 0.0001 ) {
+			return 'restore_previous_sale_price';
+		}
+
+		if ( $regular > 0 && abs( $active - $regular ) <= 0.0001 ) {
+			return 'restore_previous_regular_price';
+		}
+
+		throw new \RuntimeException( __( 'Previous active price cannot be safely mapped to the captured regular or sale price.', 'lilleprinsen-price-monitor' ) );
+	}
+
+	/**
+	 * @param array<string, mixed>|null $session Active price match session.
+	 * @return array<string, mixed>
+	 */
+	private function validate_restore_session( string $suggestion_type, ?array $session ): array {
+		if ( ! $session ) {
+			return $this->failure( __( 'No active price match session was found for this restore suggestion.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		if ( 'restore_previous_regular_price' === $suggestion_type && empty( $session['original_regular_price'] ) ) {
+			return $this->failure( __( 'Previous regular price is missing from the price match session.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		if ( 'restore_previous_sale_price' === $suggestion_type && empty( $session['original_sale_price'] ) ) {
+			return $this->failure( __( 'Previous sale price is missing from the price match session.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		if ( 'restore_previous_active_price' === $suggestion_type && empty( $session['original_active_price'] ) ) {
+			return $this->failure( __( 'Previous active price is missing from the price match session.', 'lilleprinsen-price-monitor' ), true );
+		}
+
+		return array( 'success' => true );
+	}
+
+	private function is_restore_suggestion( string $suggestion_type ): bool {
+		return in_array( $suggestion_type, array( 'restore_previous_active_price', 'restore_previous_regular_price', 'restore_previous_sale_price' ), true );
 	}
 
 	/**

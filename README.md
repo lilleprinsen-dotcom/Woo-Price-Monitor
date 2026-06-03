@@ -75,10 +75,20 @@ Run PHP syntax checks with:
 bash tools/lint-php.sh
 ```
 
+Run lightweight local service tests with:
+
+```sh
+bash tools/run-local-tests.sh
+```
+
 Composer is optional and has no production dependencies:
 
 ```sh
 composer run lint:php
+composer run test:local
+composer run qa
 ```
+
+The local tests cover pure service behavior for `PriceParser`, `PricingRuleService`, and `PriceRecoveryService` using minimal WordPress function stubs. They do not load WordPress, WooCommerce, custom database tables, admin screens, Action Scheduler, WP-CLI commands, HTTP requests, or webhook delivery.
 
 See `AGENTS.md` for coding rules, `docs/ARCHITECTURE.md` for module details, `docs/MVP.md` for staged work, `docs/SAFETY_REVIEW.md` for current guardrails, and `docs/MANUAL_TEST_PLAN.md` for manual QA.
