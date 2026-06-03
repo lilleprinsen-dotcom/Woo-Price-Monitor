@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.4.0';
+	public const VERSION = '1.5.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -58,7 +58,7 @@ final class Schema {
 			sku varchar(191) DEFAULT NULL,
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			priority varchar(20) NOT NULL DEFAULT 'normal',
-			strategy varchar(50) NOT NULL DEFAULT 'notify_only',
+			strategy varchar(50) NOT NULL DEFAULT 'match_competitor',
 			min_margin_percent decimal(10,2) DEFAULT NULL,
 			min_price decimal(20,4) DEFAULT NULL,
 			check_frequency_hours int(10) unsigned NOT NULL DEFAULT 24,
@@ -131,6 +131,9 @@ final class Schema {
 			suggestion_type varchar(50) NOT NULL DEFAULT 'price_match_down',
 			status varchar(30) NOT NULL DEFAULT 'pending',
 			reason text NULL,
+			margin_after_change decimal(10,2) DEFAULT NULL,
+			rule_details longtext NULL,
+			warnings text NULL,
 			created_at datetime NOT NULL,
 			updated_at datetime NOT NULL,
 			approved_at datetime DEFAULT NULL,

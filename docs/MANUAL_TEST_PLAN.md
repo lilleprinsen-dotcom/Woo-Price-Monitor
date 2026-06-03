@@ -6,7 +6,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 
 - [ ] Activate the plugin from WordPress admin.
 - [ ] Confirm the WooCommerce submenu "Price Monitor" appears.
-- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitor_links`, `lpm_price_suggestions`, `lpm_price_match_sessions`, and `lpm_logs`.
+- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, and `lpm_logs`.
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
@@ -16,6 +16,8 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Search by SKU and confirm the expected product appears.
 - [ ] Search by product title and confirm the query is bounded and does not load a full dropdown.
 - [ ] Add a product to monitoring and confirm it appears in Existing monitored products.
+- [ ] Click Edit rules for the monitored product and update priority, strategy, min margin, min price, check frequency, and enabled state.
+- [ ] Confirm the rule changes are saved and logged.
 - [ ] Disable and re-enable monitoring for that product.
 - [ ] Click Manage competitors for the monitored product.
 - [ ] Add a competitor link with a valid http/https URL.
@@ -26,6 +28,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.
+- [ ] Confirm the Approvals row shows margin after, warnings, and a rule summary when rule data is available.
 - [ ] Confirm skipped suggestions are logged when the price difference is below the configured minimum.
 - [ ] Confirm blocked suggestions are created when the drop exceeds the max allowed drop percent.
 - [ ] Open Approvals and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
@@ -41,3 +44,10 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Click Run one small check batch now only on staging and confirm it respects `max_urls_per_batch`.
 - [ ] Send test notification and confirm it writes a log entry only.
 - [ ] Confirm no WhatsApp, webhook, SMS, or email provider call is made.
+
+## Pricing Rule Examples
+
+- [ ] Example 1: Current price `1299`, competitor price `1199`, strategy `match_competitor`, rounding `none`. Create a suggestion and confirm suggested price is `1199`.
+- [ ] Example 2: Current price `1299`, competitor price `1199`, strategy `match_competitor`, rounding `end_99`. Create a suggestion and confirm suggested price remains `1199` or the nearest compatible `end_99` result.
+- [ ] Example 3: Set cost source to custom meta key, store cost `1000`, set minimum margin `25%`, competitor price `1099`. Create a suggestion and confirm it is blocked with a margin explanation.
+- [ ] Example 4: Set product minimum price `1190`, competitor price `1090`. Create a suggestion and confirm it is blocked because the suggested price is below the product minimum price.

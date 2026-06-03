@@ -159,7 +159,7 @@ final class Repository {
 				'sku'                    => $sku,
 				'enabled'                => 1,
 				'priority'               => 'normal',
-				'strategy'               => 'notify_only',
+				'strategy'               => 'match_competitor',
 				'check_frequency_hours'  => 24,
 				'created_at'             => $now,
 				'updated_at'             => $now,
@@ -189,6 +189,35 @@ final class Repository {
 			),
 			array( 'id' => absint( $monitored_product_id ) ),
 			array( '%d', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Rule fields.
+	 */
+	public function update_monitored_product_rules( int $monitored_product_id, array $data ): bool {
+		$table = $this->tables['monitored_products'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'enabled'               => ! empty( $data['enabled'] ) ? 1 : 0,
+				'priority'              => $this->sanitize_monitored_priority( (string) ( $data['priority'] ?? 'normal' ) ),
+				'strategy'              => $this->sanitize_monitored_strategy( (string) ( $data['strategy'] ?? 'match_competitor' ) ),
+				'min_margin_percent'    => $this->nullable_decimal( $data['min_margin_percent'] ?? null ),
+				'min_price'             => $this->nullable_decimal( $data['min_price'] ?? null ),
+				'check_frequency_hours' => $this->sanitize_bounded_int( $data['check_frequency_hours'] ?? 24, 1, 720, 24 ),
+				'updated_at'            => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $monitored_product_id ) ),
+			array( '%d', '%s', '%s', '%s', '%s', '%d', '%s' ),
 			array( '%d' )
 		);
 
@@ -635,10 +664,13 @@ final class Repository {
 				'suggestion_type'      => $this->sanitize_suggestion_type( (string) ( $data['suggestion_type'] ?? 'price_match_down' ) ),
 				'status'               => $this->sanitize_suggestion_status( (string) ( $data['status'] ?? 'pending' ) ),
 				'reason'               => isset( $data['reason'] ) ? sanitize_textarea_field( (string) $data['reason'] ) : null,
+				'margin_after_change'  => $this->nullable_decimal( $data['margin_after_change'] ?? null ),
+				'rule_details'         => $this->nullable_json_text( $data['rule_details'] ?? null ),
+				'warnings'             => $this->nullable_json_text( $data['warnings'] ?? null ),
 				'created_at'           => $now,
 				'updated_at'           => $now,
 			),
-			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
+			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s' )
 		);
 
 		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -1192,6 +1224,20 @@ final class Repository {
 		return in_array( $match_type, $allowed, true ) ? $match_type : 'unknown';
 	}
 
+	private function sanitize_monitored_priority( string $priority ): string {
+		$allowed = array( 'low', 'normal', 'high', 'urgent' );
+		$priority = sanitize_key( $priority );
+
+		return in_array( $priority, $allowed, true ) ? $priority : 'normal';
+	}
+
+	private function sanitize_monitored_strategy( string $strategy ): string {
+		$allowed = array( 'notify_only', 'match_competitor', 'beat_competitor_by_amount', 'stay_above_competitor_by_amount' );
+		$strategy = sanitize_key( $strategy );
+
+		return in_array( $strategy, $allowed, true ) ? $strategy : 'match_competitor';
+	}
+
 	private function sanitize_suggestion_type( string $suggestion_type ): string {
 		$allowed = array(
 			'price_match_down',
@@ -1265,6 +1311,19 @@ final class Repository {
 		return min( 200, max( 1, absint( $per_page ) ) );
 	}
 
+	/**
+	 * @param mixed $value Raw integer.
+	 */
+	private function sanitize_bounded_int( $value, int $min, int $max, int $fallback ): int {
+		$int = absint( $value );
+
+		if ( $int < $min ) {
+			return $fallback;
+		}
+
+		return min( $int, $max );
+	}
+
 	private function get_offset( int $page, int $per_page ): int {
 		return max( 0, ( max( 1, absint( $page ) ) - 1 ) * $per_page );
 	}
@@ -1304,6 +1363,24 @@ final class Repository {
 		}
 
 		return number_format( (float) $decimal, 4, '.', '' );
+	}
+
+	/**
+	 * @param mixed $value Raw JSON-compatible data.
+	 */
+	private function nullable_json_text( $value ): ?string {
+		if ( null === $value || '' === $value ) {
+			return null;
+		}
+
+		if ( is_string( $value ) ) {
+			$value = sanitize_textarea_field( $value );
+			return '' === $value ? null : $value;
+		}
+
+		$json = wp_json_encode( $value );
+
+		return false === $json ? null : $json;
 	}
 
 	/**

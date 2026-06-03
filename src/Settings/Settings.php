@@ -33,9 +33,22 @@ final class Settings {
 			'retry_failed_checks'             => 1,
 			'observation_retention_days'      => 90,
 			'failed_observation_retention_days' => 30,
+			'default_pricing_strategy'        => 'match_competitor',
+			'beat_competitor_amount'          => 1,
+			'stay_above_competitor_amount'    => 1,
+			'rounding_mode'                   => 'none',
+			'cost_source'                     => 'none',
+			'cost_meta_key'                   => '',
+			'block_if_cost_missing'           => 0,
+			'minimum_profit_amount'           => '',
+			'price_comparison_vat_mode'       => 'consumer_prices_include_vat',
+			'vat_rate_percent'                => 25,
 			'default_min_margin_percent'      => '',
 			'min_price_difference_to_suggest' => 10,
 			'max_allowed_price_drop_percent'  => 25,
+			'max_allowed_price_increase_percent' => 50,
+			'block_suggestions_for_sale_products' => 0,
+			'block_suggestions_for_out_of_stock_products' => 0,
 			'require_manual_approval'         => 1,
 			'disable_all_price_updates'       => 1,
 			'allow_real_price_updates'        => 0,
@@ -121,9 +134,38 @@ final class Settings {
 			'retry_failed_checks'             => $this->sanitize_bool( $settings['retry_failed_checks'] ?? $defaults['retry_failed_checks'] ),
 			'observation_retention_days'      => $this->sanitize_int( $settings['observation_retention_days'] ?? $defaults['observation_retention_days'], 1, 3650, (int) $defaults['observation_retention_days'] ),
 			'failed_observation_retention_days' => $this->sanitize_int( $settings['failed_observation_retention_days'] ?? $defaults['failed_observation_retention_days'], 1, 3650, (int) $defaults['failed_observation_retention_days'] ),
+			'default_pricing_strategy'        => $this->sanitize_choice(
+				$settings['default_pricing_strategy'] ?? $defaults['default_pricing_strategy'],
+				array( 'notify_only', 'match_competitor', 'beat_competitor_by_amount', 'stay_above_competitor_by_amount' ),
+				(string) $defaults['default_pricing_strategy']
+			),
+			'beat_competitor_amount'          => $this->sanitize_decimal( $settings['beat_competitor_amount'] ?? $defaults['beat_competitor_amount'], (float) $defaults['beat_competitor_amount'] ),
+			'stay_above_competitor_amount'    => $this->sanitize_decimal( $settings['stay_above_competitor_amount'] ?? $defaults['stay_above_competitor_amount'], (float) $defaults['stay_above_competitor_amount'] ),
+			'rounding_mode'                   => $this->sanitize_choice(
+				$settings['rounding_mode'] ?? $defaults['rounding_mode'],
+				array( 'none', 'nearest_1', 'nearest_5', 'nearest_10', 'nearest_50', 'nearest_100', 'end_9', 'end_99', 'end_95' ),
+				(string) $defaults['rounding_mode']
+			),
+			'cost_source'                     => $this->sanitize_choice(
+				$settings['cost_source'] ?? $defaults['cost_source'],
+				array( 'none', 'custom_meta_key' ),
+				(string) $defaults['cost_source']
+			),
+			'cost_meta_key'                   => $this->sanitize_meta_key( $settings['cost_meta_key'] ?? $defaults['cost_meta_key'] ),
+			'block_if_cost_missing'           => $this->sanitize_bool( $settings['block_if_cost_missing'] ?? $defaults['block_if_cost_missing'] ),
+			'minimum_profit_amount'           => $this->sanitize_decimal_or_empty( $settings['minimum_profit_amount'] ?? $defaults['minimum_profit_amount'], '' ),
+			'price_comparison_vat_mode'       => $this->sanitize_choice(
+				$settings['price_comparison_vat_mode'] ?? $defaults['price_comparison_vat_mode'],
+				array( 'consumer_prices_include_vat', 'prices_exclude_vat' ),
+				(string) $defaults['price_comparison_vat_mode']
+			),
+			'vat_rate_percent'                => $this->sanitize_decimal_between( $settings['vat_rate_percent'] ?? $defaults['vat_rate_percent'], 0, 100, (float) $defaults['vat_rate_percent'] ),
 			'default_min_margin_percent'      => $this->sanitize_decimal_or_empty( $settings['default_min_margin_percent'] ?? $defaults['default_min_margin_percent'], '' ),
 			'min_price_difference_to_suggest' => $this->sanitize_decimal( $settings['min_price_difference_to_suggest'] ?? $defaults['min_price_difference_to_suggest'], (float) $defaults['min_price_difference_to_suggest'] ),
 			'max_allowed_price_drop_percent'  => $this->sanitize_decimal_between( $settings['max_allowed_price_drop_percent'] ?? $defaults['max_allowed_price_drop_percent'], 0, 100, (float) $defaults['max_allowed_price_drop_percent'] ),
+			'max_allowed_price_increase_percent' => $this->sanitize_decimal_between( $settings['max_allowed_price_increase_percent'] ?? $defaults['max_allowed_price_increase_percent'], 0, 1000, (float) $defaults['max_allowed_price_increase_percent'] ),
+			'block_suggestions_for_sale_products' => $this->sanitize_bool( $settings['block_suggestions_for_sale_products'] ?? $defaults['block_suggestions_for_sale_products'] ),
+			'block_suggestions_for_out_of_stock_products' => $this->sanitize_bool( $settings['block_suggestions_for_out_of_stock_products'] ?? $defaults['block_suggestions_for_out_of_stock_products'] ),
 			'require_manual_approval'         => $this->sanitize_bool( $settings['require_manual_approval'] ?? $defaults['require_manual_approval'] ),
 			'disable_all_price_updates'       => $this->sanitize_bool( $settings['disable_all_price_updates'] ?? $defaults['disable_all_price_updates'] ),
 			'allow_real_price_updates'        => $this->sanitize_bool( $settings['allow_real_price_updates'] ?? $defaults['allow_real_price_updates'] ),
@@ -268,6 +310,16 @@ final class Settings {
 		$phone = preg_replace( '/[^0-9+() .-]/', '', $phone );
 
 		return is_string( $phone ) ? substr( trim( $phone ), 0, 50 ) : '';
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_meta_key( $value ): string {
+		$meta_key = sanitize_text_field( (string) $value );
+		$meta_key = preg_replace( '/[^A-Za-z0-9_.:-]/', '', $meta_key );
+
+		return is_string( $meta_key ) ? substr( $meta_key, 0, 191 ) : '';
 	}
 
 	/**

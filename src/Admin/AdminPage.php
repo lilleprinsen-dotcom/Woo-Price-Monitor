@@ -80,6 +80,9 @@ final class AdminPage {
 			case 'remove_monitored':
 				$this->handle_monitored_status_action( $action );
 				break;
+			case 'update_monitored_rules':
+				$this->handle_update_monitored_rules();
+				break;
 			case 'add_competitor_link':
 			case 'update_competitor_link':
 				$this->handle_save_competitor_link( $action );
@@ -325,6 +328,7 @@ final class AdminPage {
 		$rows           = $this->repository->get_monitored_products( $page, $per_page );
 		$total          = $this->repository->count_monitored_products();
 		$link_counts    = $this->repository->count_competitor_links_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
+		$editing_rules  = $this->get_editing_monitored_product_rules();
 		?>
 		<div class="lpm-grid lpm-grid-two lpm-products-layout">
 			<section class="lpm-card">
@@ -361,6 +365,10 @@ final class AdminPage {
 				</ul>
 			</section>
 		</div>
+
+		<?php if ( $editing_rules ) : ?>
+			<?php $this->render_monitored_rules_editor( $editing_rules ); ?>
+		<?php endif; ?>
 
 		<section class="lpm-card lpm-card-spaced">
 			<div class="lpm-card-header">
@@ -538,13 +546,72 @@ final class AdminPage {
 
 				<section class="lpm-card">
 					<div class="lpm-card-header">
-						<h2><?php esc_html_e( 'Pricing safety', 'lilleprinsen-price-monitor' ); ?></h2>
+						<h2><?php esc_html_e( 'Pricing strategy', 'lilleprinsen-price-monitor' ); ?></h2>
 					</div>
 					<?php
-					$this->render_decimal_field( 'default_min_margin_percent', __( 'Default minimum margin percent', 'lilleprinsen-price-monitor' ), $settings, __( 'Leave empty until margin rules are confirmed.', 'lilleprinsen-price-monitor' ) );
+					$this->render_select_field( 'default_pricing_strategy', __( 'Default pricing strategy', 'lilleprinsen-price-monitor' ), $settings, $this->get_pricing_strategy_options() );
+					$this->render_decimal_field( 'beat_competitor_amount', __( 'Beat competitor amount', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_decimal_field( 'stay_above_competitor_amount', __( 'Stay above competitor amount', 'lilleprinsen-price-monitor' ), $settings );
+					?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Rounding', 'lilleprinsen-price-monitor' ); ?></h2>
+					</div>
+					<?php $this->render_select_field( 'rounding_mode', __( 'Rounding mode', 'lilleprinsen-price-monitor' ), $settings, $this->get_rounding_mode_options() ); ?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Margin and cost', 'lilleprinsen-price-monitor' ); ?></h2>
+					</div>
+					<?php
+					$this->render_select_field(
+						'cost_source',
+						__( 'Cost source', 'lilleprinsen-price-monitor' ),
+						$settings,
+						array(
+							'none'            => __( 'None', 'lilleprinsen-price-monitor' ),
+							'custom_meta_key' => __( 'Custom meta key', 'lilleprinsen-price-monitor' ),
+						)
+					);
+					$this->render_text_field( 'cost_meta_key', __( 'Cost meta key', 'lilleprinsen-price-monitor' ), $settings, '_cost' );
+					$this->render_checkbox_field( 'block_if_cost_missing', __( 'Block if cost is missing', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_decimal_field( 'minimum_profit_amount', __( 'Minimum profit amount', 'lilleprinsen-price-monitor' ), $settings, __( 'Optional. Leave empty to skip fixed profit checks.', 'lilleprinsen-price-monitor' ) );
+					$this->render_decimal_field( 'default_min_margin_percent', __( 'Default minimum margin percent', 'lilleprinsen-price-monitor' ), $settings, __( 'Product-level minimum margin overrides this when set.', 'lilleprinsen-price-monitor' ) );
+					?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'VAT', 'lilleprinsen-price-monitor' ); ?></h2>
+					</div>
+					<?php
+					$this->render_select_field(
+						'price_comparison_vat_mode',
+						__( 'Price comparison VAT mode', 'lilleprinsen-price-monitor' ),
+						$settings,
+						array(
+							'consumer_prices_include_vat' => __( 'Consumer prices include VAT', 'lilleprinsen-price-monitor' ),
+							'prices_exclude_vat'          => __( 'Prices exclude VAT', 'lilleprinsen-price-monitor' ),
+						)
+					);
+					$this->render_decimal_field( 'vat_rate_percent', __( 'VAT rate percent', 'lilleprinsen-price-monitor' ), $settings );
+					?>
+				</section>
+
+				<section class="lpm-card">
+					<div class="lpm-card-header">
+						<h2><?php esc_html_e( 'Safety', 'lilleprinsen-price-monitor' ); ?></h2>
+					</div>
+					<?php
 					$this->render_decimal_field( 'min_price_difference_to_suggest', __( 'Minimum price difference to suggest', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_decimal_field( 'max_allowed_price_drop_percent', __( 'Max allowed price drop percent', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'require_manual_approval', __( 'Require manual approval', 'lilleprinsen-price-monitor' ), $settings, __( 'Approval is stored as workflow state only. This version does not change product prices.', 'lilleprinsen-price-monitor' ) );
+					$this->render_decimal_field( 'max_allowed_price_increase_percent', __( 'Max allowed price increase percent', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'block_suggestions_for_sale_products', __( 'Block suggestions for sale products', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'block_suggestions_for_out_of_stock_products', __( 'Block suggestions for out-of-stock products', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'require_manual_approval', __( 'Require manual approval', 'lilleprinsen-price-monitor' ), $settings, __( 'Approval is stored as workflow state only unless every real-update guardrail is explicitly enabled.', 'lilleprinsen-price-monitor' ) );
 					$this->render_checkbox_field( 'disable_all_price_updates', __( 'Emergency disable all price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default on. Real updates cannot run while this is enabled.', 'lilleprinsen-price-monitor' ) );
 					$this->render_checkbox_field( 'allow_real_price_updates', __( 'Allow real price updates', 'lilleprinsen-price-monitor' ), $settings, __( 'Default off. Also requires dry-run mode off and explicit confirmation.', 'lilleprinsen-price-monitor' ) );
 					$this->render_checkbox_field( 'require_confirmation_for_real_updates', __( 'Require confirmation for real updates', 'lilleprinsen-price-monitor' ), $settings );
@@ -770,6 +837,49 @@ final class AdminPage {
 		}
 
 		$this->redirect_to_tab( 'products', 'monitoring_status_failed', array( 'lpm_notice_type' => 'error' ) );
+	}
+
+	private function handle_update_monitored_rules(): void {
+		$monitored_product_id = isset( $_POST['monitored_product_id'] ) ? absint( wp_unslash( $_POST['monitored_product_id'] ) ) : 0;
+		$monitored_product    = $this->repository->get_monitored_product( $monitored_product_id );
+
+		if ( ! $monitored_product ) {
+			$this->redirect_to_tab( 'products', 'monitored_not_found', array( 'lpm_notice_type' => 'error' ) );
+		}
+
+		$check_frequency_hours = isset( $_POST['check_frequency_hours'] ) ? absint( wp_unslash( $_POST['check_frequency_hours'] ) ) : 24;
+
+		if ( $check_frequency_hours < 1 || $check_frequency_hours > 720 ) {
+			$this->redirect_to_tab( 'products', 'monitored_rules_invalid', array( 'lpm_notice_type' => 'error', 'edit_rules_id' => $monitored_product_id ) );
+		}
+
+		$data = array(
+			'enabled'               => ! empty( $_POST['enabled'] ) ? 1 : 0,
+			'priority'              => isset( $_POST['priority'] ) ? sanitize_key( wp_unslash( $_POST['priority'] ) ) : 'normal',
+			'strategy'              => isset( $_POST['strategy'] ) ? sanitize_key( wp_unslash( $_POST['strategy'] ) ) : 'match_competitor',
+			'min_margin_percent'    => $this->sanitize_decimal_post_value( 'min_margin_percent' ),
+			'min_price'             => $this->sanitize_decimal_post_value( 'min_price' ),
+			'check_frequency_hours' => $check_frequency_hours,
+		);
+
+		$updated = $this->repository->update_monitored_product_rules( $monitored_product_id, $data );
+
+		if ( $updated ) {
+			$this->repository->write_log(
+				'info',
+				'monitored_product_rules_updated',
+				__( 'Product monitoring rules updated.', 'lilleprinsen-price-monitor' ),
+				array(
+					'monitored_product_id' => $monitored_product_id,
+					'before'               => $this->monitored_rule_log_snapshot( $monitored_product ),
+					'after'                => $data,
+				),
+				(int) $monitored_product['product_id']
+			);
+			$this->redirect_to_tab( 'products', 'monitored_rules_updated' );
+		}
+
+		$this->redirect_to_tab( 'products', 'monitored_rules_update_failed', array( 'lpm_notice_type' => 'error', 'edit_rules_id' => $monitored_product_id ) );
 	}
 
 	private function handle_save_competitor_link( string $action ): void {
@@ -999,6 +1109,9 @@ final class AdminPage {
 				'suggestion_id'      => (int) ( $result['suggestion_id'] ?? 0 ),
 				'suggestion_type'    => (string) ( $result['suggestion_type'] ?? '' ),
 				'suggested_price'    => (float) ( $result['suggested_price'] ?? 0 ),
+				'margin_after_change' => $result['margin_after_change'] ?? null,
+				'warnings'           => $result['warnings'] ?? array(),
+				'rule_details'       => $result['rule_details'] ?? array(),
 			),
 			(int) $monitored_product['product_id']
 		);
@@ -1199,6 +1312,38 @@ final class AdminPage {
 	}
 
 	/**
+	 * @return float|string
+	 */
+	private function sanitize_decimal_post_value( string $key ) {
+		if ( ! isset( $_POST[ $key ] ) ) {
+			return '';
+		}
+
+		$value = str_replace( ',', '.', sanitize_text_field( wp_unslash( $_POST[ $key ] ) ) );
+
+		if ( '' === $value ) {
+			return '';
+		}
+
+		return is_numeric( $value ) ? max( 0, round( (float) $value, 4 ) ) : '';
+	}
+
+	/**
+	 * @param array<string, mixed> $monitored_product Monitored product row.
+	 * @return array<string, mixed>
+	 */
+	private function monitored_rule_log_snapshot( array $monitored_product ): array {
+		return array(
+			'enabled'               => (int) ( $monitored_product['enabled'] ?? 0 ),
+			'priority'              => (string) ( $monitored_product['priority'] ?? '' ),
+			'strategy'              => (string) ( $monitored_product['strategy'] ?? '' ),
+			'min_margin_percent'    => (string) ( $monitored_product['min_margin_percent'] ?? '' ),
+			'min_price'             => (string) ( $monitored_product['min_price'] ?? '' ),
+			'check_frequency_hours' => (int) ( $monitored_product['check_frequency_hours'] ?? 0 ),
+		);
+	}
+
+	/**
 	 * @return array<string, mixed>|null
 	 */
 	private function get_submitted_suggestion(): ?array {
@@ -1292,6 +1437,9 @@ final class AdminPage {
 					<th scope="col"><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Priority', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Strategy', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Min margin', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Min price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Frequency', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Last checked', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Competitor links', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th>
@@ -1312,11 +1460,15 @@ final class AdminPage {
 						<td><?php $this->render_status_pill( ! empty( $row['enabled'] ) ? __( 'Yes', 'lilleprinsen-price-monitor' ) : __( 'No', 'lilleprinsen-price-monitor' ), ! empty( $row['enabled'] ) ? 'ok' : 'muted' ); ?></td>
 						<td><?php echo esc_html( (string) $row['priority'] ); ?></td>
 						<td><?php echo esc_html( (string) $row['strategy'] ); ?></td>
+						<td><?php echo esc_html( $this->format_percent_value( $row['min_margin_percent'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $row['min_price'] ?? null ) ); ?></td>
+						<td><?php printf( esc_html__( '%d h', 'lilleprinsen-price-monitor' ), (int) $row['check_frequency_hours'] ); ?></td>
 						<td><?php echo esc_html( $this->format_datetime( $row['last_checked_at'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( number_format_i18n( (int) ( $link_counts[ (int) $row['id'] ] ?? 0 ) ) ); ?></td>
 						<td>
 							<div class="lpm-actions">
 								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'monitored_product_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Manage competitors', 'lilleprinsen-price-monitor' ); ?></a>
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'products', 'edit_rules_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit rules', 'lilleprinsen-price-monitor' ); ?></a>
 								<?php $this->render_monitored_action_form( (int) $row['id'], ! empty( $row['enabled'] ) ? 'disable_monitored' : 'enable_monitored', ! empty( $row['enabled'] ) ? __( 'Disable', 'lilleprinsen-price-monitor' ) : __( 'Enable', 'lilleprinsen-price-monitor' ) ); ?>
 								<?php $this->render_monitored_action_form( (int) $row['id'], 'remove_monitored', __( 'Remove', 'lilleprinsen-price-monitor' ), 'link-delete' ); ?>
 							</div>
@@ -1325,6 +1477,72 @@ final class AdminPage {
 				<?php endforeach; ?>
 			</tbody>
 		</table>
+		<?php
+	}
+
+	private function render_monitored_rules_editor( array $monitored_product ): void {
+		$product = $this->get_product( (int) $monitored_product['product_id'] );
+		?>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Edit product pricing rules', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php echo esc_html( $product ? $this->get_product_name( $product ) : sprintf( __( 'Product #%d', 'lilleprinsen-price-monitor' ), (int) $monitored_product['product_id'] ) ); ?></p>
+				</div>
+				<?php $this->render_status_pill( __( 'Product override', 'lilleprinsen-price-monitor' ), 'warning' ); ?>
+			</div>
+			<form method="post" class="lpm-stacked-form">
+				<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+				<input type="hidden" name="lpm_action" value="update_monitored_rules" />
+				<input type="hidden" name="monitored_product_id" value="<?php echo esc_attr( (string) $monitored_product['id'] ); ?>" />
+
+				<label class="lpm-field lpm-field-checkbox">
+					<input type="hidden" name="enabled" value="0" />
+					<input type="checkbox" name="enabled" value="1" <?php checked( ! empty( $monitored_product['enabled'] ) ); ?> />
+					<span><strong><?php esc_html_e( 'Enabled', 'lilleprinsen-price-monitor' ); ?></strong></span>
+				</label>
+
+				<label class="lpm-field">
+					<span><?php esc_html_e( 'Priority', 'lilleprinsen-price-monitor' ); ?></span>
+					<select name="priority">
+						<?php foreach ( $this->get_priority_options() as $value => $label ) : ?>
+							<option value="<?php echo esc_attr( $value ); ?>" <?php selected( (string) $monitored_product['priority'], $value ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</label>
+
+				<label class="lpm-field">
+					<span><?php esc_html_e( 'Pricing strategy', 'lilleprinsen-price-monitor' ); ?></span>
+					<select name="strategy">
+						<?php foreach ( $this->get_pricing_strategy_options() as $value => $label ) : ?>
+							<option value="<?php echo esc_attr( $value ); ?>" <?php selected( (string) $monitored_product['strategy'], $value ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
+				</label>
+
+				<label class="lpm-field">
+					<span><?php esc_html_e( 'Minimum margin percent', 'lilleprinsen-price-monitor' ); ?></span>
+					<input type="number" min="0" step="0.01" name="min_margin_percent" value="<?php echo esc_attr( $this->format_decimal_for_optional_input( $monitored_product['min_margin_percent'] ?? null ) ); ?>" />
+					<small><?php esc_html_e( 'Leave empty to use the global default margin setting.', 'lilleprinsen-price-monitor' ); ?></small>
+				</label>
+
+				<label class="lpm-field">
+					<span><?php esc_html_e( 'Minimum price', 'lilleprinsen-price-monitor' ); ?></span>
+					<input type="number" min="0" step="0.01" name="min_price" value="<?php echo esc_attr( $this->format_decimal_for_optional_input( $monitored_product['min_price'] ?? null ) ); ?>" />
+					<small><?php esc_html_e( 'Suggestions below this product-level floor are blocked.', 'lilleprinsen-price-monitor' ); ?></small>
+				</label>
+
+				<label class="lpm-field">
+					<span><?php esc_html_e( 'Check frequency hours', 'lilleprinsen-price-monitor' ); ?></span>
+					<input type="number" min="1" max="720" step="1" name="check_frequency_hours" value="<?php echo esc_attr( (string) $monitored_product['check_frequency_hours'] ); ?>" />
+				</label>
+
+				<div class="lpm-form-actions">
+					<button type="submit" class="button button-primary"><?php esc_html_e( 'Save rules', 'lilleprinsen-price-monitor' ); ?></button>
+					<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'products' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Cancel', 'lilleprinsen-price-monitor' ); ?></a>
+				</div>
+			</form>
+		</section>
 		<?php
 	}
 
@@ -1505,6 +1723,9 @@ final class AdminPage {
 					<th scope="col"><?php esc_html_e( 'Competitor price', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Suggested price', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Difference', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Margin after', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Warnings', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Rule summary', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Reason', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Created', 'lilleprinsen-price-monitor' ); ?></th>
@@ -1533,6 +1754,9 @@ final class AdminPage {
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['competitor_price'], $currency ) ); ?></td>
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['suggested_price'], $currency ) ); ?></td>
 						<td><?php echo esc_html( $this->format_price_amount( (float) $suggestion['difference'], $currency ) ); ?></td>
+						<td><?php echo esc_html( $this->format_percent_value( $suggestion['margin_after_change'] ?? null ) ); ?></td>
+						<td><?php $this->render_warnings_summary( (string) ( $suggestion['warnings'] ?? '' ) ); ?></td>
+						<td><?php echo esc_html( $this->get_rule_details_summary( (string) ( $suggestion['rule_details'] ?? '' ) ) ); ?></td>
 						<td><?php $this->render_status_pill( $this->get_suggestion_status_label( (string) $suggestion['status'] ), $this->get_suggestion_status_pill_type( (string) $suggestion['status'] ) ); ?></td>
 						<td class="lpm-suggestion-reason"><?php echo esc_html( $this->shorten_text( (string) ( $suggestion['reason'] ?? '' ), 120 ) ); ?></td>
 						<td><?php echo esc_html( $this->format_datetime( $suggestion['created_at'] ?? null ) ); ?></td>
@@ -1898,6 +2122,80 @@ final class AdminPage {
 		<?php
 	}
 
+	private function render_warnings_summary( string $warnings_json ): void {
+		if ( '' === $warnings_json ) {
+			echo esc_html( '—' );
+			return;
+		}
+
+		$warnings = json_decode( $warnings_json, true );
+
+		if ( ! is_array( $warnings ) || empty( $warnings ) ) {
+			echo esc_html( '—' );
+			return;
+		}
+
+		$summary = $this->shorten_text( implode( ' ', array_map( 'strval', $warnings ) ), 90 );
+		?>
+		<details class="lpm-context">
+			<summary><?php echo esc_html( $summary ); ?></summary>
+			<ul class="lpm-check-list">
+				<?php foreach ( $warnings as $warning ) : ?>
+					<li><?php echo esc_html( (string) $warning ); ?></li>
+				<?php endforeach; ?>
+			</ul>
+		</details>
+		<?php
+	}
+
+	private function get_rule_details_summary( string $rule_details_json ): string {
+		if ( '' === $rule_details_json ) {
+			return '—';
+		}
+
+		$details = json_decode( $rule_details_json, true );
+
+		if ( ! is_array( $details ) ) {
+			return $this->shorten_text( $rule_details_json, 90 );
+		}
+
+		$parts = array();
+
+		if ( ! empty( $details['strategy'] ) ) {
+			$parts[] = sprintf(
+				/* translators: %s: pricing strategy key. */
+				__( 'Strategy: %s', 'lilleprinsen-price-monitor' ),
+				(string) $details['strategy']
+			);
+		}
+
+		if ( ! empty( $details['rounding_mode'] ) ) {
+			$parts[] = sprintf(
+				/* translators: %s: rounding mode key. */
+				__( 'Rounding: %s', 'lilleprinsen-price-monitor' ),
+				(string) $details['rounding_mode']
+			);
+		}
+
+		if ( isset( $details['price_drop_percent'] ) ) {
+			$parts[] = sprintf(
+				/* translators: %s: price drop percent. */
+				__( 'Drop: %s%%', 'lilleprinsen-price-monitor' ),
+				(string) $details['price_drop_percent']
+			);
+		}
+
+		if ( isset( $details['price_increase_percent'] ) ) {
+			$parts[] = sprintf(
+				/* translators: %s: price increase percent. */
+				__( 'Increase: %s%%', 'lilleprinsen-price-monitor' ),
+				(string) $details['price_increase_percent']
+			);
+		}
+
+		return empty( $parts ) ? '—' : $this->shorten_text( implode( ', ', $parts ), 100 );
+	}
+
 	private function render_pagination( int $total, int $page, int $per_page, string $page_arg, array $extra_args ): void {
 		$total_pages = (int) ceil( max( 0, $total ) / max( 1, $per_page ) );
 
@@ -2186,6 +2484,16 @@ final class AdminPage {
 		return $link;
 	}
 
+	private function get_editing_monitored_product_rules(): ?array {
+		$monitored_product_id = $this->get_positive_query_arg( 'edit_rules_id', 0 );
+
+		if ( 0 >= $monitored_product_id ) {
+			return null;
+		}
+
+		return $this->repository->get_monitored_product( $monitored_product_id );
+	}
+
 	/**
 	 * @return array<string, string>
 	 */
@@ -2197,6 +2505,47 @@ final class AdminPage {
 			'different_variant' => __( 'Different variant', 'lilleprinsen-price-monitor' ),
 			'bundle'            => __( 'Bundle', 'lilleprinsen-price-monitor' ),
 			'not_comparable'    => __( 'Not comparable', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_priority_options(): array {
+		return array(
+			'low'    => __( 'Low', 'lilleprinsen-price-monitor' ),
+			'normal' => __( 'Normal', 'lilleprinsen-price-monitor' ),
+			'high'   => __( 'High', 'lilleprinsen-price-monitor' ),
+			'urgent' => __( 'Urgent', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_pricing_strategy_options(): array {
+		return array(
+			'notify_only'                       => __( 'Notify only', 'lilleprinsen-price-monitor' ),
+			'match_competitor'                  => __( 'Match competitor', 'lilleprinsen-price-monitor' ),
+			'beat_competitor_by_amount'         => __( 'Beat competitor by amount', 'lilleprinsen-price-monitor' ),
+			'stay_above_competitor_by_amount'   => __( 'Stay above competitor by amount', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_rounding_mode_options(): array {
+		return array(
+			'none'        => __( 'None', 'lilleprinsen-price-monitor' ),
+			'nearest_1'   => __( 'Nearest 1', 'lilleprinsen-price-monitor' ),
+			'nearest_5'   => __( 'Nearest 5', 'lilleprinsen-price-monitor' ),
+			'nearest_10'  => __( 'Nearest 10', 'lilleprinsen-price-monitor' ),
+			'nearest_50'  => __( 'Nearest 50', 'lilleprinsen-price-monitor' ),
+			'nearest_100' => __( 'Nearest 100', 'lilleprinsen-price-monitor' ),
+			'end_9'       => __( 'End in 9', 'lilleprinsen-price-monitor' ),
+			'end_99'      => __( 'End in 99', 'lilleprinsen-price-monitor' ),
+			'end_95'      => __( 'End in 95', 'lilleprinsen-price-monitor' ),
 		);
 	}
 
@@ -2297,6 +2646,22 @@ final class AdminPage {
 		return number_format( $price, 2, '.', '' );
 	}
 
+	private function format_decimal_for_optional_input( $value ): string {
+		if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
+			return '';
+		}
+
+		return number_format( (float) $value, 2, '.', '' );
+	}
+
+	private function format_percent_value( $value ): string {
+		if ( null === $value || '' === $value || ! is_numeric( $value ) ) {
+			return '—';
+		}
+
+		return number_format_i18n( (float) $value, 2 ) . '%';
+	}
+
 	private function get_product_admin_url( int $product_id ): string {
 		if ( $product_id <= 0 ) {
 			return admin_url( 'edit.php?post_type=product' );
@@ -2365,6 +2730,9 @@ final class AdminPage {
 			'monitored_not_found'             => __( 'Monitored product was not found.', 'lilleprinsen-price-monitor' ),
 			'monitoring_status_updated'       => __( 'Monitoring status updated.', 'lilleprinsen-price-monitor' ),
 			'monitoring_status_failed'        => __( 'Could not update monitoring status.', 'lilleprinsen-price-monitor' ),
+			'monitored_rules_updated'         => __( 'Product monitoring rules updated.', 'lilleprinsen-price-monitor' ),
+			'monitored_rules_update_failed'   => __( 'Could not update product monitoring rules.', 'lilleprinsen-price-monitor' ),
+			'monitored_rules_invalid'         => __( 'Product monitoring rule values are invalid.', 'lilleprinsen-price-monitor' ),
 			'competitor_name_required'        => __( 'Competitor name is required.', 'lilleprinsen-price-monitor' ),
 			'competitor_url_invalid'          => __( 'Competitor URL must be a valid http or https URL.', 'lilleprinsen-price-monitor' ),
 			'competitor_link_added'           => __( 'Competitor link added.', 'lilleprinsen-price-monitor' ),

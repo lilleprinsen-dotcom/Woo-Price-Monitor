@@ -85,7 +85,7 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add a manual test plan.
 - Add a safety review document.
 
-## Current Milestone: Price Observation History
+### Milestone 11: Price Observation History
 
 - Add `lpm_price_observations` for one historical row per competitor check.
 - Keep `lpm_competitor_links` latest-price columns for fast current status.
@@ -97,9 +97,20 @@ Lilleprinsen Price Monitor is being built in small, reviewable pull requests. Th
 - Add dashboard metrics for checks and failed checks in the last 24 hours plus last successful check time.
 - Add retention settings for successful and failed observations without automatic cleanup yet.
 
+## Current Milestone: Pricing Rule Engine
+
+- Add `PricingRuleService` for explainable dry-run suggestion calculations.
+- Add global settings for pricing strategy, beat/stay-above amounts, rounding, cost lookup, minimum profit, VAT mode, max increase, and sale/out-of-stock safety.
+- Add product-level rule editing for enabled state, priority, strategy, minimum margin, minimum price, and check frequency.
+- Route suggestion creation through the pricing rule engine instead of exact-match-only suggestions.
+- Store rule details, warnings, and margin-after snapshots on price suggestions.
+- Show margin after, warnings, and a compact rule summary in the Approvals inbox.
+- Keep WooCommerce price updates guarded and disabled by default.
+
 ## Next Safe Hardening Work
 
 - Add small unit tests for pure parsing, suggestion, and recovery decisions.
+- Add focused tests for `PricingRuleService` rounding, min price, cost, and margin outcomes once a lightweight WordPress test harness exists.
 - Add more structured logging around parser extraction methods.
 - Add table migration tests where possible.
 - Add an explicit admin-only cleanup action for old observations, logs, and historical suggestions.

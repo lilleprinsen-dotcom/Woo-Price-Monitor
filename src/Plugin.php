@@ -22,6 +22,7 @@ use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
+use Lilleprinsen\PriceMonitor\Service\PricingRuleService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
@@ -52,8 +53,9 @@ final class Plugin {
 		$settings             = new Settings();
 		$repository           = new Repository();
 		$price_recovery       = new PriceRecoveryService();
+		$pricing_rules        = new PricingRuleService();
 		$price_check          = new PriceCheckService( null, $repository );
-		$suggestion_service   = new SuggestionService( $repository, $price_recovery );
+		$suggestion_service   = new SuggestionService( $repository, $price_recovery, $pricing_rules );
 		$notification_service = new NotificationService( array( new LogNotificationChannel( $repository ) ) );
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );
 		$check_job            = new CheckCompetitorLinkJob( $repository, $settings, $price_check, $suggestion_service, $notification_service );
