@@ -52,7 +52,7 @@ final class Plugin {
 		$settings             = new Settings();
 		$repository           = new Repository();
 		$price_recovery       = new PriceRecoveryService();
-		$price_check          = new PriceCheckService();
+		$price_check          = new PriceCheckService( null, $repository );
 		$suggestion_service   = new SuggestionService( $repository, $price_recovery );
 		$notification_service = new NotificationService( array( new LogNotificationChannel( $repository ) ) );
 		$price_update         = new PriceUpdateService( $repository, $price_recovery );

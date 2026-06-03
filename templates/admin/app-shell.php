@@ -72,6 +72,14 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		</section>
 
+		<section class="lpm-panel <?php echo esc_attr( 'history' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="history">
+			<?php
+			if ( 'history' === $active_tab ) {
+				$this->render_history();
+			}
+			?>
+		</section>
+
 		<section class="lpm-panel <?php echo esc_attr( 'settings' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings">
 			<?php
 			if ( 'settings' === $active_tab ) {

@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.3.0';
+	public const VERSION = '1.4.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -25,6 +25,7 @@ final class Schema {
 		return array(
 			'monitored_products' => $wpdb->prefix . 'lpm_monitored_products',
 			'competitor_links'   => $wpdb->prefix . 'lpm_competitor_links',
+			'price_observations' => $wpdb->prefix . 'lpm_price_observations',
 			'price_suggestions'  => $wpdb->prefix . 'lpm_price_suggestions',
 			'price_match_sessions' => $wpdb->prefix . 'lpm_price_match_sessions',
 			'logs'               => $wpdb->prefix . 'lpm_logs',
@@ -92,6 +93,30 @@ final class Schema {
 			KEY enabled (enabled),
 			KEY enabled_last_checked_at (enabled, last_checked_at),
 			KEY last_checked_at (last_checked_at)
+		) {$charset_collate};";
+
+		$sql[] = "CREATE TABLE {$tables['price_observations']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			competitor_link_id bigint(20) unsigned NOT NULL,
+			monitored_product_id bigint(20) unsigned NOT NULL,
+			product_id bigint(20) unsigned NOT NULL,
+			observed_price decimal(20,4) DEFAULT NULL,
+			currency varchar(10) DEFAULT NULL,
+			stock_status varchar(50) DEFAULT NULL,
+			extraction_method varchar(100) DEFAULT NULL,
+			http_status int(10) unsigned DEFAULT NULL,
+			success tinyint(1) NOT NULL DEFAULT 0,
+			error_message text NULL,
+			response_time_ms int(10) unsigned DEFAULT NULL,
+			checked_at datetime NOT NULL,
+			created_at datetime NOT NULL,
+			PRIMARY KEY  (id),
+			KEY competitor_link_id (competitor_link_id),
+			KEY monitored_product_id (monitored_product_id),
+			KEY product_id (product_id),
+			KEY success (success),
+			KEY checked_at (checked_at),
+			KEY competitor_checked_at (competitor_link_id, checked_at)
 		) {$charset_collate};";
 
 		$sql[] = "CREATE TABLE {$tables['price_suggestions']} (

@@ -12,6 +12,7 @@ This review records the current safety assumptions for Lilleprinsen Price Monito
 - Admin lists are paginated and use repository methods with explicit limits.
 - Monitoring data is stored in custom `lpm_*` tables instead of `wp_postmeta`.
 - Manual competitor checks fetch one admin-selected competitor URL at a time.
+- Price observation history stores check metadata only. Raw HTML and full response bodies are not stored.
 - Scheduled checks are disabled by default.
 - Scheduled checks use Action Scheduler only when available and enabled.
 - Scheduled batches are capped by `max_urls_per_batch`.

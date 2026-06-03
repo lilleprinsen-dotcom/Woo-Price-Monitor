@@ -48,7 +48,7 @@ final class AdminPage {
 	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
-		$this->price_check_service    = $price_check_service ?? new PriceCheckService();
+		$this->price_check_service    = $price_check_service ?? new PriceCheckService( null, $repository );
 		$this->price_recovery_service = $price_recovery_service ?? new PriceRecoveryService();
 		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service );
 		$this->notification_service   = $notification_service ?? new NotificationService();
@@ -186,6 +186,7 @@ final class AdminPage {
 			'products'    => __( 'Products', 'lilleprinsen-price-monitor' ),
 			'approvals'   => __( 'Approvals', 'lilleprinsen-price-monitor' ),
 			'competitors' => __( 'Competitors', 'lilleprinsen-price-monitor' ),
+			'history'     => __( 'History', 'lilleprinsen-price-monitor' ),
 			'settings'    => __( 'Settings', 'lilleprinsen-price-monitor' ),
 			'logs'        => __( 'Logs', 'lilleprinsen-price-monitor' ),
 		);
@@ -201,7 +202,7 @@ final class AdminPage {
 	}
 
 	/**
-	 * @return array<string, int>
+	 * @return array<string, mixed>
 	 */
 	private function get_empty_dashboard_counts(): array {
 		return array(
@@ -211,6 +212,9 @@ final class AdminPage {
 			'blocked_suggestions'         => 0,
 			'recovery_suggestions'        => 0,
 			'recent_failed_checks'        => 0,
+			'checks_last_24h'             => 0,
+			'failed_checks_last_24h'      => 0,
+			'last_successful_check_time'  => '',
 			'failed_logs'                 => 0,
 			'active_price_match_sessions' => 0,
 		);
@@ -228,7 +232,7 @@ final class AdminPage {
 	}
 
 	/**
-	 * @param array<string, int>   $counts Dashboard counts.
+	 * @param array<string, mixed> $counts Dashboard counts.
 	 * @param array<string, mixed> $settings Current settings.
 	 * @param array<string, mixed> $table_status Schema status.
 	 */
@@ -241,6 +245,8 @@ final class AdminPage {
 			$this->render_summary_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), $counts['pending_suggestions'], __( 'Awaiting review', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), $counts['blocked_suggestions'], __( 'Need manual attention', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Recovery suggestions', 'lilleprinsen-price-monitor' ), $counts['recovery_suggestions'], __( 'Price-up or restore plans', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['checks_last_24h'], __( 'Observation rows', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Failed checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['failed_checks_last_24h'], __( 'Observation failures', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Recent failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Last 7 days', 'lilleprinsen-price-monitor' ) );
 			$this->render_summary_card( __( 'Active price match sessions', 'lilleprinsen-price-monitor' ), $counts['active_price_match_sessions'], __( 'Dry-run recovery state', 'lilleprinsen-price-monitor' ) );
 			?>
@@ -280,6 +286,10 @@ final class AdminPage {
 						<tr>
 							<th scope="row"><?php esc_html_e( 'Active price match sessions', 'lilleprinsen-price-monitor' ); ?></th>
 							<td><?php echo esc_html( number_format_i18n( (int) $counts['active_price_match_sessions'] ) ); ?></td>
+						</tr>
+						<tr>
+							<th scope="row"><?php esc_html_e( 'Last successful check', 'lilleprinsen-price-monitor' ); ?></th>
+							<td><?php echo esc_html( $this->format_datetime( $counts['last_successful_check_time'] ?? null ) ); ?></td>
 						</tr>
 					</tbody>
 				</table>
@@ -381,6 +391,7 @@ final class AdminPage {
 		$product       = $this->get_product( (int) $monitored_product['product_id'] );
 		$links         = $this->repository->get_competitor_links_for_monitored_product( $monitored_product_id );
 		$editing_link  = $this->get_editing_competitor_link( $monitored_product_id );
+		$recent_checks = $this->repository->get_price_observations( array( 'monitored_product_id' => $monitored_product_id ), 1, 5 );
 		?>
 		<div class="lpm-grid lpm-grid-two">
 			<section class="lpm-card">
@@ -405,6 +416,14 @@ final class AdminPage {
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( count( $links ) ) ); ?></span>
 			</div>
 			<?php $this->render_competitor_links_table( $links, $monitored_product_id ); ?>
+		</section>
+
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<h2><?php esc_html_e( 'Recent checks', 'lilleprinsen-price-monitor' ); ?></h2>
+				<span class="lpm-pill lpm-pill-muted"><?php esc_html_e( 'Latest 5', 'lilleprinsen-price-monitor' ); ?></span>
+			</div>
+			<?php $this->render_observations_table( $recent_checks ); ?>
 		</section>
 		<?php
 	}
@@ -511,7 +530,10 @@ final class AdminPage {
 					$this->render_checkbox_field( 'create_suggestions_from_scheduled_checks', __( 'Create suggestions from scheduled checks', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Scheduled checks never update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'request_timeout_seconds', __( 'Request timeout (seconds)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'retry_failed_checks', __( 'Retry failed checks', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_number_field( 'observation_retention_days', __( 'Successful observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_number_field( 'failed_observation_retention_days', __( 'Failed observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					?>
+					<p class="lpm-field-description"><?php esc_html_e( 'Observation cleanup is not automatic yet. Retention values are stored for a future admin-only cleanup workflow.', 'lilleprinsen-price-monitor' ); ?></p>
 				</section>
 
 				<section class="lpm-card">
@@ -674,6 +696,28 @@ final class AdminPage {
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( Schema::VERSION ); ?></span>
 			</div>
 			<?php $this->render_schema_status_table( $table_status ); ?>
+		</section>
+		<?php
+	}
+
+	public function render_history(): void {
+		$filters      = $this->get_observation_filters();
+		$page         = $this->get_positive_query_arg( 'lpm_history_page', 1 );
+		$per_page     = (int) $this->settings->get( 'rows_per_page', 25 );
+		$observations = $this->repository->get_price_observations( $filters, $page, $per_page );
+		$total        = $this->repository->count_price_observations( $filters );
+		?>
+		<section class="lpm-card">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Price observation history', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php esc_html_e( 'One row is stored for every manual or batch competitor check. Raw HTML is never stored.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
+			</div>
+			<?php $this->render_observation_filters( $filters ); ?>
+			<?php $this->render_observations_table( $observations ); ?>
+			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_history_page', array_merge( array( 'tab' => 'history' ), $filters ) ); ?>
 		</section>
 		<?php
 	}
@@ -854,6 +898,7 @@ final class AdminPage {
 					'currency'           => (string) $result['currency'],
 					'extraction_method'  => (string) $result['extraction_method'],
 					'http_status'        => (int) $result['http_status'],
+					'response_time_ms'   => (int) $result['response_time_ms'],
 				),
 				$product_id
 			);
@@ -880,6 +925,7 @@ final class AdminPage {
 				'competitor_link_id' => $link_id,
 				'error'              => $error_message,
 				'http_status'        => (int) $result['http_status'],
+				'response_time_ms'   => (int) $result['response_time_ms'],
 				'updated'            => $updated,
 			),
 			$product_id
@@ -1604,6 +1650,41 @@ final class AdminPage {
 		<?php
 	}
 
+	private function render_observation_filters( array $filters ): void {
+		?>
+		<form method="get" class="lpm-filters">
+			<input type="hidden" name="page" value="<?php echo esc_attr( self::SLUG ); ?>" />
+			<input type="hidden" name="tab" value="history" />
+			<label>
+				<span><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="1" name="product_id" value="<?php echo esc_attr( (string) $filters['product_id'] ); ?>" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Competitor link ID', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="number" min="1" name="competitor_link_id" value="<?php echo esc_attr( (string) $filters['competitor_link_id'] ); ?>" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Result', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="status">
+					<option value=""><?php esc_html_e( 'All results', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="success" <?php selected( $filters['status'], 'success' ); ?>><?php esc_html_e( 'Success', 'lilleprinsen-price-monitor' ); ?></option>
+					<option value="failed" <?php selected( $filters['status'], 'failed' ); ?>><?php esc_html_e( 'Failed', 'lilleprinsen-price-monitor' ); ?></option>
+				</select>
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Date from', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="date" name="date_from" value="<?php echo esc_attr( (string) $filters['date_from'] ); ?>" />
+			</label>
+			<label>
+				<span><?php esc_html_e( 'Date to', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="date" name="date_to" value="<?php echo esc_attr( (string) $filters['date_to'] ); ?>" />
+			</label>
+			<button type="submit" class="button button-primary"><?php esc_html_e( 'Filter history', 'lilleprinsen-price-monitor' ); ?></button>
+			<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'history' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Clear', 'lilleprinsen-price-monitor' ); ?></a>
+		</form>
+		<?php
+	}
+
 	private function render_logs_table( array $logs ): void {
 		if ( empty( $logs ) ) {
 			$this->render_empty_state( __( 'No logs match the current filters.', 'lilleprinsen-price-monitor' ) );
@@ -1630,6 +1711,50 @@ final class AdminPage {
 						<td><?php echo esc_html( $this->format_nullable_value( $log['product_id'] ?? null ) ); ?></td>
 						<td><?php echo esc_html( $this->shorten_text( (string) ( $log['message'] ?? '' ), 90 ) ); ?></td>
 						<td><?php $this->render_context_summary( (string) ( $log['context'] ?? '' ) ); ?></td>
+					</tr>
+				<?php endforeach; ?>
+			</tbody>
+		</table>
+		<?php
+	}
+
+	private function render_observations_table( array $observations ): void {
+		if ( empty( $observations ) ) {
+			$this->render_empty_state( __( 'No price observations match the current filters.', 'lilleprinsen-price-monitor' ) );
+			return;
+		}
+		?>
+		<table class="lpm-compact-table">
+			<thead>
+				<tr>
+					<th scope="col"><?php esc_html_e( 'Time', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Product ID', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Price', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Currency', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Method', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'HTTP status', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Result', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Error', 'lilleprinsen-price-monitor' ); ?></th>
+				</tr>
+			</thead>
+			<tbody>
+				<?php foreach ( $observations as $observation ) : ?>
+					<tr>
+						<td><?php echo esc_html( $this->format_datetime( $observation['checked_at'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( (string) ( $observation['product_id'] ?? '' ) ); ?></td>
+						<td>
+							<?php
+							$competitor_name = (string) ( $observation['competitor_name'] ?? '' );
+							echo esc_html( '' !== $competitor_name ? $competitor_name : sprintf( __( 'Link #%d', 'lilleprinsen-price-monitor' ), (int) ( $observation['competitor_link_id'] ?? 0 ) ) );
+							?>
+						</td>
+						<td><?php echo esc_html( $this->format_nullable_value( $observation['observed_price'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $observation['currency'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $observation['extraction_method'] ?? null ) ); ?></td>
+						<td><?php echo esc_html( $this->format_nullable_value( $observation['http_status'] ?? null ) ); ?></td>
+						<td><?php $this->render_status_pill( ! empty( $observation['success'] ) ? __( 'Success', 'lilleprinsen-price-monitor' ) : __( 'Failed', 'lilleprinsen-price-monitor' ), ! empty( $observation['success'] ) ? 'ok' : 'danger' ); ?></td>
+						<td><?php echo esc_html( $this->shorten_text( (string) ( $observation['error_message'] ?? '' ), 80 ) ); ?></td>
 					</tr>
 				<?php endforeach; ?>
 			</tbody>
@@ -1944,12 +2069,41 @@ final class AdminPage {
 		);
 	}
 
+	/**
+	 * @return array{product_id: string, competitor_link_id: string, status: string, date_from: string, date_to: string}
+	 */
+	private function get_observation_filters(): array {
+		$status = isset( $_GET['status'] ) ? sanitize_key( wp_unslash( $_GET['status'] ) ) : '';
+
+		if ( ! in_array( $status, array( 'success', 'failed' ), true ) ) {
+			$status = '';
+		}
+
+		return array(
+			'product_id'         => isset( $_GET['product_id'] ) ? (string) absint( wp_unslash( $_GET['product_id'] ) ) : '',
+			'competitor_link_id' => isset( $_GET['competitor_link_id'] ) ? (string) absint( wp_unslash( $_GET['competitor_link_id'] ) ) : '',
+			'status'             => $status,
+			'date_from'          => $this->get_date_query_arg( 'date_from' ),
+			'date_to'            => $this->get_date_query_arg( 'date_to' ),
+		);
+	}
+
 	private function get_positive_query_arg( string $key, int $default ): int {
 		if ( ! isset( $_GET[ $key ] ) ) {
 			return $default;
 		}
 
 		return max( 0, absint( wp_unslash( $_GET[ $key ] ) ) );
+	}
+
+	private function get_date_query_arg( string $key ): string {
+		if ( ! isset( $_GET[ $key ] ) ) {
+			return '';
+		}
+
+		$value = sanitize_text_field( wp_unslash( $_GET[ $key ] ) );
+
+		return preg_match( '/^\d{4}-\d{2}-\d{2}$/', $value ) ? $value : '';
 	}
 
 	private function get_product( int $product_id ): ?object {

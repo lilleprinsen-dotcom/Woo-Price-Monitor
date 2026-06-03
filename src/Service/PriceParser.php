@@ -13,7 +13,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class PriceParser {
 	/**
-	 * @return array{price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
 	 */
 	public function parse( string $html ): array {
 		$html = $this->trim_html( $html );
@@ -44,7 +44,7 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
 	 */
 	private function parse_json_ld( string $html ): array {
 		if ( ! preg_match_all( '#<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>#is', $html, $matches ) ) {
@@ -71,6 +71,7 @@ final class PriceParser {
 			}
 
 			return array(
+				'success'           => true,
 				'price'             => $price,
 				'currency'          => $this->normalize_currency( $offer['priceCurrency'] ?? ( $offer['currency'] ?? 'NOK' ) ),
 				'extraction_method' => 'json_ld_offer',
@@ -114,7 +115,7 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
 	 */
 	private function parse_meta_tags( string $html ): array {
 		$price_keys    = array( 'product:price:amount', 'og:price:amount', 'twitter:price:amount', 'price', 'product_price', 'amount' );
@@ -136,6 +137,7 @@ final class PriceParser {
 
 			if ( null !== $price ) {
 				return array(
+					'success'           => true,
 					'price'             => $price,
 					'currency'          => $currency,
 					'extraction_method' => 'meta_' . sanitize_key( $key ),
@@ -165,7 +167,7 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
 	 */
 	private function parse_visible_price( string $html ): array {
 		$text = wp_strip_all_tags( $html );
@@ -191,6 +193,7 @@ final class PriceParser {
 
 			if ( null !== $price ) {
 				return array(
+					'success'           => true,
 					'price'             => $price,
 					'currency'          => 'NOK',
 					'extraction_method' => 'visible_nok_regex',
@@ -257,10 +260,11 @@ final class PriceParser {
 	}
 
 	/**
-	 * @return array{price: float|null, currency: string, extraction_method: string, error: string}
+	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, error: string}
 	 */
 	private function failure( string $error ): array {
 		return array(
+			'success'           => false,
 			'price'             => null,
 			'currency'          => '',
 			'extraction_method' => '',

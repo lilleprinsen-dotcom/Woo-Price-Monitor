@@ -27,15 +27,16 @@ Current custom tables:
 
 - `lpm_monitored_products`
 - `lpm_competitor_links`
+- `lpm_price_observations`
 - `lpm_price_suggestions`
 - `lpm_price_match_sessions`
 - `lpm_logs`
 
-`src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, suggestion review state, competitor link state, and price match session helpers.
+`src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, observation history, suggestion review state, competitor link state, and price match session helpers.
 
 ### Admin UI
 
-`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, Settings, and Logs tabs.
+`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, History, Settings, and Logs tabs.
 
 `src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
 
@@ -51,7 +52,9 @@ Current custom tables:
 
 ### Price Checking
 
-`src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses settings for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and logs results through callers.
+`src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses settings for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and creates one `lpm_price_observations` row for each attempted check when the repository is available.
+
+Observation rows store check metadata such as product ID, competitor link ID, observed price, currency, extraction method, HTTP status, success flag, error message, response time, and checked timestamp. Raw HTML and full response bodies are not stored.
 
 `src/Service/PriceParser.php` parses the fetched HTML in this order:
 
@@ -111,7 +114,11 @@ Important conservative defaults:
 - `require_confirmation_for_real_updates = 1`
 - `notifications_enabled = 0`
 - `max_urls_per_batch = 10`
+- `observation_retention_days = 90`
+- `failed_observation_retention_days = 30`
 - `rows_per_page = 25`
+
+Retention settings are stored for future admin-only cleanup. Automatic cleanup is not implemented yet.
 
 ## Request Flows
 
@@ -128,9 +135,17 @@ Important conservative defaults:
 1. Admin adds or edits a competitor link for one monitored product.
 2. Admin clicks "Test check".
 3. `PriceCheckService` fetches one URL and `PriceParser` attempts price extraction.
-4. Repository updates the competitor link's last price, currency, timestamp, and error state.
-5. Admin can create a dry-run suggestion from the stored last price.
-6. Suggestion appears in the Approvals inbox.
+4. Repository creates a price observation history row without storing raw HTML.
+5. Repository updates the competitor link's last price, currency, timestamp, and error state.
+6. Admin can create a dry-run suggestion from the stored last price.
+7. Suggestion appears in the Approvals inbox.
+
+### Observation History
+
+1. Admin opens the History tab.
+2. Admin filters by product ID, competitor link ID, success/failure, and date range.
+3. Repository returns paginated observation rows ordered by check time.
+4. The competitor management screen also shows the latest five observations for the selected monitored product.
 
 ### Approval
 

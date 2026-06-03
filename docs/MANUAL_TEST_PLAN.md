@@ -23,6 +23,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Edit the competitor link and confirm changes persist.
 - [ ] Disable and re-enable the competitor link.
 - [ ] Click Test check on a simple competitor/test page and confirm detected price, currency, and extraction method notice.
+- [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.
 - [ ] Confirm skipped suggestions are logged when the price difference is below the configured minimum.
@@ -34,6 +35,8 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm real update controls remain blocked by default with dry-run mode and emergency disable enabled.
 - [ ] Open Logs and test filters for level, event, and product ID.
 - [ ] Confirm log pagination does not load all rows at once.
+- [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.
+- [ ] Confirm the competitor management screen shows the latest five checks for the selected monitored product.
 - [ ] Confirm scheduled checks are disabled by default in Settings.
 - [ ] Click Run one small check batch now only on staging and confirm it respects `max_urls_per_batch`.
 - [ ] Send test notification and confirm it writes a log entry only.
