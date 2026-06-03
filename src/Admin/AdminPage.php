@@ -41,7 +41,11 @@ final class AdminPage {
 
 	private PriceUpdateService $price_update_service;
 
-	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null ) {
+	private ProductSearchService $product_search_service;
+
+	private AdminNoticeStore $notice_store;
+
+	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
 		$this->price_check_service    = $price_check_service ?? new PriceCheckService();
@@ -50,6 +54,8 @@ final class AdminPage {
 		$this->notification_service   = $notification_service ?? new NotificationService();
 		$this->job_scheduler          = $job_scheduler ?? new JobScheduler( $settings, new \Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob( $repository, $settings, $this->price_check_service, $this->suggestion_service, $this->notification_service ), $repository );
 		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service );
+		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
+		$this->notice_store           = $notice_store ?? new AdminNoticeStore();
 	}
 
 	public function handle_actions(): void {
@@ -135,7 +141,7 @@ final class AdminPage {
 	}
 
 	public function render_admin_notices(): void {
-		$dynamic_notice = $this->pull_admin_notice();
+		$dynamic_notice = $this->notice_store->pull();
 		$dynamic_shown  = false;
 
 		if ( is_array( $dynamic_notice ) && ! empty( $dynamic_notice['message'] ) ) {
@@ -303,7 +309,7 @@ final class AdminPage {
 
 	public function render_products(): void {
 		$search_query   = $this->get_search_query();
-		$search_results = '' !== $search_query ? $this->search_products( $search_query ) : array();
+		$search_results = '' !== $search_query ? $this->product_search_service->search( $search_query, 20 ) : array();
 		$page           = $this->get_positive_query_arg( 'lpm_products_page', 1 );
 		$per_page       = (int) $this->settings->get( 'rows_per_page', 25 );
 		$rows           = $this->repository->get_monitored_products( $page, $per_page );
@@ -1187,94 +1193,6 @@ final class AdminPage {
 		);
 	}
 
-	/**
-	 * @return array<int, object>
-	 */
-	private function search_products( string $query ): array {
-		if ( ! Plugin::is_woocommerce_active() || ! function_exists( 'wc_get_product' ) ) {
-			return array();
-		}
-
-		$query    = trim( sanitize_text_field( $query ) );
-		$products = array();
-
-		if ( '' === $query ) {
-			return array();
-		}
-
-		if ( is_numeric( $query ) ) {
-			$this->add_product_to_search_results( absint( $query ), $products );
-		}
-
-		if ( function_exists( 'wc_get_product_id_by_sku' ) ) {
-			$sku_product_id = wc_get_product_id_by_sku( $query );
-
-			if ( $sku_product_id ) {
-				$this->add_product_to_search_results( (int) $sku_product_id, $products );
-			}
-		}
-
-		if ( function_exists( 'wc_get_products' ) && count( $products ) < 20 ) {
-			$remaining = 20 - count( $products );
-			$matches   = array();
-
-			try {
-				$matches = wc_get_products(
-					array(
-						'limit'   => $remaining,
-						'status'  => array( 'publish', 'private', 'draft' ),
-						'orderby' => 'title',
-						'order'   => 'ASC',
-						's'       => $query,
-					)
-				);
-			} catch ( \Throwable $throwable ) {
-				$this->repository->write_log(
-					'error',
-					'product_search_failed',
-					__( 'WooCommerce product search failed.', 'lilleprinsen-price-monitor' ),
-					array( 'error' => $throwable->getMessage() )
-				);
-			}
-
-			if ( is_array( $matches ) ) {
-				foreach ( $matches as $product ) {
-					if ( is_object( $product ) && method_exists( $product, 'get_id' ) ) {
-						$this->add_product_object_to_search_results( $product, $products );
-					}
-				}
-			}
-		}
-
-		return array_slice( array_values( $products ), 0, 20 );
-	}
-
-	/**
-	 * @param array<int, object> $products Products keyed by product ID.
-	 */
-	private function add_product_to_search_results( int $product_id, array &$products ): void {
-		$product = $this->get_product( $product_id );
-
-		if ( $product ) {
-			$this->add_product_object_to_search_results( $product, $products );
-		}
-	}
-
-	/**
-	 * @param array<int, object> $products Products keyed by product ID.
-	 */
-	private function add_product_object_to_search_results( object $product, array &$products ): void {
-		if ( ! method_exists( $product, 'get_id' ) ) {
-			return;
-		}
-
-		$product_id = (int) $product->get_id();
-
-		if ( $product_id > 0 && ! isset( $products[ $product_id ] ) ) {
-			$products[ $product_id ] = $product;
-		}
-	}
-
 	private function render_product_search_results( array $products, string $search_query ): void {
 		?>
 		<div class="lpm-results">
@@ -1297,13 +1215,13 @@ final class AdminPage {
 					<tbody>
 						<?php foreach ( $products as $product ) : ?>
 							<tr>
-								<td><?php echo wp_kses_post( $this->get_product_thumbnail( $product ) ); ?></td>
-								<td><?php echo esc_html( $this->get_product_name( $product ) ); ?></td>
-								<td><?php echo esc_html( (string) $product->get_id() ); ?></td>
-								<td><?php echo esc_html( $this->get_product_sku( $product ) ); ?></td>
-								<td><?php echo wp_kses_post( $this->get_product_price_html( $product ) ); ?></td>
-								<td><?php echo esc_html( $this->get_product_stock_status( $product ) ); ?></td>
-								<td><?php $this->render_add_monitoring_form( (int) $product->get_id() ); ?></td>
+								<td><?php echo wp_kses_post( (string) ( $product['thumbnail'] ?? '' ) ); ?></td>
+								<td><?php echo esc_html( (string) ( $product['name'] ?? '' ) ); ?></td>
+								<td><?php echo esc_html( (string) ( $product['id'] ?? '' ) ); ?></td>
+								<td><?php echo esc_html( (string) ( $product['sku'] ?? '—' ) ); ?></td>
+								<td><?php echo wp_kses_post( (string) ( $product['price_html'] ?? '—' ) ); ?></td>
+								<td><?php echo esc_html( (string) ( $product['stock_status'] ?? __( 'Unknown', 'lilleprinsen-price-monitor' ) ) ); ?></td>
+								<td><?php $this->render_add_monitoring_form( (int) ( $product['id'] ?? 0 ) ); ?></td>
 							</tr>
 						<?php endforeach; ?>
 					</tbody>
@@ -2279,34 +2197,7 @@ final class AdminPage {
 	}
 
 	private function set_admin_notice( string $message, string $type = 'success' ): void {
-		set_transient(
-			$this->get_admin_notice_transient_key(),
-			array(
-				'message' => sanitize_text_field( $message ),
-				'type'    => in_array( $type, array( 'success', 'error', 'warning' ), true ) ? $type : 'success',
-			),
-			60
-		);
-	}
-
-	/**
-	 * @return array<string, string>|null
-	 */
-	private function pull_admin_notice(): ?array {
-		$key    = $this->get_admin_notice_transient_key();
-		$notice = get_transient( $key );
-
-		if ( false === $notice ) {
-			return null;
-		}
-
-		delete_transient( $key );
-
-		return is_array( $notice ) ? $notice : null;
-	}
-
-	private function get_admin_notice_transient_key(): string {
-		return 'lpm_admin_notice_' . (int) get_current_user_id();
+		$this->notice_store->set( $message, $type );
 	}
 
 	private function get_notice_message( string $notice ): string {

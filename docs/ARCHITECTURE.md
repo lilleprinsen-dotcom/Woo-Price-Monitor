@@ -1,140 +1,145 @@
 # Architecture
 
-Woo Price Monitor is planned as an admin-only WooCommerce plugin with custom tables and dry-run pricing workflows.
+Lilleprinsen Price Monitor is an admin-only WooCommerce competitor price monitoring plugin. It stores monitor state in custom tables, keeps admin queries bounded, and treats price changes as an explicitly guarded workflow.
 
-## Design Constraints
+## Runtime Boundaries
 
-- Admin-only by default.
-- No frontend hooks or customer-facing behavior.
-- No scraping, external HTTP requests, competitor checks, or heavy queries on frontend requests.
-- No automatic scan of the full product catalog.
-- Custom tables for monitor data instead of `wp_postmeta`.
-- Paginated, indexed, bounded admin and background operations.
-- WooCommerce CRUD APIs for future price updates.
+- The main plugin bootstrap only initializes during `is_admin()` or `wp_doing_cron()`.
+- Normal frontend requests should not load the plugin coordinator, admin screens, admin assets, product search, price checks, or job scheduling.
+- Manual competitor checks are admin-triggered and use `wp_remote_get()` with the configured timeout.
+- Scheduled checks are disabled by default and only use the Action Scheduler path when explicitly enabled.
+- Scheduled checks never update WooCommerce prices.
+- Real price updates are blocked unless dry-run mode is off, emergency disable is off, real updates are allowed, manual approval is required, and explicit confirmation is submitted.
 
-## Planned Modules
+## Modules
 
-### Plugin Bootstrap
+### Bootstrap
 
-Responsible for loading the plugin, checking WooCommerce availability, registering admin-only hooks, and wiring services together.
+`lilleprinsen-price-monitor.php` defines plugin constants, registers the autoloader, activation/deactivation hooks, and initializes `Plugin` only for admin or cron contexts.
 
-The bootstrap layer should avoid frontend hooks. Any scheduled or background processing should be registered independently and must run with explicit batch limits.
+`src/Plugin.php` wires settings, repository, admin UI, services, notification channels, and job scheduler. Capability checks use `manage_woocommerce` or `manage_options`.
 
-### Database Schema
+### Activation And Schema
 
-Responsible for custom table creation and migrations.
+`src/Activator.php` creates custom tables and settings defaults. `src/Database/Schema.php` owns `dbDelta()` table definitions and schema version storage.
 
-Planned tables:
+Current custom tables:
 
-- `wpm_monitored_products`: selected WooCommerce product IDs, monitor status, timestamps, and optional admin notes.
-- `wpm_competitor_urls`: competitor name, direct product URL, active status, and relation to a monitored product.
-- `wpm_price_checks`: observed competitor price, currency, source URL, check status, error metadata, and timestamps.
-- `wpm_price_suggestions`: current WooCommerce price snapshot, competitor comparison data, suggested price, reason, status, reviewer, and timestamps.
-- `wpm_action_logs`: admin actions, object references, before/after snapshots, and timestamps.
+- `lpm_monitored_products`
+- `lpm_competitor_links`
+- `lpm_price_suggestions`
+- `lpm_price_match_sessions`
+- `lpm_logs`
 
-Important indexes should cover product IDs, monitor status, competitor URL status, suggestion status, check timestamps, and created timestamps.
+`src/Database/Repository.php` provides paginated reads, safe count queries, writes, logging, suggestion review state, competitor link state, and price match session helpers.
 
-### Admin Navigation
+### Admin UI
 
-Responsible for WooCommerce admin menu entries and screen routing.
+`src/Admin/AdminMenu.php` adds the WooCommerce submenu. `src/Admin/AdminPage.php` remains the main renderer and action controller for the Dashboard, Products, Approvals, Competitors, Settings, and Logs tabs.
 
-Initial screens should include:
+`src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
 
-- Monitor list.
-- Add products to monitor.
-- Product monitor detail with competitor URLs.
-- Price observations.
-- Suggestions and approval queue.
-- Settings.
+- exact product ID lookup
+- SKU lookup
+- limited title query
+- max 20 display results
+- conversion of WooCommerce product objects into escaped-ready display arrays
 
-### Product Selection
+`src/Admin/AdminNoticeStore.php` stores one-time user-specific notices across redirects. `src/Admin/Notices.php` renders dependency notices, including WooCommerce inactive state.
 
-Responsible for searching and adding selected WooCommerce products to the monitor list.
+`src/Assets/AdminAssets.php` loads `assets/admin.css` and `assets/admin.js` only on the plugin admin page.
 
-This module must not scan all products. It should use paginated search, exact product ID lookup, SKU lookup, or bounded WooCommerce product queries. Duplicate monitored product rows should be prevented by a unique product ID index.
+### Price Checking
 
-### Competitor URL Management
+`src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses settings for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and logs results through callers.
 
-Responsible for adding, editing, disabling, and listing direct competitor product URLs.
+`src/Service/PriceParser.php` parses the fetched HTML in this order:
 
-URLs are untrusted admin-provided data. They should be validated, sanitized, escaped on output, and stored separately from WooCommerce post meta.
+1. JSON-LD Product offers price.
+2. Common product price meta tags.
+3. Basic visible NOK/kr price patterns.
 
-### Price Observation Runner
+Parsing is intentionally MVP-level and does not crawl other pages.
 
-Responsible for recording competitor price observations.
+### Suggestions
 
-Manual checks are admin-triggered and bounded. The production-style background skeleton uses `JobScheduler` and `CheckCompetitorLinkJob` to process only enabled competitor links that are due by `last_checked_at` and `check_frequency_hours`, capped by `max_urls_per_batch`.
+`src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price. It applies minimum difference and maximum price drop safety settings, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes.
 
-Action Scheduler is preferred when available. If it is not available, the plugin logs that no fallback job was registered. Background checks must not run from normal frontend page loads, must not scan all products or all links, and must not update WooCommerce prices.
+Suggestion types include:
 
-### Suggestion Engine
-
-Responsible for creating proposed price changes from current WooCommerce prices and competitor observations.
-
-The first suggestion rules should be simple and explainable, for example:
-
-- Compare current product price against the lowest recent competitor observation.
-- Apply a configurable margin or fixed adjustment.
-- Store the current price snapshot and reason text with each suggestion.
-
-Suggestions should not change WooCommerce prices automatically.
-
-Scheduled checks can optionally create dry-run suggestions when `create_suggestions_from_scheduled_checks` is enabled. This setting defaults off.
-
-### Approval Workflow
-
-Responsible for approving, rejecting, and recording decisions for price suggestions.
-
-Dry-run approval remains the default. The real update foundation is behind strict settings:
-
-- `dry_run_mode` must be disabled.
-- `disable_all_price_updates` must be disabled.
-- `allow_real_price_updates` must be enabled.
-- `require_manual_approval` and `require_confirmation_for_real_updates` must be enabled.
-- The suggestion must be pending and of an allowed suggestion type.
-
-Real update confirmation is a single-product admin flow. It uses WooCommerce CRUD APIs only and logs old/new price state. Scheduled checks never update prices.
+- `price_match_down`
+- `price_match_up`
+- `restore_previous_active_price`
+- `restore_previous_regular_price`
+- `restore_previous_sale_price`
+- `manual_review`
+- `blocked`
 
 ### Price Recovery
 
-Price recovery suggestions use active price match session state to decide whether to suggest matching a higher competitor price or restoring previous active, sale, or regular prices. Recovery settings affect suggestion creation. Ending or creating real match sessions only happens after explicit admin approval.
+`src/Service/PriceRecoveryService.php` determines future price-up or restore suggestions from an active price match session. It does not update WooCommerce prices. It checks prior active, sale, and regular price state and avoids recovery suggestions when another active competitor still has a lower valid last price than the proposed recovery price.
+
+### Guarded Price Updates
+
+`src/Service/PriceUpdateService.php` is the first guarded real-update foundation. It uses WooCommerce CRUD APIs and never direct SQL price metadata writes. It validates dry-run mode, emergency disable, explicit allow setting, manual approval, suggestion status, allowed suggestion type, positive suggested price, unchanged product price snapshot, and maximum drop limit.
+
+This service is present for future controlled use. Defaults keep real updates blocked.
+
+### Jobs
+
+`src/Jobs/JobScheduler.php` registers the Action Scheduler action and an admin-only scheduling check. Scheduled checks are disabled by default. When enabled without Action Scheduler, it logs a warning and does not register a fallback job.
+
+`src/Jobs/CheckCompetitorLinkJob.php` processes only due enabled competitor links for enabled monitored products, capped by `max_urls_per_batch`. It can create suggestions only when `create_suggestions_from_scheduled_checks` is enabled, which defaults off.
 
 ### Notifications
 
-Notifications are abstracted through `NotificationService` and channel interfaces. The only current channel is `LogNotificationChannel`, which writes audit log entries describing what would have been sent. WhatsApp provider fields are placeholders only; no real WhatsApp, webhook, Twilio, or Meta API call is implemented.
+`src/Notifications/NotificationService.php` routes notification events through configured channels. `src/Notifications/NotificationInterface.php` defines the channel contract. `src/Notifications/LogNotificationChannel.php` writes log entries describing what would have been sent.
 
-### Logging And Audit Trail
-
-Responsible for storing notable admin actions, check outcomes, suggestion creation, approvals, rejections, and future price update attempts.
-
-Logs should be paginated and queryable by object type, object ID, action, actor, and timestamp.
+Notifications are disabled by default, and the only current channel is log-only. WhatsApp provider settings are placeholders and make no external provider calls.
 
 ### Settings
 
-Responsible for plugin configuration such as default margin rules, batch limits, retention windows, and feature flags.
+`src/Settings/Settings.php` stores one option: `lpm_settings`. It defines defaults, sanitization, getters, updates, and settings form handling.
 
-Settings should default to conservative values. Riskier capabilities, especially real competitor checks and product price updates, should be opt-in and implemented in later PRs.
+Important conservative defaults:
 
-Important safety defaults:
+- `dry_run_mode = 1`
+- `scheduled_checks_enabled = 0`
+- `create_suggestions_from_scheduled_checks = 0`
+- `disable_all_price_updates = 1`
+- `allow_real_price_updates = 0`
+- `require_confirmation_for_real_updates = 1`
+- `notifications_enabled = 0`
+- `max_urls_per_batch = 10`
+- `rows_per_page = 25`
 
-- Scheduled checks disabled.
-- Scheduled suggestion creation disabled.
-- Notifications disabled.
-- Dry-run mode enabled.
-- Emergency disable for all price updates enabled.
-- Real price updates disabled.
+## Request Flows
 
-## Request Flow
+### Product Monitoring
 
-1. Admin searches for a product by ID, SKU, or keyword.
-2. Admin adds selected products to the monitor list.
-3. Admin attaches one or more competitor product URLs to each monitored product.
-4. Admin records or triggers bounded price observations.
-5. The suggestion engine creates dry-run suggestions.
-6. Admin approves or rejects suggestions.
-7. If real updates are explicitly enabled, admin confirms a single product update.
-8. The plugin logs each action.
+1. Admin searches by product ID, SKU, or name.
+2. Product search returns at most 20 results.
+3. Admin adds a selected product to monitoring.
+4. Repository inserts or re-enables a row in `lpm_monitored_products`.
+5. Action is logged in `lpm_logs`.
+
+### Competitor Check And Suggestion
+
+1. Admin adds or edits a competitor link for one monitored product.
+2. Admin clicks "Test check".
+3. `PriceCheckService` fetches one URL and `PriceParser` attempts price extraction.
+4. Repository updates the competitor link's last price, currency, timestamp, and error state.
+5. Admin can create a dry-run suggestion from the stored last price.
+6. Suggestion appears in the Approvals inbox.
+
+### Approval
+
+1. Admin reviews pending or blocked suggestions.
+2. Admin can adjust the suggested price.
+3. Admin approves dry-run or rejects.
+4. Dry-run approval logs the decision and may create a dry-run price match session for recovery state.
+5. WooCommerce prices are not changed unless every real-update guard is explicitly satisfied and a separate confirmation is submitted.
 
 ## Performance Notes
 
-The store size requires predictable work on every request. Admin screens should use explicit limits and indexed filters. Background jobs should claim small batches, store progress, and release locks quickly. No feature should depend on loading all products, all orders, or all monitored URLs into memory.
+The store size requires predictable request work. Admin lists use pagination, product search is bounded, custom table queries use indexed columns, and background work is capped. No current flow loads all products, all orders, or all competitor links into memory.

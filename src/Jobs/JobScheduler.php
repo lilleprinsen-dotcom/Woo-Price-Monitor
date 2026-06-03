@@ -66,6 +66,10 @@ final class JobScheduler {
 
 	private function clear_action_scheduler_jobs(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			if ( function_exists( 'as_has_scheduled_action' ) && ! as_has_scheduled_action( self::ACTION, array(), 'lilleprinsen-price-monitor' ) ) {
+				return;
+			}
+
 			as_unschedule_all_actions( self::ACTION, array(), 'lilleprinsen-price-monitor' );
 		}
 	}
