@@ -7,14 +7,14 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Run `bash tools/lint-php.sh` or `composer run lint:php`.
 - [ ] Run `bash tools/run-local-tests.sh` or `composer run test:local`.
 - [ ] Run `composer run qa` when Composer is available.
-- [ ] Confirm local tests pass for `PriceParser`, `PricingRuleService`, and `PriceRecoveryService`.
+- [ ] Confirm local tests pass for `PriceParser`, `PricingRuleService`, `PriceRecoveryService`, and `ApprovalTokenService`.
 - [ ] Remember local tests use minimal WordPress stubs only; they do not replace staging admin, WooCommerce, database, HTTP, Action Scheduler, WP-CLI, or webhook testing.
 
 ## Checklist
 
 - [ ] Activate the plugin from WordPress admin.
 - [ ] Confirm the WooCommerce submenu "Price Monitor" appears.
-- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, and `lpm_logs`.
+- [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, `lpm_approval_tokens`, and `lpm_logs`.
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
@@ -62,6 +62,12 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.
 - [ ] If webhook notifications are enabled for new suggestions, confirm the webhook payload includes product/suggestion fields and a WordPress admin `review_url`.
+- [ ] With token links disabled, confirm suggestion webhook payloads do not include `dry_run_approve_url` or `reject_url`.
+- [ ] Enable token dry-run approval links, create a pending suggestion notification, and confirm the webhook payload includes `dry_run_approve_url`, `reject_url`, and `token_expires_at`.
+- [ ] Open the dry-run approve token URL and confirm the page says dry-run approval was recorded and WooCommerce price was not changed.
+- [ ] Reopen the same approve token URL and confirm reuse is blocked and logged.
+- [ ] Open a reject token URL for a pending or blocked suggestion and confirm the suggestion becomes rejected without changing WooCommerce price.
+- [ ] Let a staging token expire or shorten the expiry setting, then confirm the expired token is blocked and logged.
 - [ ] Confirm the Approvals row shows margin after, warnings, and a rule summary when rule data is available.
 - [ ] Confirm skipped suggestions are logged when the price difference is below the configured minimum.
 - [ ] Confirm blocked suggestions are created when the drop exceeds the max allowed drop percent.
@@ -79,6 +85,7 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Confirm real update controls remain blocked by default with dry-run mode and emergency disable enabled.
 - [ ] Confirm webhook `review_url` and `approval_url` require normal WordPress admin login.
 - [ ] Confirm no unauthenticated webhook link can perform a real WooCommerce price update.
+- [ ] Confirm token links never expose an approve-and-update-price action and never bypass real-update admin confirmation.
 - [ ] Open Logs and test filters for level, event, and product ID.
 - [ ] Confirm log pagination does not load all rows at once.
 - [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.
@@ -102,8 +109,8 @@ Use a staging WooCommerce site with a small set of products. Keep dry-run mode e
 - [ ] Force a successful competitor check and confirm `consecutive_failures` resets to `0` and `next_check_after` clears.
 - [ ] Confirm batch selection skips links where `next_check_after` is in the future.
 - [ ] Confirm competitor profile `request_delay_seconds` prevents checking two links from the same profile too close together in a batch.
-- [ ] Save retention settings for operational logs, debug logs, successful observations, failed observations, and audit logs.
-- [ ] Click Run cleanup now in Settings and confirm old operational/debug logs and old observations are deleted while approval/update audit logs remain.
+- [ ] Save retention settings for operational logs, debug logs, successful observations, failed observations, token rows, and audit logs.
+- [ ] Click Run cleanup now in Settings and confirm old operational/debug logs, old observations, and old used/expired token rows are deleted while approval/update audit logs remain.
 - [ ] Run `wp lpm status` on staging and confirm it prints plugin enabled, dry-run, scheduled checks, pending suggestions, failed checks last 24h, active sessions, emergency update disable, real-update possibility, WooCommerce state, and lock state.
 - [ ] Run `wp lpm check-batch --limit=1` on staging and confirm it respects the lock and does not update WooCommerce prices.
 - [ ] Run `wp lpm cleanup` on staging and confirm it logs the cleanup summary.

@@ -250,8 +250,12 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_checkbox_field( 'webhook_send_on_blocked_suggestion', __( 'Webhook on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'webhook_send_on_failed_check', __( 'Webhook on failed check', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'webhook_send_on_recovery_suggestion', __( 'Webhook on recovery suggestion', 'lilleprinsen-price-monitor' ), $settings );
-					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'Stored for future work only. Token approval links are not implemented in this version.', 'lilleprinsen-price-monitor' ) );
+					?>
+					<p class="lpm-field-description"><?php esc_html_e( 'Token links are disabled by default and can only approve dry-run suggestions or reject suggestions. They can never update WooCommerce prices; real updates still require logged-in admin confirmation and all safety settings.', 'lilleprinsen-price-monitor' ); ?></p>
+					<?php
+					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'When enabled, webhook notifications can include one-time approve dry-run and reject links.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'token_link_expiry_hours', __( 'Token link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_number_field( 'token_retention_days', __( 'Token retention days', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					?>
 				</section>
 			</div>
@@ -276,7 +280,7 @@ final class SettingsTab extends AdminViewHelpers {
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
 			<input type="hidden" name="lpm_action" value="run_retention_cleanup" />
 			<button type="submit" class="button"><?php esc_html_e( 'Run cleanup now', 'lilleprinsen-price-monitor' ); ?></button>
-			<span class="lpm-field-description"><?php esc_html_e( 'Admin-only cleanup for old operational logs and price observations. It does not change products or suggestions.', 'lilleprinsen-price-monitor' ); ?></span>
+			<span class="lpm-field-description"><?php esc_html_e( 'Admin-only cleanup for old operational logs, price observations and used/expired token rows. It does not change products or suggestions.', 'lilleprinsen-price-monitor' ); ?></span>
 		</form>
 		<?php
 	}

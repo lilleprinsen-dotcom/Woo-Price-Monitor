@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '1.8.0';
+	public const VERSION = '1.9.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -29,6 +29,7 @@ final class Schema {
 			'price_observations' => $wpdb->prefix . 'lpm_price_observations',
 			'price_suggestions'  => $wpdb->prefix . 'lpm_price_suggestions',
 			'price_match_sessions' => $wpdb->prefix . 'lpm_price_match_sessions',
+			'approval_tokens'    => $wpdb->prefix . 'lpm_approval_tokens',
 			'logs'               => $wpdb->prefix . 'lpm_logs',
 		);
 	}
@@ -217,6 +218,24 @@ final class Schema {
 			KEY status (status),
 			KEY matched_at (matched_at),
 			KEY last_checked_at (last_checked_at)
+		) {$charset_collate};";
+
+		$sql[] = "CREATE TABLE {$tables['approval_tokens']} (
+			id bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+			suggestion_id bigint(20) unsigned NOT NULL,
+			action varchar(30) NOT NULL,
+			token_hash varchar(255) NOT NULL,
+			expires_at datetime NOT NULL,
+			used_at datetime DEFAULT NULL,
+			created_at datetime NOT NULL,
+			used_ip varchar(100) DEFAULT NULL,
+			used_user_agent varchar(255) DEFAULT NULL,
+			PRIMARY KEY  (id),
+			KEY suggestion_id (suggestion_id),
+			KEY token_hash (token_hash),
+			KEY expires_at (expires_at),
+			KEY used_at (used_at),
+			KEY action (action)
 		) {$charset_collate};";
 
 		$sql[] = "CREATE TABLE {$tables['logs']} (
