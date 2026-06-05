@@ -1845,7 +1845,11 @@ final class AdminPage {
 			'request_timeout_seconds' => '' !== $request_timeout_seconds ? absint( $request_timeout_seconds ) : '',
 			'price_extraction_mode'   => isset( $_POST['price_extraction_mode'] ) ? sanitize_key( wp_unslash( $_POST['price_extraction_mode'] ) ) : 'auto',
 			'price_selector'          => isset( $_POST['price_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['price_selector'] ) ) : '',
+			'regular_price_selector'  => isset( $_POST['regular_price_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['regular_price_selector'] ) ) : '',
 			'sale_price_selector'     => isset( $_POST['sale_price_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['sale_price_selector'] ) ) : '',
+			'sku_selector'            => isset( $_POST['sku_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['sku_selector'] ) ) : '',
+			'gtin_selector'           => isset( $_POST['gtin_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['gtin_selector'] ) ) : '',
+			'monitored_price_field'   => isset( $_POST['monitored_price_field'] ) ? sanitize_key( wp_unslash( $_POST['monitored_price_field'] ) ) : 'sale_price_first',
 			'stock_selector'          => isset( $_POST['stock_selector'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_selector'] ) ) : '',
 			'stock_in_text'           => isset( $_POST['stock_in_text'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_in_text'] ) ) : '',
 			'stock_out_text'          => isset( $_POST['stock_out_text'] ) ? sanitize_text_field( wp_unslash( $_POST['stock_out_text'] ) ) : '',
@@ -2527,7 +2531,11 @@ final class AdminPage {
 			'request_timeout_seconds' => '',
 			'price_extraction_mode'   => 'auto',
 			'price_selector'          => '',
+			'regular_price_selector'  => '',
 			'sale_price_selector'     => '',
+			'sku_selector'            => '',
+			'gtin_selector'           => '',
+			'monitored_price_field'   => 'sale_price_first',
 			'stock_selector'          => '',
 			'stock_in_text'           => '',
 			'stock_out_text'          => '',
@@ -2581,13 +2589,38 @@ final class AdminPage {
 			</label>
 
 			<label class="lpm-field">
-				<span><?php esc_html_e( 'Price selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<span><?php esc_html_e( 'Current/active price selector', 'lilleprinsen-price-monitor' ); ?></span>
 				<input type="text" name="price_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['price_selector'] ?? '' ) ); ?>" placeholder=".price" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Regular price selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="regular_price_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['regular_price_selector'] ?? '' ) ); ?>" placeholder=".regular-price" />
 			</label>
 
 			<label class="lpm-field">
 				<span><?php esc_html_e( 'Sale price selector', 'lilleprinsen-price-monitor' ); ?></span>
 				<input type="text" name="sale_price_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['sale_price_selector'] ?? '' ) ); ?>" placeholder="[itemprop=&quot;price&quot;]" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'SKU selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="sku_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['sku_selector'] ?? '' ) ); ?>" placeholder="[itemprop=&quot;sku&quot;]" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'EAN/GTIN selector', 'lilleprinsen-price-monitor' ); ?></span>
+				<input type="text" name="gtin_selector" maxlength="255" value="<?php echo esc_attr( (string) ( $profile['gtin_selector'] ?? '' ) ); ?>" placeholder="[itemprop=&quot;gtin13&quot;]" />
+			</label>
+
+			<label class="lpm-field">
+				<span><?php esc_html_e( 'Monitored price field', 'lilleprinsen-price-monitor' ); ?></span>
+				<select name="monitored_price_field">
+					<?php foreach ( $this->get_monitored_price_field_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( $value ); ?>" <?php selected( (string) ( $profile['monitored_price_field'] ?? 'sale_price_first' ), $value ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
+				<small><?php esc_html_e( 'Use sale price first by default so mapped sale prices beat generic regular-price meta tags.', 'lilleprinsen-price-monitor' ); ?></small>
 			</label>
 
 			<label class="lpm-field">
@@ -2682,6 +2715,11 @@ final class AdminPage {
 					<tr><th scope="row"><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->shorten_text( (string) ( $result['url'] ?? '' ), 80 ) ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Result', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->render_status_pill( ! empty( $result['success'] ) ? __( 'Success', 'lilleprinsen-price-monitor' ) : __( 'Failed', 'lilleprinsen-price-monitor' ), ! empty( $result['success'] ) ? 'ok' : 'danger' ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Price', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['price'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Regular price', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['regular_price'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Sale price', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['sale_price'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['sku'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'EAN/GTIN', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['gtin'] ?? null ) ); ?></td></tr>
+					<tr><th scope="row"><?php esc_html_e( 'Selected price field', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['price_field'] ?? null ) ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Currency', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['currency'] ?? null ) ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Stock status', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['stock_status'] ?? null ) ); ?></td></tr>
 					<tr><th scope="row"><?php esc_html_e( 'Extraction method', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( $this->format_nullable_value( $result['extraction_method'] ?? null ) ); ?></td></tr>
@@ -4110,6 +4148,19 @@ final class AdminPage {
 			'meta_tags'     => __( 'Meta tags', 'lilleprinsen-price-monitor' ),
 			'selector'      => __( 'Selector', 'lilleprinsen-price-monitor' ),
 			'visible_regex' => __( 'Visible regex', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_monitored_price_field_options(): array {
+		return array(
+			'sale_price_first' => __( 'Sale price first, then active/regular', 'lilleprinsen-price-monitor' ),
+			'sale_price'       => __( 'Sale price only', 'lilleprinsen-price-monitor' ),
+			'regular_price'    => __( 'Regular price only', 'lilleprinsen-price-monitor' ),
+			'price_selector'   => __( 'Current/active price selector', 'lilleprinsen-price-monitor' ),
+			'lowest_price'     => __( 'Lowest mapped price', 'lilleprinsen-price-monitor' ),
 		);
 	}
 

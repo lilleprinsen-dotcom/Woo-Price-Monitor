@@ -37,11 +37,17 @@ final class SuggestionService {
 	 * @return array<string, mixed>
 	 */
 	public function create_from_competitor_link( array $monitored_product, array $competitor_link, object $product, array $settings ): array {
-		$current_price    = $this->get_product_price( $product );
+		$current_price = $this->get_product_price( $product );
+
+		if ( null === $current_price ) {
+			return $this->skipped( __( 'Current product price is missing.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		$competitor_link  = $this->select_market_competitor_link( $monitored_product, $competitor_link, $current_price );
 		$competitor_price = $this->normalize_price( $competitor_link['last_price'] ?? null );
 
-		if ( null === $current_price || null === $competitor_price ) {
-			return $this->skipped( __( 'Current product price or competitor price is missing.', 'lilleprinsen-price-monitor' ) );
+		if ( null === $competitor_price ) {
+			return $this->skipped( __( 'Competitor price is missing.', 'lilleprinsen-price-monitor' ) );
 		}
 
 		$active_session = $this->repository->get_active_price_match_session_for_product( (int) $monitored_product['product_id'] );
@@ -73,10 +79,6 @@ final class SuggestionService {
 
 		if ( 'skipped' === (string) $rule['status'] ) {
 			return $this->skipped( (string) $rule['reason'] );
-		}
-
-		if ( $this->repository->has_duplicate_pending_suggestion( (int) $monitored_product['id'], (int) $competitor_link['id'], $competitor_price ) ) {
-			return $this->skipped( __( 'A pending suggestion already exists for this competitor price.', 'lilleprinsen-price-monitor' ) );
 		}
 
 		$db_status       = 'blocked' === (string) $rule['status'] ? 'blocked' : 'pending';
@@ -142,6 +144,34 @@ final class SuggestionService {
 			$suggestion['group_action_status'] = ! empty( $group_context['force_manual_review'] ) ? 'manual_review_only' : 'pending';
 		}
 
+		$open_suggestion = $this->repository->get_open_market_suggestion_for_monitored_product( (int) $monitored_product['id'] );
+
+		if ( $open_suggestion ) {
+			if ( $this->is_same_market_suggestion( $open_suggestion, $suggestion ) ) {
+				return $this->skipped( __( 'A market suggestion already exists for this product and competitor price.', 'lilleprinsen-price-monitor' ) );
+			}
+
+			$updated = $this->repository->update_market_price_suggestion( (int) $open_suggestion['id'], $suggestion );
+
+			if ( ! $updated ) {
+				return array(
+					'status'  => 'error',
+					'message' => __( 'Could not update the existing market price suggestion.', 'lilleprinsen-price-monitor' ),
+				);
+			}
+
+			return array(
+				'status'              => $db_status,
+				'message'             => $this->merge_reasons( __( 'Updated the existing market suggestion for this product.', 'lilleprinsen-price-monitor' ), $reason ),
+				'suggestion_id'       => (int) $open_suggestion['id'],
+				'suggestion_type'     => $suggestion_type,
+				'suggested_price'     => $suggested_price,
+				'margin_after_change' => $rule['margin_after_change'],
+				'warnings'            => $rule['warnings'],
+				'rule_details'        => $rule_details,
+			);
+		}
+
 		$suggestion_id = $this->repository->create_price_suggestion( $suggestion );
 
 		if ( $suggestion_id <= 0 ) {
@@ -205,6 +235,49 @@ final class SuggestionService {
 		}
 
 		return $this->normalize_price( $product->get_price() );
+	}
+
+	/**
+	 * @param array<string, mixed> $monitored_product Monitored product row.
+	 * @param array<string, mixed> $clicked_link Clicked competitor link row.
+	 * @return array<string, mixed>
+	 */
+	private function select_market_competitor_link( array $monitored_product, array $clicked_link, float $current_price ): array {
+		$market_link   = $clicked_link;
+		$market_price  = $this->normalize_price( $clicked_link['last_price'] ?? null );
+		$market_price  = null === $market_price ? PHP_FLOAT_MAX : $market_price;
+		$competitor_links = $this->repository->get_competitor_links_for_monitored_product( (int) $monitored_product['id'] );
+
+		foreach ( $competitor_links as $link ) {
+			if ( empty( $link['enabled'] ) || 'not_comparable' === (string) ( $link['match_type'] ?? '' ) ) {
+				continue;
+			}
+
+			$price = $this->normalize_price( $link['last_price'] ?? null );
+
+			if ( null === $price ) {
+				continue;
+			}
+
+			if ( $price < $current_price && $price < $market_price ) {
+				$market_link  = $link;
+				$market_price = $price;
+			}
+		}
+
+		return $market_link;
+	}
+
+	/**
+	 * @param array<string, mixed> $existing Existing open suggestion.
+	 * @param array<string, mixed> $next Next suggestion payload.
+	 */
+	private function is_same_market_suggestion( array $existing, array $next ): bool {
+		return (int) ( $existing['competitor_link_id'] ?? 0 ) === (int) ( $next['competitor_link_id'] ?? 0 )
+			&& (string) ( $existing['status'] ?? '' ) === (string) ( $next['status'] ?? '' )
+			&& abs( (float) ( $existing['competitor_price'] ?? 0 ) - (float) ( $next['competitor_price'] ?? 0 ) ) < 0.0001
+			&& abs( (float) ( $existing['suggested_price'] ?? 0 ) - (float) ( $next['suggested_price'] ?? 0 ) ) < 0.0001
+			&& (string) ( $existing['suggestion_type'] ?? '' ) === (string) ( $next['suggestion_type'] ?? '' );
 	}
 
 	private function product_is_on_sale( object $product ): bool {

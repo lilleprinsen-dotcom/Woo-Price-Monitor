@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '2.0.0';
+	public const VERSION = '2.1.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -87,7 +87,11 @@ final class Schema {
 			request_timeout_seconds int(10) unsigned DEFAULT NULL,
 			price_extraction_mode varchar(50) NOT NULL DEFAULT 'auto',
 			price_selector varchar(255) DEFAULT NULL,
+			regular_price_selector varchar(255) DEFAULT NULL,
 			sale_price_selector varchar(255) DEFAULT NULL,
+			sku_selector varchar(255) DEFAULT NULL,
+			gtin_selector varchar(255) DEFAULT NULL,
+			monitored_price_field varchar(50) NOT NULL DEFAULT 'sale_price_first',
 			stock_selector varchar(255) DEFAULT NULL,
 			stock_in_text varchar(255) DEFAULT NULL,
 			stock_out_text varchar(255) DEFAULT NULL,
@@ -172,6 +176,11 @@ final class Schema {
 			monitored_product_id bigint(20) unsigned NOT NULL,
 			product_id bigint(20) unsigned NOT NULL,
 			observed_price decimal(20,4) DEFAULT NULL,
+			observed_regular_price decimal(20,4) DEFAULT NULL,
+			observed_sale_price decimal(20,4) DEFAULT NULL,
+			observed_sku varchar(191) DEFAULT NULL,
+			observed_gtin varchar(191) DEFAULT NULL,
+			price_field varchar(50) DEFAULT NULL,
 			currency varchar(10) DEFAULT NULL,
 			stock_status varchar(50) DEFAULT NULL,
 			extraction_method varchar(100) DEFAULT NULL,

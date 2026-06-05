@@ -81,6 +81,29 @@ lpm_run_tests(
 			lpm_assert_float_equals( 1349.0, $result['price'], 'Fallback should read data-lpm-price when content/data-price are absent.' );
 			lpm_assert_same( 'selector_price', $result['extraction_method'], 'Selector method should be recorded.' );
 		},
+		'Mapped sale selector beats regular meta price' => static function () use ( $parser ): void {
+			$result = $parser->parse(
+				'<html><head><meta property="product:price:amount" content="9799.00"></head><body><span class="regular-price">9799 kr</span><span class="sale-price">8999 kr</span><span id="sku">SKU-123</span><span id="gtin">7040000000001</span></body></html>',
+				array(
+					'price_extraction_mode'  => 'auto',
+					'regular_price_selector' => '.regular-price',
+					'sale_price_selector'    => '.sale-price',
+					'sku_selector'           => '#sku',
+					'gtin_selector'          => '#gtin',
+					'monitored_price_field'  => 'sale_price_first',
+					'default_currency'       => 'NOK',
+				)
+			);
+
+			lpm_assert_true( $result['success'], 'Mapped selector extraction should succeed.' );
+			lpm_assert_float_equals( 8999.0, $result['price'], 'Sale selector should be monitored instead of the regular meta price.' );
+			lpm_assert_float_equals( 9799.0, $result['regular_price'], 'Regular selector should be captured.' );
+			lpm_assert_float_equals( 8999.0, $result['sale_price'], 'Sale selector should be captured.' );
+			lpm_assert_same( 'SKU-123', $result['sku'], 'SKU selector should be captured.' );
+			lpm_assert_same( '7040000000001', $result['gtin'], 'GTIN selector should be captured.' );
+			lpm_assert_same( 'sale_price', $result['price_field'], 'Selected price field should be sale price.' );
+			lpm_assert_same( 'selector_sale_price', $result['extraction_method'], 'Sale selector method should be recorded.' );
+		},
 		'Stock in text' => static function () use ( $parser, $selector_rules ): void {
 			$result = $parser->parse(
 				lpm_test_fixture( 'stock-in.html' ),
