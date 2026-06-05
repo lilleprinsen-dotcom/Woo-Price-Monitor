@@ -129,6 +129,22 @@ lpm_run_tests(
 			lpm_assert_true( $result['success'], 'Stock parser should still extract price.' );
 			lpm_assert_same( 'out_of_stock', $result['stock_status'], 'Out-of-stock text should win after case and whitespace normalization.' );
 		},
+		'Stock out wins with split newline phrase' => static function () use ( $parser, $selector_rules ): void {
+			$result = $parser->parse(
+				'<html><body><span class="price-current">kr 899</span><p id="stock-state">På' . "\n" . 'lager - Ikke' . "\n" . 'på lager</p></body></html>',
+				array_merge(
+					$selector_rules,
+					array(
+						'stock_selector' => '#stock-state',
+						'stock_in_text'  => 'på lager',
+						'stock_out_text' => 'ikke på lager',
+					)
+				)
+			);
+
+			lpm_assert_true( $result['success'], 'Stock parser should still extract price.' );
+			lpm_assert_same( 'out_of_stock', $result['stock_status'], 'Out-of-stock text should win when the phrase is split by newlines.' );
+		},
 		'No price failure' => static function () use ( $parser ): void {
 			$result = $parser->parse( lpm_test_fixture( 'no-price.html' ) );
 
