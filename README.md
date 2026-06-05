@@ -2,7 +2,7 @@
 
 Lilleprinsen Price Monitor is an admin-only WordPress/WooCommerce plugin for selected competitor price monitoring. It lets store admins add specific WooCommerce products to a monitored list, attach direct competitor product URLs, run bounded manual price checks, create dry-run price suggestions, and approve or reject suggestions in an admin pricing inbox.
 
-The plugin is built for a high-traffic WooCommerce store with around 100k products and 100k orders. It is conservative by default: it does not run heavy frontend work, does not scan the full catalog, and keeps WooCommerce price updates blocked unless several explicit safety settings are changed and a single-product confirmation flow is used.
+The plugin is built for a high-traffic WooCommerce store with around 100k products and 100k orders. It is conservative by default: it does not run heavy frontend work, does not scan the full catalog, and keeps WooCommerce price updates blocked unless several explicit safety settings are changed and a logged-in admin confirmation flow is used.
 
 ## Current Scope
 
@@ -96,6 +96,8 @@ composer run test:local
 composer run qa
 ```
 
-The local tests cover pure service behavior for `PriceParser`, `PricingRuleService`, `PriceRecoveryService`, and `ApprovalTokenService` using minimal WordPress function stubs. They do not load WordPress, WooCommerce, custom database tables, admin screens, Action Scheduler, WP-CLI commands, HTTP requests, or webhook delivery.
+The local tests cover pure service behavior for `PriceParser`, `PricingRuleService`, `PriceRecoveryService`, `GroupSuggestionService`, `ApprovalTokenService`, and `PriceMatchDisplayService` using minimal WordPress function stubs. They do not load WordPress, WooCommerce, custom database tables, admin screens, Action Scheduler, WP-CLI commands, HTTP requests, or webhook delivery.
+
+See [docs/PRODUCTION_AUDIT.md](docs/PRODUCTION_AUDIT.md) before staging or live dry-run launch.
 
 See `AGENTS.md` for coding rules, `docs/ARCHITECTURE.md` for module details, `docs/MVP.md` for staged work, `docs/SAFETY_REVIEW.md` for current guardrails, and `docs/MANUAL_TEST_PLAN.md` for manual QA.

@@ -154,7 +154,7 @@ final class TokenActionHandler {
 
 		return array(
 			'title'       => __( 'Token action blocked', 'lilleprinsen-price-monitor' ),
-			'message'     => $message . ' ' . __( 'WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
+			'message'     => $message . ' ' . __( 'Handlingen ble blokkert. WooCommerce-prisen ble ikke endret.', 'lilleprinsen-price-monitor' ),
 			'status_code' => 403,
 		);
 	}

@@ -2,6 +2,8 @@
 
 Use a staging WooCommerce site with a small set of products. Keep dry-run mode enabled unless specifically testing blocked real-update settings.
 
+Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
+
 ## Local CLI QA
 
 - [ ] Run `bash tools/lint-php.sh` or `composer run lint:php`.
