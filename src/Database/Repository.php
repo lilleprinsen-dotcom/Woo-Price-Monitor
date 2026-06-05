@@ -343,7 +343,7 @@ final class Repository {
 					'updated_at' => $now,
 				)
 			),
-			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s' )
+			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s', '%s' )
 		);
 
 		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -369,7 +369,7 @@ final class Repository {
 			$table,
 			array_merge( $profile, array( 'updated_at' => current_time( 'mysql' ) ) ),
 			array( 'id' => absint( $competitor_id ) ),
-			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s' ),
+			array( '%s', '%s', '%d', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%d', '%d', '%s', '%s' ),
 			array( '%d' )
 		);
 
@@ -1065,6 +1065,11 @@ final class Repository {
 				'monitored_product_id' => absint( $data['monitored_product_id'] ?? 0 ),
 				'product_id'           => absint( $data['product_id'] ?? 0 ),
 				'observed_price'       => $this->nullable_decimal( $data['observed_price'] ?? null ),
+				'observed_regular_price' => $this->nullable_decimal( $data['observed_regular_price'] ?? null ),
+				'observed_sale_price'  => $this->nullable_decimal( $data['observed_sale_price'] ?? null ),
+				'observed_sku'         => $this->nullable_limited_text( $data['observed_sku'] ?? null, 191 ),
+				'observed_gtin'        => $this->nullable_limited_text( $data['observed_gtin'] ?? null, 191 ),
+				'price_field'          => $this->nullable_limited_text( $data['price_field'] ?? null, 50 ),
 				'currency'             => $this->nullable_currency( $data['currency'] ?? null ),
 				'stock_status'         => $this->nullable_limited_text( $data['stock_status'] ?? null, 50 ),
 				'extraction_method'    => $this->nullable_limited_text( $data['extraction_method'] ?? null, 100 ),
@@ -1075,7 +1080,7 @@ final class Repository {
 				'checked_at'           => $this->nullable_datetime( $data['checked_at'] ?? null ) ?? current_time( 'mysql' ),
 				'created_at'           => current_time( 'mysql' ),
 			),
-			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%s', '%s' )
+			array( '%d', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%d', '%s', '%s' )
 		);
 
 		return false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -1227,6 +1232,72 @@ final class Repository {
 		);
 
 		return (bool) $this->wpdb->get_var( $sql );
+	}
+
+	/**
+	 * @return array<string, mixed>|null
+	 */
+	public function get_open_market_suggestion_for_monitored_product( int $monitored_product_id ): ?array {
+		$table = $this->tables['price_suggestions'];
+		$links = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return null;
+		}
+
+		$row = $this->wpdb->get_row(
+			$this->wpdb->prepare(
+				"SELECT ps.*, cl.competitor_name, cl.competitor_url
+				FROM {$table} ps
+				LEFT JOIN {$links} cl ON ps.competitor_link_id = cl.id
+				WHERE ps.monitored_product_id = %d AND ps.status IN (%s, %s)
+				ORDER BY ps.updated_at DESC, ps.id DESC
+				LIMIT 1",
+				absint( $monitored_product_id ),
+				'pending',
+				'blocked'
+			),
+			ARRAY_A
+		);
+
+		return is_array( $row ) ? $row : null;
+	}
+
+	/**
+	 * @param array<string, mixed> $data Suggestion fields.
+	 */
+	public function update_market_price_suggestion( int $suggestion_id, array $data ): bool {
+		$table = $this->tables['price_suggestions'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'competitor_link_id'  => isset( $data['competitor_link_id'] ) ? absint( $data['competitor_link_id'] ) : null,
+				'current_price'       => $this->decimal( $data['current_price'] ?? 0 ),
+				'competitor_price'    => $this->decimal( $data['competitor_price'] ?? 0 ),
+				'suggested_price'     => $this->decimal( $data['suggested_price'] ?? 0 ),
+				'difference'          => $this->decimal( $data['difference'] ?? 0 ),
+				'suggestion_type'     => $this->sanitize_suggestion_type( (string) ( $data['suggestion_type'] ?? 'manual_review' ) ),
+				'status'              => $this->sanitize_suggestion_status( (string) ( $data['status'] ?? 'pending' ) ),
+				'group_id'            => ! empty( $data['group_id'] ) ? absint( $data['group_id'] ) : null,
+				'applies_to_group'    => ! empty( $data['applies_to_group'] ) ? 1 : 0,
+				'group_action_status' => isset( $data['group_action_status'] ) ? $this->sanitize_limited_text( (string) $data['group_action_status'], 30, 'pending' ) : null,
+				'reason'              => isset( $data['reason'] ) ? sanitize_textarea_field( (string) $data['reason'] ) : null,
+				'margin_after_change' => $this->nullable_decimal( $data['margin_after_change'] ?? null ),
+				'rule_details'        => $this->nullable_json_text( $data['rule_details'] ?? null ),
+				'warnings'            => $this->nullable_json_text( $data['warnings'] ?? null ),
+				'updated_at'          => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $suggestion_id ) ),
+			array( '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
 	}
 
 	/**
@@ -2519,7 +2590,11 @@ final class Repository {
 			'request_timeout_seconds' => $this->nullable_bounded_int( $data['request_timeout_seconds'] ?? null, 1, 30 ),
 			'price_extraction_mode'   => $this->sanitize_price_extraction_mode( (string) ( $data['price_extraction_mode'] ?? 'auto' ) ),
 			'price_selector'          => $this->nullable_limited_text( $data['price_selector'] ?? null, 255 ),
+			'regular_price_selector'  => $this->nullable_limited_text( $data['regular_price_selector'] ?? null, 255 ),
 			'sale_price_selector'     => $this->nullable_limited_text( $data['sale_price_selector'] ?? null, 255 ),
+			'sku_selector'            => $this->nullable_limited_text( $data['sku_selector'] ?? null, 255 ),
+			'gtin_selector'           => $this->nullable_limited_text( $data['gtin_selector'] ?? null, 255 ),
+			'monitored_price_field'   => $this->sanitize_monitored_price_field( (string) ( $data['monitored_price_field'] ?? 'sale_price_first' ) ),
 			'stock_selector'          => $this->nullable_limited_text( $data['stock_selector'] ?? null, 255 ),
 			'stock_in_text'           => $this->nullable_limited_text( $data['stock_in_text'] ?? null, 255 ),
 			'stock_out_text'          => $this->nullable_limited_text( $data['stock_out_text'] ?? null, 255 ),
@@ -2536,6 +2611,13 @@ final class Repository {
 		$mode    = sanitize_key( $mode );
 
 		return in_array( $mode, $allowed, true ) ? $mode : 'auto';
+	}
+
+	private function sanitize_monitored_price_field( string $field ): string {
+		$allowed = array( 'sale_price_first', 'sale_price', 'regular_price', 'price_selector', 'lowest_price' );
+		$field   = sanitize_key( $field );
+
+		return in_array( $field, $allowed, true ) ? $field : 'sale_price_first';
 	}
 
 	private function sanitize_domain( string $domain ): ?string {

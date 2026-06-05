@@ -58,7 +58,7 @@ Current admin split:
 
 The Competitors tab has two layers:
 
-- Global competitor profiles in `lpm_competitors` for reusable domain, delay, timeout, extraction mode, selector, stock text, reliability, and JavaScript-requirement metadata.
+- Global competitor profiles in `lpm_competitors` for reusable domain, delay, timeout, extraction mode, mapped selectors, monitored price field, stock text, reliability, and JavaScript-requirement metadata.
 - Product-specific direct competitor links in `lpm_competitor_links`, optionally attached to a profile through nullable `competitor_id`. A link may be marked primary for recovery rules.
 
 `src/Admin/ProductSearchService.php` contains the bounded WooCommerce product search flow:
@@ -91,15 +91,15 @@ The Groups tab manages product groups in `lpm_product_groups` and `lpm_product_g
 
 `src/Service/PriceCheckService.php` runs a single bounded competitor URL check from admin or job contexts. It uses global settings or competitor profile overrides for timeout, sends a reasonable user agent, handles `WP_Error` and non-200 responses, and creates one `lpm_price_observations` row for each attempted check when the repository is available.
 
-Observation rows store check metadata such as product ID, competitor link ID, observed price, currency, stock status, extraction method, HTTP status, success flag, error message, response time, and checked timestamp. Raw HTML and full response bodies are not stored.
+Observation rows store check metadata such as product ID, competitor link ID, observed price, observed regular/sale price, observed SKU, observed EAN/GTIN, selected price field, currency, stock status, extraction method, HTTP status, success flag, error message, response time, and checked timestamp. Raw HTML and full response bodies are not stored.
 
-`src/Service/PriceParser.php` parses fetched HTML with optional competitor profile rules. Supported extraction modes are `auto`, `json_ld`, `meta_tags`, `selector`, and `visible_regex`. The default auto flow remains:
+`src/Service/PriceParser.php` parses fetched HTML with optional competitor profile rules. Supported extraction modes are `auto`, `json_ld`, `meta_tags`, `selector`, and `visible_regex`. When explicit mapped price selectors are configured, auto mode attempts selector extraction first so a sale-price selector can beat generic regular-price meta tags. Without mapped selectors, the default auto flow remains:
 
 1. JSON-LD Product offers price.
 2. Common product price meta tags.
 3. Basic visible NOK/kr price patterns.
 
-If a profile uses selector mode, limited selector extraction is attempted first. Selector support is intentionally small and dependency-free: `.class`, `#id`, and `[attr="value"]` patterns are translated through `DOMDocument` and `DOMXPath`. Profile stock selectors can classify stock as `in_stock`, `out_of_stock`, or `unknown` when matching text is configured.
+If a profile uses selector mode, limited selector extraction is attempted first. Selector support is intentionally small and dependency-free: `.class`, `#id`, and `[attr="value"]` patterns are translated through `DOMDocument` and `DOMXPath`. Profiles can map current/active price, regular price, sale price, SKU, and EAN/GTIN selectors, then choose which mapped price field should be monitored. Profile stock selectors can classify stock as `in_stock`, `out_of_stock`, or `unknown` when matching text is configured.
 
 Profiles marked as requiring JavaScript return a clear warning because the internal checker does not render JavaScript. Browser automation, anti-bot bypassing, and external scraper workers are future work and are not implemented here.
 
@@ -122,7 +122,7 @@ Current rule controls include:
 - maximum allowed drop and increase percentages
 - sale-product and out-of-stock blocking settings
 
-`src/Service/SuggestionService.php` compares the current WooCommerce product price with a competitor link's last detected price, asks `PricingRuleService` for the final dry-run decision, prevents duplicate pending suggestions for the same observed competitor price, and stores pending, blocked, skipped, or manual-review outcomes. Manual-review outcomes are stored as approval-inbox suggestions with `suggestion_type = manual_review` and workflow status `pending`.
+`src/Service/SuggestionService.php` compares the current WooCommerce product price with the lowest current market price from enabled comparable competitor links when available, asks `PricingRuleService` for the final dry-run decision, and keeps one open pending/blocked market suggestion per monitored product. If another competitor later becomes the lowest market price, the existing open suggestion is updated instead of creating one suggestion per competitor. Manual-review outcomes are stored as approval-inbox suggestions with `suggestion_type = manual_review` and workflow status `pending`.
 
 `src/Service/GroupSuggestionService.php` centralizes product group behavior. It determines whether a monitored product belongs to an active group, applies the exact pricing-mode rules, validates enabled group members for a suggested price, returns affected and blocked product IDs, and explains warnings in plain English.
 

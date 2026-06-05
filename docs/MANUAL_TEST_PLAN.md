@@ -48,9 +48,10 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Confirm monitored product bulk actions affect only selected rows on the current page.
 - [ ] Disable and re-enable monitoring for that product.
 - [ ] Open Competitors without a selected product and add a global competitor profile.
-- [ ] Edit the profile and update domain, default currency, request delay, request timeout, extraction mode, selectors, stock text, enabled state, JSON-LD/meta/regex flags, JavaScript requirement, and notes.
+- [ ] Edit the profile and update domain, default currency, request delay, request timeout, extraction mode, current/active price selector, regular price selector, sale price selector, SKU selector, EAN/GTIN selector, monitored price field, stock text, enabled state, JSON-LD/meta/regex flags, JavaScript requirement, and notes.
 - [ ] Confirm the competitor profile overview shows enabled state, delay, extraction mode, JavaScript flag, link count, success rate, and last check.
-- [ ] Use the profile Test URL field with a simple page and confirm the result card shows price, currency, stock status, extraction method, HTTP status, and error/warning.
+- [ ] Use the profile Test URL field with a simple page and confirm the result card shows selected price, regular price, sale price, SKU, EAN/GTIN, selected price field, currency, stock status, extraction method, HTTP status, and error/warning.
+- [ ] Configure a page where meta tags expose the regular price and a mapped sale-price selector exposes a lower sale price. Confirm auto mode selects the sale price when monitored price field is `sale_price_first`.
 - [ ] Mark the profile as requiring JavaScript and confirm profile testing returns the clear internal-checker warning without trying browser automation.
 - [ ] Confirm profile-only Test URL does not create a product observation row or update a competitor link.
 - [ ] Open Groups and create a group with pricing mode `shared_price`.
@@ -89,6 +90,7 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Confirm each Test check creates a row in the History tab without storing raw HTML.
 - [ ] Confirm failed Test check stores a clear error and writes a log.
 - [ ] Create a suggestion from a competitor link with `last_price`.
+- [ ] Add two or more competitors with prices for the same product, create suggestions from each, and confirm only one open market suggestion exists for the product. If a later competitor has a lower valid market price, confirm the existing suggestion updates instead of creating a second pending suggestion.
 - [ ] If webhook notifications are enabled for new suggestions, confirm the webhook payload includes product/suggestion fields and a WordPress admin `review_url`.
 - [ ] With token links disabled, confirm suggestion webhook payloads do not include `dry_run_approve_url` or `reject_url`.
 - [ ] Enable token dry-run approval links, create a pending suggestion notification, and confirm the webhook payload includes `dry_run_approve_url`, `reject_url`, and `token_expires_at`.

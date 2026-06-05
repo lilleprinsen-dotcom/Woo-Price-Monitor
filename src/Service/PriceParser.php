@@ -75,6 +75,11 @@ final class PriceParser {
 				'price'             => $price,
 				'currency'          => $this->normalize_currency( $offer['priceCurrency'] ?? ( $offer['currency'] ?? $default_currency ) ),
 				'extraction_method' => 'json_ld_offer',
+				'regular_price'     => null,
+				'sale_price'        => null,
+				'sku'               => '',
+				'gtin'              => '',
+				'price_field'       => 'json_ld_offer',
 				'stock_status'      => '',
 				'error'             => '',
 			);
@@ -142,6 +147,11 @@ final class PriceParser {
 					'price'             => $price,
 					'currency'          => $currency,
 					'extraction_method' => 'meta_' . sanitize_key( $key ),
+					'regular_price'     => null,
+					'sale_price'        => null,
+					'sku'               => '',
+					'gtin'              => '',
+					'price_field'       => 'meta_tags',
 					'stock_status'      => '',
 					'error'             => '',
 				);
@@ -199,6 +209,11 @@ final class PriceParser {
 					'price'             => $price,
 					'currency'          => $this->normalize_currency( $default_currency ),
 					'extraction_method' => 'visible_nok_regex',
+					'regular_price'     => null,
+					'sale_price'        => null,
+					'sku'               => '',
+					'gtin'              => '',
+					'price_field'       => 'visible_regex',
 					'stock_status'      => '',
 					'error'             => '',
 				);
@@ -213,37 +228,99 @@ final class PriceParser {
 	 * @return array{success: bool, price: float|null, currency: string, extraction_method: string, stock_status: string, error: string}
 	 */
 	private function parse_selector_prices( string $html, array $rules ): array {
-		$selectors = array(
-			'selector_sale_price' => (string) $rules['sale_price_selector'],
-			'selector_price'      => (string) $rules['price_selector'],
+		$active_price  = $this->extract_selector_price( $html, (string) $rules['price_selector'] );
+		$regular_price = $this->extract_selector_price( $html, (string) $rules['regular_price_selector'] );
+		$sale_price    = $this->extract_selector_price( $html, (string) $rules['sale_price_selector'] );
+		$sku           = $this->extract_identifier( $html, (string) $rules['sku_selector'] );
+		$gtin          = $this->extract_identifier( $html, (string) $rules['gtin_selector'] );
+		$selected      = $this->select_mapped_price(
+			$active_price,
+			$regular_price,
+			$sale_price,
+			(string) $rules['monitored_price_field']
 		);
 
-		foreach ( $selectors as $method => $selector ) {
-			if ( '' === $selector ) {
-				continue;
+		if ( null !== $selected['price'] ) {
+			return array(
+				'success'           => true,
+				'price'             => $selected['price'],
+				'currency'          => (string) $rules['default_currency'],
+				'extraction_method' => (string) $selected['method'],
+				'regular_price'     => $regular_price,
+				'sale_price'        => $sale_price,
+				'sku'               => $sku,
+				'gtin'              => $gtin,
+				'price_field'       => (string) $selected['field'],
+				'stock_status'      => '',
+				'error'             => '',
+			);
+		}
+
+		return $this->failure( '' );
+	}
+
+	private function extract_selector_price( string $html, string $selector ): ?float {
+		if ( '' === $selector ) {
+			return null;
+		}
+
+		return $this->normalize_price( $this->get_selector_text( $html, $selector ) );
+	}
+
+	private function extract_identifier( string $html, string $selector ): string {
+		if ( '' === $selector ) {
+			return '';
+		}
+
+		return substr( sanitize_text_field( $this->get_selector_text( $html, $selector ) ), 0, 191 );
+	}
+
+	/**
+	 * @return array{price: float|null, method: string, field: string}
+	 */
+	private function select_mapped_price( ?float $active_price, ?float $regular_price, ?float $sale_price, string $field ): array {
+		$options = array(
+			'sale_price'     => array( $sale_price, 'selector_sale_price' ),
+			'price_selector' => array( $active_price, 'selector_price' ),
+			'regular_price'  => array( $regular_price, 'selector_regular_price' ),
+		);
+
+		if ( 'lowest_price' === $field ) {
+			$prices = array_filter(
+				$options,
+				static fn( array $option ): bool => null !== $option[0]
+			);
+
+			if ( empty( $prices ) ) {
+				return array( 'price' => null, 'method' => '', 'field' => $field );
 			}
 
-			$text = $this->get_selector_text( $html, $selector );
+			uasort(
+				$prices,
+				static fn( array $a, array $b ): int => (float) $a[0] <=> (float) $b[0]
+			);
 
-			if ( '' === $text ) {
-				continue;
-			}
+			$key   = (string) array_key_first( $prices );
+			$value = $prices[ $key ];
 
-			$price = $this->normalize_price( $text );
+			return array( 'price' => (float) $value[0], 'method' => (string) $value[1], 'field' => $key );
+		}
 
-			if ( null !== $price ) {
+		if ( isset( $options[ $field ] ) && null !== $options[ $field ][0] ) {
+			return array( 'price' => (float) $options[ $field ][0], 'method' => (string) $options[ $field ][1], 'field' => $field );
+		}
+
+		foreach ( array( 'sale_price', 'price_selector', 'regular_price' ) as $fallback_field ) {
+			if ( null !== $options[ $fallback_field ][0] ) {
 				return array(
-					'success'           => true,
-					'price'             => $price,
-					'currency'          => (string) $rules['default_currency'],
-					'extraction_method' => $method,
-					'stock_status'      => '',
-					'error'             => '',
+					'price'  => (float) $options[ $fallback_field ][0],
+					'method' => (string) $options[ $fallback_field ][1],
+					'field'  => $fallback_field,
 				);
 			}
 		}
 
-		return $this->failure( '' );
+		return array( 'price' => null, 'method' => '', 'field' => $field );
 	}
 
 	/**
@@ -260,7 +337,11 @@ final class PriceParser {
 		return array(
 			'price_extraction_mode' => $mode,
 			'price_selector'        => isset( $rules['price_selector'] ) ? sanitize_text_field( (string) $rules['price_selector'] ) : '',
+			'regular_price_selector' => isset( $rules['regular_price_selector'] ) ? sanitize_text_field( (string) $rules['regular_price_selector'] ) : '',
 			'sale_price_selector'   => isset( $rules['sale_price_selector'] ) ? sanitize_text_field( (string) $rules['sale_price_selector'] ) : '',
+			'sku_selector'          => isset( $rules['sku_selector'] ) ? sanitize_text_field( (string) $rules['sku_selector'] ) : '',
+			'gtin_selector'         => isset( $rules['gtin_selector'] ) ? sanitize_text_field( (string) $rules['gtin_selector'] ) : '',
+			'monitored_price_field' => $this->normalize_monitored_price_field( $rules['monitored_price_field'] ?? 'sale_price_first' ),
 			'stock_selector'        => isset( $rules['stock_selector'] ) ? sanitize_text_field( (string) $rules['stock_selector'] ) : '',
 			'stock_in_text'         => isset( $rules['stock_in_text'] ) ? sanitize_text_field( (string) $rules['stock_in_text'] ) : '',
 			'stock_out_text'        => isset( $rules['stock_out_text'] ) ? sanitize_text_field( (string) $rules['stock_out_text'] ) : '',
@@ -279,7 +360,7 @@ final class PriceParser {
 		$order = array();
 		$mode  = (string) $rules['price_extraction_mode'];
 
-		if ( 'selector' === $mode && ( '' !== (string) $rules['price_selector'] || '' !== (string) $rules['sale_price_selector'] ) ) {
+		if ( 'selector' === $mode && $this->has_selector_price_rules( $rules ) ) {
 			$order[] = 'selector';
 		} elseif ( 'json_ld' === $mode && ! empty( $rules['json_ld_enabled'] ) ) {
 			$order[] = 'json_ld';
@@ -287,6 +368,10 @@ final class PriceParser {
 			$order[] = 'meta_tags';
 		} elseif ( 'visible_regex' === $mode && ! empty( $rules['visible_regex_enabled'] ) ) {
 			$order[] = 'visible_regex';
+		}
+
+		if ( 'auto' === $mode && $this->has_selector_price_rules( $rules ) ) {
+			$order[] = 'selector';
 		}
 
 		if ( ! empty( $rules['json_ld_enabled'] ) ) {
@@ -301,11 +386,30 @@ final class PriceParser {
 			$order[] = 'visible_regex';
 		}
 
-		if ( '' !== (string) $rules['price_selector'] || '' !== (string) $rules['sale_price_selector'] ) {
+		if ( $this->has_selector_price_rules( $rules ) ) {
 			$order[] = 'selector';
 		}
 
 		return array_values( array_unique( $order ) );
+	}
+
+	/**
+	 * @param array<string, mixed> $rules Normalized extraction rules.
+	 */
+	private function has_selector_price_rules( array $rules ): bool {
+		return '' !== (string) $rules['price_selector']
+			|| '' !== (string) $rules['regular_price_selector']
+			|| '' !== (string) $rules['sale_price_selector'];
+	}
+
+	/**
+	 * @param mixed $field Raw configured field.
+	 */
+	private function normalize_monitored_price_field( $field ): string {
+		$field   = sanitize_key( (string) $field );
+		$allowed = array( 'sale_price_first', 'sale_price', 'regular_price', 'price_selector', 'lowest_price' );
+
+		return in_array( $field, $allowed, true ) ? $field : 'sale_price_first';
 	}
 
 	/**
@@ -701,6 +805,11 @@ final class PriceParser {
 			'extraction_method' => '',
 			'stock_status'      => '',
 			'error'             => $error,
+			'regular_price'     => null,
+			'sale_price'        => null,
+			'sku'               => '',
+			'gtin'              => '',
+			'price_field'       => '',
 		);
 	}
 }
