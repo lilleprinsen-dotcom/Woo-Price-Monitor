@@ -324,24 +324,24 @@ final class PriceParser {
 	 */
 	private function detect_stock_status( string $html, array $rules ): string {
 		$selector  = (string) $rules['stock_selector'];
-		$in_text   = $this->normalize_match_text( (string) $rules['stock_in_text'] );
-		$out_text  = $this->normalize_match_text( (string) $rules['stock_out_text'] );
+		$in_text   = $this->normalize_stock_text( (string) $rules['stock_in_text'] );
+		$out_text  = $this->normalize_stock_text( (string) $rules['stock_out_text'] );
 
 		if ( '' === $selector || ( '' === $in_text && '' === $out_text ) ) {
 			return '';
 		}
 
-		$text = $this->normalize_match_text( $this->get_selector_text( $html, $selector ) );
+		$text = $this->normalize_stock_text( $this->get_selector_text( $html, $selector ) );
 
 		if ( '' === $text ) {
 			return 'unknown';
 		}
 
-		if ( '' !== $out_text && str_contains( $text, $out_text ) ) {
+		if ( $this->text_contains_stock_phrase( $text, $out_text ) ) {
 			return 'out_of_stock';
 		}
 
-		if ( '' !== $in_text && str_contains( $text, $in_text ) ) {
+		if ( $this->text_contains_stock_phrase( $text, $in_text ) ) {
 			return 'in_stock';
 		}
 
@@ -568,7 +568,36 @@ final class PriceParser {
 			return mb_strtolower( $text, 'UTF-8' );
 		}
 
+		$text = strtr(
+			$text,
+			array(
+				'Æ' => 'æ',
+				'Ø' => 'ø',
+				'Å' => 'å',
+				'Ä' => 'ä',
+				'Ö' => 'ö',
+				'Ü' => 'ü',
+				'É' => 'é',
+				'È' => 'è',
+				'Ê' => 'ê',
+				'Á' => 'á',
+				'À' => 'à',
+				'Â' => 'â',
+				'Ó' => 'ó',
+				'Ò' => 'ò',
+				'Ô' => 'ô',
+			)
+		);
+
 		return strtolower( $text );
+	}
+
+	private function normalize_stock_text( string $text ): string {
+		return $this->normalize_match_text( $text );
+	}
+
+	private function text_contains_stock_phrase( string $text, string $phrase ): bool {
+		return '' !== $phrase && str_contains( $text, $phrase );
 	}
 
 	private function selector_to_xpath( string $selector ): ?string {
