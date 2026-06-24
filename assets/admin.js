@@ -39,6 +39,22 @@
 		}).join('');
 	}
 
+	function isSelectablePriceField(field) {
+		return priceFieldOptions().some(function (option) {
+			return option[0] && option[0] === field;
+		});
+	}
+
+	function displayPriceField(row) {
+		var field = row && row.price_field ? String(row.price_field) : '';
+
+		if (field && !isSelectablePriceField(field)) {
+			return field;
+		}
+
+		return (row && (row.price_field_label || row.price_field)) || '—';
+	}
+
 	function ajax(action, data) {
 		var form = new FormData();
 		form.append('action', action);
@@ -449,7 +465,7 @@
 			return '';
 		}
 
-		return '<small>Read: ' + escapeHtml(latest.price_field_label || latest.price_field || '—') + ' · regular ' + escapeHtml(latest.observed_regular_price || '—') + ' · sale ' + escapeHtml(latest.observed_sale_price || '—') + '</small>';
+		return '<small>Read: ' + escapeHtml(displayPriceField(latest)) + ' · regular ' + escapeHtml(latest.observed_regular_price || '—') + ' · sale ' + escapeHtml(latest.observed_sale_price || '—') + '</small>';
 	}
 
 	function fillCompetitorForm(linkId) {
@@ -531,7 +547,7 @@
 		}
 
 		return '<table class="lpm-compact-table"><thead><tr><th>Time</th><th>Price</th><th>Used field</th><th>Regular</th><th>Sale</th><th>Method</th><th>Status</th><th>Error</th></tr></thead><tbody>' + observations.map(function (row) {
-			return '<tr><td>' + escapeHtml(row.checked_at || row.created_at) + '</td><td>' + escapeHtml(row.observed_price || '—') + ' ' + escapeHtml(row.currency || '') + '</td><td>' + escapeHtml(row.price_field_label || row.price_field || '—') + '</td><td>' + escapeHtml(row.observed_regular_price || '—') + '</td><td>' + escapeHtml(row.observed_sale_price || '—') + '</td><td>' + escapeHtml(row.extraction_method || '—') + '</td><td>' + (row.success ? 'Success' : 'Failed') + '</td><td>' + escapeHtml(row.error_message || '') + '</td></tr>';
+			return '<tr><td>' + escapeHtml(row.checked_at || row.created_at) + '</td><td>' + escapeHtml(row.observed_price || '—') + ' ' + escapeHtml(row.currency || '') + '</td><td>' + escapeHtml(displayPriceField(row)) + '</td><td>' + escapeHtml(row.observed_regular_price || '—') + '</td><td>' + escapeHtml(row.observed_sale_price || '—') + '</td><td>' + escapeHtml(row.extraction_method || '—') + '</td><td>' + (row.success ? 'Success' : 'Failed') + '</td><td>' + escapeHtml(row.error_message || '') + '</td></tr>';
 		}).join('') + '</tbody></table>';
 	}
 
