@@ -2,10 +2,10 @@
 /**
  * Discovery settings stored with the plugin settings option.
  *
- * @package LillePrinsen\PriceMonitor\Settings
+ * @package LilleprinsenPriceMonitor
  */
 
-namespace LillePrinsen\PriceMonitor\Settings;
+namespace Lilleprinsen\PriceMonitor\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;
@@ -46,14 +46,22 @@ class DiscoverySettings {
     }
 
     /**
-     * Get settings merged with plugin settings.
+     * Get discovery settings from the shared plugin option.
+     *
+     * The main Settings object intentionally drops unknown keys, so discovery
+     * settings read the raw option and sanitize their own keys.
      *
      * @return array<string,mixed>
      */
     public function get_all(): array {
-        $all = $this->settings->get_all();
+        $stored = get_option( Settings::OPTION_NAME, array() );
+        if ( ! is_array( $stored ) ) {
+            $stored = array();
+        }
 
-        return array_merge( $this->defaults(), array_intersect_key( $all, $this->defaults() ) );
+        $raw = array_merge( $this->defaults(), array_intersect_key( $stored, $this->defaults() ) );
+
+        return $this->sanitize( $raw );
     }
 
     /**
