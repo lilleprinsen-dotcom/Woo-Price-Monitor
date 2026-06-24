@@ -181,10 +181,40 @@ final class PriceCheckService {
 	 */
 	private function get_profile_for_link( array $competitor_link ): ?array {
 		if ( ! $this->repository || empty( $competitor_link['competitor_id'] ) ) {
-			return null;
+			return $this->apply_link_price_field_override( null, $competitor_link );
 		}
 
-		return $this->repository->get_competitor( (int) $competitor_link['competitor_id'] );
+		return $this->apply_link_price_field_override(
+			$this->repository->get_competitor( (int) $competitor_link['competitor_id'] ),
+			$competitor_link
+		);
+	}
+
+	/**
+	 * @param array<string, mixed>|null $profile Competitor profile row.
+	 * @param array<string, mixed> $competitor_link Competitor link row.
+	 * @return array<string, mixed>|null
+	 */
+	private function apply_link_price_field_override( ?array $profile, array $competitor_link ): ?array {
+		$override = $this->normalize_monitored_price_field( $competitor_link['price_field_override'] ?? '' );
+
+		if ( '' === $override ) {
+			return $profile;
+		}
+
+		$profile = $profile ?: array();
+		$profile['monitored_price_field'] = $override;
+
+		return $profile;
+	}
+
+	/**
+	 * @param mixed $field Raw configured field.
+	 */
+	private function normalize_monitored_price_field( $field ): string {
+		$field = sanitize_key( (string) $field );
+
+		return in_array( $field, array( 'sale_price_first', 'sale_price', 'regular_price', 'price_selector', 'lowest_price' ), true ) ? $field : '';
 	}
 
 	/**

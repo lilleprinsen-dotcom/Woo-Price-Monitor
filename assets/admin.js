@@ -20,6 +20,41 @@
 			.replace(/'/g, '&#039;');
 	}
 
+	function priceFieldOptions() {
+		return [
+			['', 'Use competitor default'],
+			['sale_price_first', 'Sale price first'],
+			['sale_price', 'Sale price only'],
+			['regular_price', 'Regular price only'],
+			['price_selector', 'Current price selector'],
+			['lowest_price', 'Lowest detected price']
+		];
+	}
+
+	function renderPriceFieldOptions(selected) {
+		selected = selected || '';
+
+		return priceFieldOptions().map(function (option) {
+			return '<option value="' + escapeHtml(option[0]) + '"' + (option[0] === selected ? ' selected' : '') + '>' + escapeHtml(option[1]) + '</option>';
+		}).join('');
+	}
+
+	function isSelectablePriceField(field) {
+		return priceFieldOptions().some(function (option) {
+			return option[0] && option[0] === field;
+		});
+	}
+
+	function displayPriceField(row) {
+		var field = row && row.price_field ? String(row.price_field) : '';
+
+		if (field && !isSelectablePriceField(field)) {
+			return field;
+		}
+
+		return (row && (row.price_field_label || row.price_field)) || '—';
+	}
+
 	function ajax(action, data) {
 		var form = new FormData();
 		form.append('action', action);
@@ -375,6 +410,10 @@
 	function renderCompetitorForm(link) {
 		link = link || {};
 		var profiles = drawerData.profiles || [];
+		var currentProfile = profiles.find(function (profile) {
+			return Number(profile.id) === Number(link.competitor_id);
+		});
+		var defaultLabel = currentProfile && currentProfile.monitored_price_field_label ? currentProfile.monitored_price_field_label : link.profile_price_field_label;
 
 		return [
 			'<form class="lpm-drawer-form" data-lpm-drawer-competitor-form>',
@@ -388,6 +427,7 @@
 			'<label>Match type<select name="match_type">' + ['unknown', 'exact', 'similar', 'different_variant', 'bundle', 'not_comparable'].map(function (type) {
 				return '<option value="' + type + '"' + (type === (link.match_type || 'unknown') ? ' selected' : '') + '>' + type + '</option>';
 			}).join('') + '</select></label>',
+			'<label>Price for comparison<select name="price_field_override">' + renderPriceFieldOptions(link.price_field_override || '') + '</select>' + (defaultLabel ? '<small>Default: ' + escapeHtml(defaultLabel) + '</small>' : '') + '</label>',
 			'<label class="lpm-checkbox-row"><input name="enabled" type="checkbox" value="1"' + (link.enabled === 0 ? '' : ' checked') + '> Enabled</label>',
 			'<label class="lpm-checkbox-row"><input name="is_primary" type="checkbox" value="1"' + (link.is_primary ? ' checked' : '') + '> Primary competitor</label>',
 			'<button type="submit" class="button button-primary">' + (link.id ? 'Update competitor link' : 'Add competitor link') + '</button>',
@@ -401,9 +441,11 @@
 		}
 
 		return '<div class="lpm-drawer-list">' + links.map(function (link) {
+			var priceFieldLine = 'Using ' + (link.effective_price_field_label || 'Sale price first') + (link.price_field_override ? ' · product override' : ' · competitor default');
+
 			return [
 				'<article class="lpm-drawer-list-item">',
-				'<div><strong>' + escapeHtml(link.competitor_name) + '</strong><small>' + escapeHtml(link.match_type) + ' · last ' + escapeHtml(link.last_price || '—') + ' ' + escapeHtml(link.last_currency || '') + '</small></div>',
+				'<div><strong>' + escapeHtml(link.competitor_name) + '</strong><small>' + escapeHtml(link.match_type) + ' · last ' + escapeHtml(link.last_price || '—') + ' ' + escapeHtml(link.last_currency || '') + '</small><small>' + escapeHtml(priceFieldLine) + '</small>' + renderLatestRead(link) + '</div>',
 				'<a href="' + escapeHtml(link.competitor_url) + '" target="_blank" rel="noopener noreferrer">Open</a>',
 				'<div class="lpm-actions">',
 				'<button type="button" class="button button-small" data-lpm-edit-link="' + escapeHtml(link.id) + '">Edit</button>',
@@ -414,6 +456,16 @@
 				'</article>'
 			].join('');
 		}).join('') + '</div>';
+	}
+
+	function renderLatestRead(link) {
+		var latest = (link.recent_observations || [])[0];
+
+		if (!latest || !latest.success) {
+			return '';
+		}
+
+		return '<small>Read: ' + escapeHtml(displayPriceField(latest)) + ' · regular ' + escapeHtml(latest.observed_regular_price || '—') + ' · sale ' + escapeHtml(latest.observed_sale_price || '—') + '</small>';
 	}
 
 	function fillCompetitorForm(linkId) {
@@ -494,8 +546,8 @@
 			return '<p class="lpm-empty">No recent checks.</p>';
 		}
 
-		return '<table class="lpm-compact-table"><thead><tr><th>Time</th><th>Price</th><th>Method</th><th>Status</th><th>Error</th></tr></thead><tbody>' + observations.map(function (row) {
-			return '<tr><td>' + escapeHtml(row.checked_at || row.created_at) + '</td><td>' + escapeHtml(row.observed_price || '—') + ' ' + escapeHtml(row.currency || '') + '</td><td>' + escapeHtml(row.extraction_method || '—') + '</td><td>' + (row.success ? 'Success' : 'Failed') + '</td><td>' + escapeHtml(row.error_message || '') + '</td></tr>';
+		return '<table class="lpm-compact-table"><thead><tr><th>Time</th><th>Price</th><th>Used field</th><th>Regular</th><th>Sale</th><th>Method</th><th>Status</th><th>Error</th></tr></thead><tbody>' + observations.map(function (row) {
+			return '<tr><td>' + escapeHtml(row.checked_at || row.created_at) + '</td><td>' + escapeHtml(row.observed_price || '—') + ' ' + escapeHtml(row.currency || '') + '</td><td>' + escapeHtml(displayPriceField(row)) + '</td><td>' + escapeHtml(row.observed_regular_price || '—') + '</td><td>' + escapeHtml(row.observed_sale_price || '—') + '</td><td>' + escapeHtml(row.extraction_method || '—') + '</td><td>' + (row.success ? 'Success' : 'Failed') + '</td><td>' + escapeHtml(row.error_message || '') + '</td></tr>';
 		}).join('') + '</tbody></table>';
 	}
 
