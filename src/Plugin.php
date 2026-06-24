@@ -12,26 +12,36 @@ use Lilleprinsen\PriceMonitor\Admin\AdminAjaxController;
 use Lilleprinsen\PriceMonitor\Admin\AdminNoticeStore;
 use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\CsvImportService;
+use Lilleprinsen\PriceMonitor\Admin\DiscoveryAdminPage;
+use Lilleprinsen\PriceMonitor\Admin\DiscoveryProductAdmin;
 use Lilleprinsen\PriceMonitor\Admin\Notices;
 use Lilleprinsen\PriceMonitor\Admin\ProductSearchService;
 use Lilleprinsen\PriceMonitor\Admin\TokenActionHandler;
 use Lilleprinsen\PriceMonitor\Assets\AdminAssets;
+use Lilleprinsen\PriceMonitor\Database\DiscoveryRepository;
+use Lilleprinsen\PriceMonitor\Database\DiscoverySchema;
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob;
+use Lilleprinsen\PriceMonitor\Jobs\CompetitorDiscoveryJob;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Cli\Command as CliCommand;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
+use Lilleprinsen\PriceMonitor\Service\CompetitorProductExtractor;
+use Lilleprinsen\PriceMonitor\Service\DiscoveryUrlService;
 use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
+use Lilleprinsen\PriceMonitor\Service\MatchSuggestionService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
 use Lilleprinsen\PriceMonitor\Service\PricingRuleService;
+use Lilleprinsen\PriceMonitor\Service\ProductIdentifierService;
 use Lilleprinsen\PriceMonitor\Service\RetentionService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
+use Lilleprinsen\PriceMonitor\Settings\DiscoverySettings;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -59,7 +69,9 @@ final class Plugin {
 		$this->initialized = true;
 
 		$settings             = new Settings();
+		$discovery_settings   = new DiscoverySettings( $settings );
 		$repository           = new Repository();
+		$discovery_repository = new DiscoveryRepository();
 		$price_recovery       = new PriceRecoveryService();
 		$pricing_rules        = new PricingRuleService();
 		$group_suggestions    = new GroupSuggestionService( $repository, $pricing_rules );
@@ -82,19 +94,31 @@ final class Plugin {
 		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service, $group_suggestions );
 		$token_handler        = new TokenActionHandler( $repository, $settings, $approval_tokens );
 		$ajax_controller      = new AdminAjaxController( $repository, $settings, $product_search, $price_check, $suggestion_service, $notification_service );
+		$url_service          = new DiscoveryUrlService();
+		$product_identifiers  = new ProductIdentifierService( $discovery_settings );
+		$extractor            = new CompetitorProductExtractor( $url_service, $discovery_settings );
+		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
+		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions );
+		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions );
+		$discovery_products   = new DiscoveryProductAdmin( $discovery_repository, $product_identifiers );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
 
 		add_action( 'admin_init', array( Schema::class, 'maybe_upgrade' ) );
+		add_action( 'admin_init', array( DiscoverySchema::class, 'maybe_upgrade' ) );
 		add_action( 'admin_init', array( $settings, 'handle_settings_save' ) );
 		add_action( 'admin_init', array( $admin_page, 'handle_actions' ) );
+		add_action( 'admin_init', array( $discovery_admin, 'handle_actions' ) );
 		add_action( 'admin_menu', array( new AdminMenu( $admin_page ), 'register' ) );
+		add_action( 'admin_menu', array( $discovery_admin, 'register_menu' ) );
 		add_action( 'admin_notices', array( new Notices(), 'render' ) );
 		add_action( 'admin_enqueue_scripts', array( new AdminAssets(), 'enqueue' ) );
 		add_action( 'admin_post_lpm_token_action', array( $token_handler, 'handle' ) );
 		add_action( 'admin_post_nopriv_lpm_token_action', array( $token_handler, 'handle' ) );
 		$ajax_controller->register();
 		$job_scheduler->register();
+		$discovery_job->register();
+		$discovery_products->register();
 		$this->register_cli( $settings, $repository, $check_job, $retention_service );
 	}
 
@@ -127,6 +151,7 @@ final class Plugin {
 		}
 
 		Schema::maybe_upgrade();
+		DiscoverySchema::maybe_upgrade();
 	}
 
 	private function __construct() {}
