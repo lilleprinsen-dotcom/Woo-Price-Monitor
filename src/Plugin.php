@@ -31,6 +31,7 @@ use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
 use Lilleprinsen\PriceMonitor\Service\CompetitorProductExtractor;
+use Lilleprinsen\PriceMonitor\Service\DiscoverySourceService;
 use Lilleprinsen\PriceMonitor\Service\DiscoveryUrlService;
 use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
 use Lilleprinsen\PriceMonitor\Service\MatchSuggestionService;
@@ -97,10 +98,11 @@ final class Plugin {
 		$url_service          = new DiscoveryUrlService();
 		$product_identifiers  = new ProductIdentifierService( $discovery_settings );
 		$extractor            = new CompetitorProductExtractor( $url_service, $discovery_settings );
+		$source_service       = new DiscoverySourceService( $url_service, $discovery_settings );
 		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
-		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions );
-		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions );
-		$discovery_products   = new DiscoveryProductAdmin( $discovery_repository, $product_identifiers );
+		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $url_service );
+		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service );
+		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
 
