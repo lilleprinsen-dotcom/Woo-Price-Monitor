@@ -8,6 +8,7 @@
 namespace Lilleprinsen\PriceMonitor\Admin;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
@@ -203,6 +204,10 @@ final class AdminAjaxController {
 			$message = __( 'Competitor link added.', 'lilleprinsen-price-monitor' );
 		}
 
+		if ( ! $this->update_competitor_link_price_field_override( $link_id, $data['price_field_override'] ?? null ) ) {
+			$this->send_error( __( 'Competitor price field choice could not be saved.', 'lilleprinsen-price-monitor' ), 500 );
+		}
+
 		$this->repository->write_log( 'info', $event, $message, array( 'competitor_link_id' => $link_id ), (int) $monitored_product['product_id'] );
 
 		$this->send_success(
@@ -237,6 +242,9 @@ final class AdminAjaxController {
 				'competitor_link_id' => (int) $link['id'],
 				'price'              => $result['price'],
 				'currency'           => $result['currency'],
+				'price_field'        => $result['price_field'] ?? '',
+				'regular_price'      => $result['regular_price'] ?? null,
+				'sale_price'         => $result['sale_price'] ?? null,
 				'extraction_method'  => $result['extraction_method'],
 				'error'              => $result['error'],
 				'http_status'        => $result['http_status'],
@@ -247,7 +255,7 @@ final class AdminAjaxController {
 
 		$this->send_success(
 			array(
-				'result'           => $result,
+				'result'           => $this->format_check_result( $result ),
 				'message'          => ! empty( $result['success'] )
 					? __( 'Detected price. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' )
 					: __( 'Check failed. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
@@ -388,11 +396,12 @@ final class AdminAjaxController {
 	 * @return array<string, mixed>
 	 */
 	private function get_competitor_link_request_data( int $monitored_product_id ): array {
-		$competitor_id = $this->request_absint( 'competitor_id' );
-		$profile       = $competitor_id > 0 ? $this->repository->get_competitor( $competitor_id ) : null;
-		$name          = isset( $_REQUEST['competitor_name'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['competitor_name'] ) ) : '';
-		$url           = isset( $_REQUEST['competitor_url'] ) ? esc_url_raw( wp_unslash( $_REQUEST['competitor_url'] ) ) : '';
-		$match_type    = isset( $_REQUEST['match_type'] ) ? sanitize_key( wp_unslash( $_REQUEST['match_type'] ) ) : 'unknown';
+		$competitor_id        = $this->request_absint( 'competitor_id' );
+		$profile              = $competitor_id > 0 ? $this->repository->get_competitor( $competitor_id ) : null;
+		$name                 = isset( $_REQUEST['competitor_name'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['competitor_name'] ) ) : '';
+		$url                  = isset( $_REQUEST['competitor_url'] ) ? esc_url_raw( wp_unslash( $_REQUEST['competitor_url'] ) ) : '';
+		$match_type           = isset( $_REQUEST['match_type'] ) ? sanitize_key( wp_unslash( $_REQUEST['match_type'] ) ) : 'unknown';
+		$price_field_override = isset( $_REQUEST['price_field_override'] ) ? $this->sanitize_price_field_override( wp_unslash( $_REQUEST['price_field_override'] ) ) : null;
 
 		if ( $competitor_id > 0 && ! $profile ) {
 			return array( 'error' => __( 'Competitor profile not found.', 'lilleprinsen-price-monitor' ) );
@@ -416,6 +425,7 @@ final class AdminAjaxController {
 			'competitor_name'      => $name,
 			'competitor_url'       => $url,
 			'match_type'           => $match_type,
+			'price_field_override' => $price_field_override,
 			'enabled'              => ! empty( $_REQUEST['enabled'] ) ? 1 : 0,
 			'is_primary'           => ! empty( $_REQUEST['is_primary'] ) ? 1 : 0,
 		);
@@ -503,8 +513,24 @@ final class AdminAjaxController {
 	private function format_competitor_links( array $links ): array {
 		return array_map(
 			function ( array $link ): array {
-				$link = $this->sanitize_row( $link );
-				$link['recent_observations'] = $this->format_observations( $this->repository->get_recent_observations_for_competitor_link( (int) $link['id'], 5 ) );
+				$link          = $this->sanitize_row( $link );
+				$profile_field = 'sale_price_first';
+				$profile       = ! empty( $link['competitor_id'] ) ? $this->repository->get_competitor( (int) $link['competitor_id'] ) : null;
+
+				if ( $profile && ! empty( $profile['monitored_price_field'] ) ) {
+					$profile_field = $this->sanitize_price_field( $profile['monitored_price_field'] );
+				}
+
+				$override = $this->sanitize_price_field_override( $link['price_field_override'] ?? '' );
+				$effective = $override ?: $profile_field;
+
+				$link['price_field_override']       = $override;
+				$link['price_field_override_label'] = $override ? $this->get_price_field_label( $override ) : '';
+				$link['profile_price_field']        = $profile_field;
+				$link['profile_price_field_label']  = $this->get_price_field_label( $profile_field );
+				$link['effective_price_field']      = $effective;
+				$link['effective_price_field_label'] = $this->get_price_field_label( $effective );
+				$link['recent_observations']        = $this->format_observations( $this->repository->get_recent_observations_for_competitor_link( (int) $link['id'], 5 ) );
 
 				return $link;
 			},
@@ -517,7 +543,18 @@ final class AdminAjaxController {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function format_competitor_profiles( array $profiles ): array {
-		return array_map( array( $this, 'sanitize_row' ), $profiles );
+		return array_map(
+			function ( array $profile ): array {
+				$profile = $this->sanitize_row( $profile );
+				$field   = $this->sanitize_price_field( $profile['monitored_price_field'] ?? 'sale_price_first' );
+
+				$profile['monitored_price_field']       = $field;
+				$profile['monitored_price_field_label'] = $this->get_price_field_label( $field );
+
+				return $profile;
+			},
+			$profiles
+		);
 	}
 
 	/**
@@ -525,7 +562,17 @@ final class AdminAjaxController {
 	 * @return array<int, array<string, mixed>>
 	 */
 	private function format_observations( array $observations ): array {
-		return array_map( array( $this, 'sanitize_row' ), $observations );
+		return array_map(
+			function ( array $observation ): array {
+				$observation = $this->sanitize_row( $observation );
+				$field       = $this->sanitize_price_field( $observation['price_field'] ?? '' );
+
+				$observation['price_field_label'] = '' !== $field ? $this->get_price_field_label( $field ) : '';
+
+				return $observation;
+			},
+			$observations
+		);
 	}
 
 	/**
@@ -566,6 +613,96 @@ final class AdminAjaxController {
 	 */
 	private function format_logs( array $logs ): array {
 		return array_map( array( $this, 'sanitize_row' ), $logs );
+	}
+
+	/**
+	 * @param array<string, mixed> $result Check result.
+	 * @return array<string, mixed>
+	 */
+	private function format_check_result( array $result ): array {
+		$result = $this->sanitize_row( $result );
+		$field  = $this->sanitize_price_field( $result['price_field'] ?? '' );
+
+		$result['price_field_label'] = '' !== $field ? $this->get_price_field_label( $field ) : '';
+
+		return $result;
+	}
+
+	/**
+	 * @param mixed $override Raw override.
+	 */
+	private function sanitize_price_field_override( $override ): ?string {
+		$field = sanitize_key( (string) $override );
+
+		if ( '' === $field || 'profile_default' === $field ) {
+			return null;
+		}
+
+		return $this->sanitize_price_field( $field );
+	}
+
+	/**
+	 * @param mixed $field Raw field.
+	 */
+	private function sanitize_price_field( $field ): string {
+		$field = sanitize_key( (string) $field );
+
+		return in_array( $field, array_keys( $this->get_price_field_options() ), true ) ? $field : 'sale_price_first';
+	}
+
+	/**
+	 * @return array<string, string>
+	 */
+	private function get_price_field_options(): array {
+		return array(
+			'sale_price_first' => __( 'Sale price first', 'lilleprinsen-price-monitor' ),
+			'sale_price'       => __( 'Sale price only', 'lilleprinsen-price-monitor' ),
+			'regular_price'    => __( 'Regular price only', 'lilleprinsen-price-monitor' ),
+			'price_selector'   => __( 'Current price selector', 'lilleprinsen-price-monitor' ),
+			'lowest_price'     => __( 'Lowest detected price', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	private function get_price_field_label( string $field ): string {
+		$options = $this->get_price_field_options();
+
+		return $options[ $field ] ?? $options['sale_price_first'];
+	}
+
+	private function update_competitor_link_price_field_override( int $link_id, ?string $override ): bool {
+		global $wpdb;
+
+		if ( $link_id <= 0 ) {
+			return false;
+		}
+
+		$tables = Schema::table_names();
+		$table  = $tables['competitor_links'];
+
+		if ( ! $this->table_has_column( $table, 'price_field_override' ) ) {
+			return true;
+		}
+
+		$result = $wpdb->update(
+			$table,
+			array(
+				'price_field_override' => $override,
+				'updated_at'           => current_time( 'mysql' ),
+			),
+			array( 'id' => $link_id ),
+			array( '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $result;
+	}
+
+	private function table_has_column( string $table, string $column ): bool {
+		global $wpdb;
+
+		$result = $wpdb->get_var( $wpdb->prepare( "SHOW COLUMNS FROM {$table} LIKE %s", $column ) );
+
+		return $column === $result;
 	}
 
 	/**
