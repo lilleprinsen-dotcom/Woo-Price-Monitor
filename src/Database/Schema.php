@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '2.1.0';
+	public const VERSION = '2.2.0';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -118,6 +118,7 @@ final class Schema {
 			match_type varchar(50) NOT NULL DEFAULT 'unknown',
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			is_primary tinyint(1) NOT NULL DEFAULT 0,
+			price_field_override varchar(50) DEFAULT NULL,
 			last_price decimal(20,4) DEFAULT NULL,
 			last_currency varchar(10) DEFAULT NULL,
 			last_stock_status varchar(50) DEFAULT NULL,
