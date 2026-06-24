@@ -35,7 +35,7 @@ lpm_run_tests(
 
 			lpm_assert_same( 'https://example.no/product/123?variant=blue', $normalized, 'Tracking parameters and fragments should be removed.' );
 			lpm_assert_true( $url_service->matches_domain( $normalized, 'example.no' ), 'Same-domain check should pass.' );
-			lpm_assert_false( $url_service->is_safe_url( 'http://127.0.0.1/admin' ), 'Localhost IPs must be blocked.' );
+			lpm_assert_true( ! $url_service->is_safe_url( 'http://127.0.0.1/admin' ), 'Localhost IPs must be blocked.' );
 		},
 		'JSON-LD Product extraction handles identifiers, price and availability' => static function () use ( $extractor ): void {
 			$html = '<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Stroller Model X","sku":"10201031","gtin13":"7040351234567","mpn":"MPN-88","brand":{"name":"Nordic Baby"},"image":"https://competitor.no/images/10201031.jpg","offers":{"@type":"Offer","price":"1 299,00","priceCurrency":"NOK","availability":"https://schema.org/InStock"}}</script></head><body></body></html>';
