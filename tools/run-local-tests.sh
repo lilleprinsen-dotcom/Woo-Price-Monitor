@@ -16,6 +16,7 @@ TESTS=(
 	"$ROOT_DIR/tools/test-group-suggestions.php"
 	"$ROOT_DIR/tools/test-approval-tokens.php"
 	"$ROOT_DIR/tools/test-price-match-display.php"
+	"$ROOT_DIR/tools/test-discovery-services.php"
 )
 
 for test_file in "${TESTS[@]}"; do

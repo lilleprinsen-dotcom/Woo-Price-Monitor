@@ -153,7 +153,7 @@ spl_autoload_register(
 	static function ( string $class_name ): void {
 		$prefix = 'Lilleprinsen\\PriceMonitor\\';
 
-		if ( 0 !== strncmp( $class_name, $prefix, strlen( $prefix ) ) ) {
+		if ( 0 !== strncasecmp( $class_name, $prefix, strlen( $prefix ) ) ) {
 			return;
 		}
 
