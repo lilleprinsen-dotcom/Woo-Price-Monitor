@@ -1,177 +1,216 @@
 <?php
 /**
- * Bounded competitor discovery refresh job.
+ * Bounded competitor discovery job.
  *
- * @package LillePrinsen\PriceMonitor\Jobs
+ * @package LilleprinsenPriceMonitor
  */
 
-namespace LillePrinsen\PriceMonitor\Jobs;
+namespace Lilleprinsen\PriceMonitor\Jobs;
 
-use LillePrinsen\PriceMonitor\Database\DiscoveryRepository;
-use LillePrinsen\PriceMonitor\Database\DiscoverySchema;
-use LillePrinsen\PriceMonitor\Database\Repository;
-use LillePrinsen\PriceMonitor\Service\CompetitorProductExtractor;
-use LillePrinsen\PriceMonitor\Service\MatchSuggestionService;
-use LillePrinsen\PriceMonitor\Settings\DiscoverySettings;
+use Lilleprinsen\PriceMonitor\Database\DiscoveryRepository;
+use Lilleprinsen\PriceMonitor\Database\DiscoverySchema;
+use Lilleprinsen\PriceMonitor\Database\Repository;
+use Lilleprinsen\PriceMonitor\Service\CompetitorProductExtractor;
+use Lilleprinsen\PriceMonitor\Service\DiscoverySourceService;
+use Lilleprinsen\PriceMonitor\Service\DiscoveryUrlService;
+use Lilleprinsen\PriceMonitor\Service\MatchSuggestionService;
+use Lilleprinsen\PriceMonitor\Settings\DiscoverySettings;
 
 if ( ! defined( 'ABSPATH' ) ) {
-    exit;
+	exit;
 }
 
 /**
  * Runs safe, resumable discovery batches.
  */
 class CompetitorDiscoveryJob {
-    public const ACTION = 'lpm_run_competitor_discovery_batch';
+	public const ACTION = 'lpm_run_competitor_discovery_batch';
 
-    private const LOCK_KEY = 'lpm_competitor_discovery_lock';
+	private const LOCK_KEY = 'lpm_competitor_discovery_lock';
 
-    private Repository $repository;
-    private DiscoveryRepository $discovery_repository;
-    private DiscoverySettings $settings;
-    private CompetitorProductExtractor $extractor;
-    private MatchSuggestionService $matcher;
+	private Repository $repository;
+	private DiscoveryRepository $discovery_repository;
+	private DiscoverySettings $settings;
+	private CompetitorProductExtractor $extractor;
+	private MatchSuggestionService $matcher;
+	private DiscoverySourceService $source_service;
+	private DiscoveryUrlService $url_service;
 
-    /**
-     * Constructor.
-     */
-    public function __construct(
-        Repository $repository,
-        DiscoveryRepository $discovery_repository,
-        DiscoverySettings $settings,
-        CompetitorProductExtractor $extractor,
-        MatchSuggestionService $matcher
-    ) {
-        $this->repository           = $repository;
-        $this->discovery_repository = $discovery_repository;
-        $this->settings             = $settings;
-        $this->extractor            = $extractor;
-        $this->matcher              = $matcher;
-    }
+	/** Constructor. */
+	public function __construct(
+		Repository $repository,
+		DiscoveryRepository $discovery_repository,
+		DiscoverySettings $settings,
+		CompetitorProductExtractor $extractor,
+		MatchSuggestionService $matcher,
+		DiscoverySourceService $source_service,
+		DiscoveryUrlService $url_service
+	) {
+		$this->repository           = $repository;
+		$this->discovery_repository = $discovery_repository;
+		$this->settings             = $settings;
+		$this->extractor            = $extractor;
+		$this->matcher              = $matcher;
+		$this->source_service       = $source_service;
+		$this->url_service          = $url_service;
+	}
 
-    /**
-     * Register hooks.
-     */
-    public function register(): void {
-        add_action( self::ACTION, array( $this, 'run' ), 10, 2 );
-        add_action( 'init', array( $this, 'maybe_schedule' ) );
-    }
+	/** Register hooks. */
+	public function register(): void {
+		add_action( self::ACTION, array( $this, 'run' ), 10, 2 );
+		add_action( 'init', array( $this, 'maybe_schedule' ) );
+	}
 
-    /**
-     * Schedule weekly discovery if enabled.
-     */
-    public function maybe_schedule(): void {
-        $settings = $this->settings->get_all();
-        if ( empty( $settings['discovery_enabled'] ) || ! function_exists( 'as_next_scheduled_action' ) || ! function_exists( 'as_schedule_recurring_action' ) ) {
-            return;
-        }
+	/** Schedule or unschedule weekly discovery according to settings. */
+	public function maybe_schedule(): void {
+		$settings = $this->settings->get_all();
+		if ( ! function_exists( 'as_next_scheduled_action' ) || ! function_exists( 'as_schedule_recurring_action' ) ) {
+			return;
+		}
 
-        if ( as_next_scheduled_action( self::ACTION ) ) {
-            return;
-        }
+		if ( empty( $settings['discovery_enabled'] ) ) {
+			$this->unschedule();
+			return;
+		}
 
-        $hour = absint( $settings['discovery_low_traffic_hour'] ?? 2 );
-        $first = strtotime( 'next Sunday ' . $hour . ':00:00', current_time( 'timestamp' ) );
-        as_schedule_recurring_action( $first ?: time() + DAY_IN_SECONDS, WEEK_IN_SECONDS, self::ACTION, array( 0, 0 ), 'lilleprinsen-price-monitor' );
-    }
+		if ( as_next_scheduled_action( self::ACTION ) ) {
+			return;
+		}
 
-    /**
-     * Queue a manual batch when Action Scheduler is available.
-     */
-    public function enqueue_manual_batch( int $competitor_id = 0 ): bool {
-        if ( function_exists( 'as_enqueue_async_action' ) ) {
-            as_enqueue_async_action( self::ACTION, array( $competitor_id, 0 ), 'lilleprinsen-price-monitor' );
-            return true;
-        }
+		$hour  = absint( $settings['discovery_low_traffic_hour'] ?? 2 );
+		$first = strtotime( 'next Sunday ' . $hour . ':00:00', current_time( 'timestamp' ) );
+		as_schedule_recurring_action( $first ?: time() + DAY_IN_SECONDS, WEEK_IN_SECONDS, self::ACTION, array( 0, 0 ), 'lilleprinsen-price-monitor' );
+	}
 
-        return false;
-    }
+	/** Unschedule recurring discovery actions. */
+	public function unschedule(): void {
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( self::ACTION, array(), 'lilleprinsen-price-monitor' );
+		}
+	}
 
-    /**
-     * Run one bounded refresh batch.
-     */
-    public function run( int $competitor_id = 0, int $offset = 0 ): void {
-        if ( get_transient( self::LOCK_KEY ) ) {
-            return;
-        }
+	/** Queue a manual batch when Action Scheduler is available. */
+	public function enqueue_manual_batch( int $competitor_id = 0 ): bool {
+		if ( function_exists( 'as_enqueue_async_action' ) ) {
+			as_enqueue_async_action( self::ACTION, array( $competitor_id, 0 ), 'lilleprinsen-price-monitor' );
+			return true;
+		}
 
-        set_transient( self::LOCK_KEY, 1, 10 * MINUTE_IN_SECONDS );
-        DiscoverySchema::maybe_upgrade();
+		return false;
+	}
 
-        $settings = $this->settings->get_all();
-        $limit    = max( 1, min( 500, absint( $settings['discovery_max_product_pages_per_run'] ?? 50 ) ) );
-        $run_id   = $this->discovery_repository->create_run( $competitor_id > 0 ? $competitor_id : null, 'scheduled_refresh', $limit );
-        $processed = 0;
-        $suggestions = 0;
-        $failures = 0;
-        $last_error = '';
+	/** Run one bounded discovery batch. */
+	public function run( int $competitor_id = 0, int $offset = 0 ): void {
+		if ( get_transient( self::LOCK_KEY ) ) {
+			return;
+		}
 
-        try {
-            $rows = $this->get_rows_for_refresh( $competitor_id, $limit, $offset );
-            $selected_products = $this->discovery_repository->get_enabled_products_for_matching( 500 );
+		set_transient( self::LOCK_KEY, 1, 10 * MINUTE_IN_SECONDS );
+		DiscoverySchema::maybe_upgrade();
 
-            foreach ( $rows as $row ) {
-                $competitor = $this->repository->get_competitor( (int) $row->competitor_id );
-                if ( ! $competitor || empty( $competitor['enabled'] ) ) {
-                    continue;
-                }
+		$settings       = $this->settings->get_all();
+		$request_limit  = max( 1, min( 100, absint( $settings['discovery_max_requests_per_batch'] ?? 25 ) ) );
+		$product_limit  = max( 1, min( 500, absint( $settings['discovery_max_product_pages_per_run'] ?? 50 ) ) );
+		$listing_limit  = max( 0, min( 50, absint( $settings['discovery_max_listing_pages_per_run'] ?? 5 ) ) );
+		$run_id         = $this->discovery_repository->create_run( $competitor_id > 0 ? $competitor_id : null, 'batch_discovery', $request_limit );
+		$processed      = 0;
+		$suggestions    = 0;
+		$failures       = 0;
+		$requests       = 0;
+		$discovered     = 0;
+		$last_error     = '';
+		$last_hash      = '';
 
-                $result = $this->extractor->test_url( (string) $row->url, $competitor );
-                if ( empty( $result['success'] ) ) {
-                    ++$failures;
-                    $last_error = (string) ( $result['technical_details'] ?? $result['message'] ?? '' );
-                    continue;
-                }
+		try {
+			$seed_rows = $this->discovery_repository->get_due_seed_urls( $competitor_id, $listing_limit, $offset );
+			foreach ( $seed_rows as $seed ) {
+				if ( $requests >= $request_limit ) {
+					break;
+				}
+				$competitor = $this->repository->get_competitor( (int) $seed->competitor_id );
+				if ( ! $competitor || empty( $competitor['enabled'] ) ) {
+					continue;
+				}
 
-                $stored_id = $this->discovery_repository->store_discovered_product( (int) $row->competitor_id, (string) $row->url, $result );
-                $stored = $this->discovery_repository->get_discovered_product( $stored_id );
-                if ( $stored ) {
-                    $suggestions += count( $this->matcher->create_suggestions( $stored_id, $stored, $selected_products ) );
-                }
+				$result = $this->source_service->discover_from_seed( $seed, $competitor );
+				$requests += (int) ( $result['request_count'] ?? 1 );
+				if ( empty( $result['success'] ) ) {
+					++$failures;
+					$last_error = (string) ( $result['technical_details'] ?? $result['message'] ?? '' );
+					$this->discovery_repository->mark_seed_url_checked( (int) $seed->id, $last_error );
+					$this->record_health( (int) $seed->competitor_id, false, $last_error, '' );
+					continue;
+				}
 
-                ++$processed;
-                $delay = absint( $settings['discovery_request_delay_seconds'] ?? 3 );
-                if ( $delay > 0 ) {
-                    sleep( min( 5, $delay ) );
-                }
-            }
+				foreach ( $result['urls'] as $url ) {
+					$this->discovery_repository->queue_discovered_product_url( (int) $seed->competitor_id, $url, $this->url_service->hash_url( $url ), (int) $seed->id, $this->url_service->get_domain( $url ) );
+					++$discovered;
+				}
+				$this->discovery_repository->mark_seed_url_checked( (int) $seed->id );
+				$this->delay( $settings );
+			}
 
-            $this->discovery_repository->finish_run( $run_id, 'completed', $processed, $suggestions, $failures, $last_error );
-        } catch ( \Throwable $error ) {
-            $this->discovery_repository->finish_run( $run_id, 'failed', $processed, $suggestions, $failures + 1, $error->getMessage() );
-        }
+			$selected_products = $this->discovery_repository->get_enabled_products_for_matching( 500 );
+			$product_rows      = $this->discovery_repository->get_due_discovered_product_pages( $competitor_id, min( $product_limit, max( 0, $request_limit - $requests ) ), 0 );
 
-        delete_transient( self::LOCK_KEY );
-    }
+			foreach ( $product_rows as $row ) {
+				if ( $requests >= $request_limit ) {
+					break;
+				}
+				$competitor = $this->repository->get_competitor( (int) $row->competitor_id );
+				if ( ! $competitor || empty( $competitor['enabled'] ) ) {
+					continue;
+				}
 
-    /**
-     * Read discovered product rows due for refresh.
-     *
-     * @return array<int,object>
-     */
-    private function get_rows_for_refresh( int $competitor_id, int $limit, int $offset ): array {
-        global $wpdb;
+				$result = $this->extractor->test_url( (string) $row->url, $competitor );
+				++$requests;
+				if ( empty( $result['success'] ) ) {
+					++$failures;
+					$last_error = (string) ( $result['technical_details'] ?? $result['message'] ?? '' );
+					$this->discovery_repository->store_discovered_product( (int) $row->competitor_id, (string) $row->url, array_merge( (array) $result, array( 'url_hash' => (string) $row->url_hash, 'failure_count' => (int) $row->failure_count + 1 ) ) );
+					$this->record_health( (int) $row->competitor_id, false, $last_error, '' );
+					continue;
+				}
 
-        $tables = DiscoverySchema::table_names();
-        $table  = $tables['discovered_competitor_products'];
+				$stored_id = $this->discovery_repository->store_discovered_product( (int) $row->competitor_id, (string) $row->url, $result );
+				$stored    = $this->discovery_repository->get_discovered_product( $stored_id );
+				if ( $stored ) {
+					$suggestions += count( $this->matcher->create_suggestions( $stored_id, $stored, $selected_products ) );
+					$last_hash = (string) $stored->content_hash;
+				}
+				++$processed;
+				$this->record_health( (int) $row->competitor_id, true, '', $last_hash );
+				$this->delay( $settings );
+			}
 
-        if ( $competitor_id > 0 ) {
-            return $wpdb->get_results(
-                $wpdb->prepare(
-                    "SELECT * FROM {$table} WHERE competitor_id = %d ORDER BY last_checked_at ASC, id ASC LIMIT %d OFFSET %d",
-                    $competitor_id,
-                    $limit,
-                    max( 0, $offset )
-                )
-            );
-        }
+			$this->discovery_repository->finish_run( $run_id, 'completed', $processed, $suggestions, $failures, $last_error, $requests, $discovered );
+		} catch ( \Throwable $error ) {
+			$this->discovery_repository->finish_run( $run_id, 'failed', $processed, $suggestions, $failures + 1, $error->getMessage(), $requests, $discovered );
+		} finally {
+			delete_transient( self::LOCK_KEY );
+		}
+	}
 
-        return $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT * FROM {$table} ORDER BY last_checked_at ASC, id ASC LIMIT %d OFFSET %d",
-                $limit,
-                max( 0, $offset )
-            )
-        );
-    }
+	/** Record competitor health. */
+	private function record_health( int $competitor_id, bool $success, string $error, string $content_hash ): void {
+		$settings = $this->settings->get_all();
+		$this->discovery_repository->record_competitor_health( $competitor_id, $success, $error, $content_hash, $this->discovery_repository->count_suggestions( 'pending' ), 0, absint( $settings['discovery_auto_pause_failures'] ?? 5 ) );
+		if ( ! $success ) {
+			$health = $this->discovery_repository->get_competitor_health_rows();
+			foreach ( $health as $row ) {
+				if ( (int) $row->competitor_id === $competitor_id && 'paused' === (string) $row->status ) {
+					$this->repository->set_competitor_enabled( $competitor_id, false );
+					break;
+				}
+			}
+		}
+	}
+
+	/** Delay between requests. */
+	private function delay( array $settings ): void {
+		$delay = absint( $settings['discovery_request_delay_seconds'] ?? 3 );
+		if ( $delay > 0 ) {
+			sleep( min( 5, $delay ) );
+		}
+	}
 }
