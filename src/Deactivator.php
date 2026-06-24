@@ -7,12 +7,16 @@
 
 namespace Lilleprinsen\PriceMonitor;
 
+use Lilleprinsen\PriceMonitor\Jobs\CompetitorDiscoveryJob;
+
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
 final class Deactivator {
 	public static function deactivate(): void {
-		// No destructive deactivation cleanup is needed for the current custom tables.
+		if ( function_exists( 'as_unschedule_all_actions' ) ) {
+			as_unschedule_all_actions( CompetitorDiscoveryJob::ACTION, array(), 'lilleprinsen-price-monitor' );
+		}
 	}
 }
