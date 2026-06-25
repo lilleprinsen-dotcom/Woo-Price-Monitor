@@ -2,6 +2,15 @@
 
 Competitor Price Assistant helps store staff find competitor product pages for the WooCommerce products they choose. Discovery is separate from approved price monitoring: it creates suggested matches, and regular monitoring starts only after an admin approves a suggestion.
 
+The normal workflow is simple:
+
+1. Select the products you want to monitor.
+2. Add a competitor website.
+3. Click **Scan monitored SKUs**.
+4. Review and approve suggested matches.
+
+The assistant searches the competitor website for the SKUs you selected, checks possible competitor product pages, and suggests matches when it finds the same SKU/EAN/MPN or strong product evidence.
+
 ## Select Products
 
 Discovery never scans the full catalog by default. Add only the products that should be eligible for competitor matching.
@@ -56,9 +65,27 @@ The assistant shows:
 
 Source labels are plain-language labels such as **Structured product data**, **Product meta tag**, **Page content**, **Image URL**, and **Custom competitor rule**.
 
+## Scan Monitored SKUs
+
+Use **Scan monitored SKUs** for the Reprice-style workflow: the plugin takes the SKUs from **Products to Monitor**, searches the competitor website, queues possible product pages, reads identifiers and prices, then creates suggested matches.
+
+The default scan is intentionally bounded:
+
+- It searches only explicitly selected products.
+- It uses only a few common competitor search URLs per SKU.
+- It stays on the competitor domain by default.
+- It leaves part of the request batch for reading product pages and creating suggestions.
+- It never scans the full WooCommerce catalog automatically.
+
+Common search formats are tried automatically, including WooCommerce-style `?s=SKU`, generic search pages, and Magento-style catalog search pages. Advanced users can add competitor-specific search URL templates in competitor notes, for example:
+
+```json
+{"search_url_templates":["search?q={sku}","finn?q={sku}"]}
+```
+
 ## Add Discovery Sources
 
-Use **Add page with many products** for conservative discovery sources.
+Use **Add page with many products** when the competitor search does not find enough pages or when you know a useful category/listing/sitemap page.
 
 Supported source types:
 
@@ -68,7 +95,7 @@ Supported source types:
 
 By default, source discovery stays on the competitor domain, removes common tracking parameters, deduplicates URLs, skips cart/checkout/account/search/filter URLs, and only queues URLs that look like product pages.
 
-Use **Run small discovery** per competitor to queue a bounded Action Scheduler batch. Discovery uses request limits, page limits, delays, locks, and resume-friendly stored state.
+Manual discovery and SKU scanning both use bounded Action Scheduler batches with request limits, page limits, delays, locks, and resume-friendly stored state.
 
 ## Review Suggested Matches
 
@@ -122,6 +149,9 @@ Health includes last run, success/failure counts, pending suggestions, approved 
 Useful settings:
 
 - Weekly discovery jobs: off unless enabled.
+- SKU scanning: on by default for selected products.
+- Max SKU searches per run: default 5.
+- Search URL attempts per SKU: default 2.
 - Max product pages per competitor run: default 50.
 - Max requests per batch: default 25.
 - Request delay: default 3 seconds.
@@ -135,7 +165,7 @@ Competitor-specific technical extraction rules can be stored as JSON in competit
 
 Discovery is designed for stores with large catalogs. It only uses explicitly selected products for matching, normally around 100 to 300 products. The selected product table caches normalized identifiers so matching does not query all product meta on every run.
 
-Background jobs process explicit source URLs and known product URLs in bounded batches. One failed competitor does not block existing approved price monitoring.
+Background jobs process selected SKU searches, explicit source URLs, and known product URLs in bounded batches. One failed competitor does not block existing approved price monitoring.
 
 ## Safety Notes
 

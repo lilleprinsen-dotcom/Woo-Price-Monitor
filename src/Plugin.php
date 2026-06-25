@@ -41,6 +41,7 @@ use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
 use Lilleprinsen\PriceMonitor\Service\PricingRuleService;
 use Lilleprinsen\PriceMonitor\Service\ProductIdentifierService;
 use Lilleprinsen\PriceMonitor\Service\RetentionService;
+use Lilleprinsen\PriceMonitor\Service\SkuSearchDiscoveryService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
 use Lilleprinsen\PriceMonitor\Settings\DiscoverySettings;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
@@ -99,8 +100,9 @@ final class Plugin {
 		$product_identifiers  = new ProductIdentifierService( $discovery_settings );
 		$extractor            = new CompetitorProductExtractor( $url_service, $discovery_settings );
 		$source_service       = new DiscoverySourceService( $url_service, $discovery_settings );
+		$sku_search           = new SkuSearchDiscoveryService( $url_service, $source_service, $discovery_settings );
 		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
-		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $url_service );
+		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $sku_search, $url_service );
 		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service );
 		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
