@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 final class Deactivator {
 	public static function deactivate(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( CompetitorDiscoveryJob::ACTION, array(), 'lilleprinsen-price-monitor' );
+			as_unschedule_all_actions( CompetitorDiscoveryJob::ACTION, null, 'lilleprinsen-price-monitor' );
 		}
 	}
 }
