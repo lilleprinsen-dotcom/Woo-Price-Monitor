@@ -1,17 +1,6 @@
 (function () {
 	'use strict';
 
-	function relabelSkuScanActions() {
-		document.querySelectorAll('input[name="lpm_discovery_action"][value="run_small_discovery"]').forEach(function (input) {
-			var form = input.closest('form');
-			var button = form ? form.querySelector('button') : null;
-
-			if (button) {
-				button.textContent = 'Scan monitored SKUs';
-			}
-		});
-	}
-
 	function addFindMatchesHelper() {
 		var heading = Array.prototype.find.call(document.querySelectorAll('h2'), function (item) {
 			return item.textContent.trim() === 'Find Matches';
@@ -28,7 +17,6 @@
 	}
 
 	document.addEventListener('DOMContentLoaded', function () {
-		relabelSkuScanActions();
 		addFindMatchesHelper();
 	});
 })();
