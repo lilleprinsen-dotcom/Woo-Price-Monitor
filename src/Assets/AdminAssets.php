@@ -19,6 +19,18 @@ final class AdminAssets {
 
 		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
 
+		if ( 'lpm-competitor-prices' === $page ) {
+			wp_enqueue_script(
+				'lpm-discovery-admin',
+				LPM_PLUGIN_URL . 'assets/discovery-admin.js',
+				array(),
+				LPM_VERSION,
+				true
+			);
+
+			return;
+		}
+
 		if ( AdminPage::SLUG !== $page ) {
 			return;
 		}

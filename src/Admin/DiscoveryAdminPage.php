@@ -235,7 +235,7 @@ class DiscoveryAdminPage {
 			<p><button class="button button-primary"><?php esc_html_e( 'Test Product Page', 'lilleprinsen-price-monitor' ); ?></button></p>
 		</form>
 		<?php $this->render_last_test(); ?>
-		<h3><?php esc_html_e( 'Add page with many products', 'lilleprinsen-price-monitor' ); ?></h3>
+		<h3 id="lpm-add-product-source"><?php esc_html_e( 'Add page with many products', 'lilleprinsen-price-monitor' ); ?></h3>
 		<form method="post" style="max-width:900px;">
 			<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="add_seed_url" />
 			<table class="form-table" role="presentation"><tr><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->competitor_select( 'seed_competitor_id', $competitors, false ); ?></td></tr><tr><th><?php esc_html_e( 'Source type', 'lilleprinsen-price-monitor' ); ?></th><td><select name="source_type"><option value="listing"><?php esc_html_e( 'Page with many products', 'lilleprinsen-price-monitor' ); ?></option><option value="product"><?php esc_html_e( 'Example product URL', 'lilleprinsen-price-monitor' ); ?></option><option value="sitemap"><?php esc_html_e( 'Sitemap URL', 'lilleprinsen-price-monitor' ); ?></option></select></td></tr><tr><th><?php esc_html_e( 'URL', 'lilleprinsen-price-monitor' ); ?></th><td><input name="seed_url" type="url" class="large-text" required /></td></tr></table>
@@ -364,6 +364,8 @@ class DiscoveryAdminPage {
 		}
 		$result          = $this->extractor->test_url( $url, $competitor );
 		$this->last_test = $result;
+		$this->last_test['competitor_id'] = $competitor_id;
+		$this->last_test['suggestion_count'] = 0;
 		if ( empty( $result['success'] ) ) {
 			$this->set_notice( (string) $result['message'], 'error' );
 			return;
@@ -372,6 +374,7 @@ class DiscoveryAdminPage {
 		$discovered_id  = $this->discovery_repository->store_discovered_product( $competitor_id, $url, $result );
 		$discovered     = $this->discovery_repository->get_discovered_product( $discovered_id );
 		$suggestion_ids = $discovered ? $this->matcher->create_suggestions( $discovered_id, $discovered, $this->discovery_repository->get_enabled_products_for_matching( 500 ) ) : array();
+		$this->last_test['suggestion_count'] = count( $suggestion_ids );
 		$this->set_notice( sprintf( __( '%1$s Created %2$d suggested matches for review.', 'lilleprinsen-price-monitor' ), (string) $result['message'], count( $suggestion_ids ) ) );
 	}
 
@@ -388,6 +391,8 @@ class DiscoveryAdminPage {
 		}
 		$result = $this->extractor->test_url( (string) $suggestion->competitor_url, $competitor );
 		$this->last_test = $result;
+		$this->last_test['competitor_id'] = (int) $suggestion->competitor_id;
+		$this->last_test['suggestion_count'] = 1;
 		$this->set_notice( empty( $result['success'] ) ? (string) $result['message'] : __( 'Retest complete. Review the detected values before approving.', 'lilleprinsen-price-monitor' ), empty( $result['success'] ) ? 'error' : 'success' );
 	}
 
@@ -432,9 +437,33 @@ class DiscoveryAdminPage {
 			return;
 		}
 		$fields = array( 'title' => __( 'Product title', 'lilleprinsen-price-monitor' ), 'sku' => __( 'SKU', 'lilleprinsen-price-monitor' ), 'gtin' => __( 'EAN/GTIN', 'lilleprinsen-price-monitor' ), 'mpn' => __( 'MPN', 'lilleprinsen-price-monitor' ), 'brand' => __( 'Brand', 'lilleprinsen-price-monitor' ), 'regular_price' => __( 'Regular price', 'lilleprinsen-price-monitor' ), 'sale_price' => __( 'Sale price', 'lilleprinsen-price-monitor' ), 'currency' => __( 'Currency', 'lilleprinsen-price-monitor' ), 'stock_status' => __( 'Stock status', 'lilleprinsen-price-monitor' ), 'image_url' => __( 'Image', 'lilleprinsen-price-monitor' ), 'canonical_url' => __( 'Canonical URL', 'lilleprinsen-price-monitor' ) );
-		$sources = is_array( $this->last_test['sources'] ?? null ) ? $this->last_test['sources'] : array();
+		$sources          = is_array( $this->last_test['sources'] ?? null ) ? $this->last_test['sources'] : array();
+		$competitor_id    = absint( $this->last_test['competitor_id'] ?? 0 );
+		$suggestion_count = absint( $this->last_test['suggestion_count'] ?? 0 );
+		$success          = ! empty( $this->last_test['success'] );
+		$suggestions_url  = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'suggestions' ), admin_url( 'admin.php' ) );
+		$products_url     = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'products' ), admin_url( 'admin.php' ) );
 		?>
 		<h3><?php esc_html_e( 'Detected values', 'lilleprinsen-price-monitor' ); ?></h3><table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Field', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Detected value', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Source', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Confidence', 'lilleprinsen-price-monitor' ); ?></th></tr></thead><tbody><?php foreach ( $fields as $key => $label ) : ?><tr><td><?php echo esc_html( $label ); ?></td><td><?php echo esc_html( (string) ( $this->last_test[ $key ] ?? '' ) ); ?></td><td><?php echo esc_html( (string) ( $sources[ $key ] ?? '' ) ); ?></td><td><?php echo esc_html( (string) ( $this->last_test['confidence_status'] ?? '' ) ); ?></td></tr><?php endforeach; ?></tbody></table>
+		<?php if ( $success ) : ?>
+			<div class="notice notice-info inline" style="margin:14px 0;padding:12px 14px;">
+				<p><strong><?php esc_html_e( 'Next step', 'lilleprinsen-price-monitor' ); ?></strong></p>
+				<p><?php echo esc_html( 0 < $suggestion_count ? sprintf( __( 'We created %d suggested matches. Review them before anything is added to price monitoring.', 'lilleprinsen-price-monitor' ), $suggestion_count ) : __( 'We could read the page, but did not find a matching selected product yet. Check that the product is selected and that SKU or EAN/GTIN matches what the competitor page shows.', 'lilleprinsen-price-monitor' ) ); ?></p>
+				<p style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+					<a class="button button-primary" href="<?php echo esc_url( $suggestions_url ); ?>"><?php esc_html_e( 'View suggested matches', 'lilleprinsen-price-monitor' ); ?></a>
+					<a class="button" href="#lpm-add-product-source"><?php esc_html_e( 'Add page with many products', 'lilleprinsen-price-monitor' ); ?></a>
+					<a class="button" href="<?php echo esc_url( $products_url ); ?>"><?php esc_html_e( 'Check selected products', 'lilleprinsen-price-monitor' ); ?></a>
+					<?php if ( $competitor_id > 0 ) : ?>
+						<form method="post" style="display:inline-block;margin:0;">
+							<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?>
+							<input type="hidden" name="lpm_discovery_action" value="run_small_discovery" />
+							<input type="hidden" name="competitor_id" value="<?php echo esc_attr( (string) $competitor_id ); ?>" />
+							<button class="button"><?php esc_html_e( 'Find more products', 'lilleprinsen-price-monitor' ); ?></button>
+						</form>
+					<?php endif; ?>
+				</p>
+			</div>
+		<?php endif; ?>
 		<?php if ( ! empty( $this->last_test['technical_details'] ) ) : ?><details style="margin-top:12px;"><summary><?php esc_html_e( 'Show details', 'lilleprinsen-price-monitor' ); ?></summary><pre><?php echo esc_html( (string) $this->last_test['technical_details'] ); ?></pre></details><?php endif; ?>
 		<?php
 	}
