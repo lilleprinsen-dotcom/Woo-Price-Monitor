@@ -149,6 +149,77 @@ if ( ! function_exists( 'current_time' ) ) {
 	}
 }
 
+if ( ! class_exists( 'WP_Error' ) ) {
+	class WP_Error {
+		private string $message;
+
+		public function __construct( string $code = '', string $message = '' ) {
+			unset( $code );
+			$this->message = $message;
+		}
+
+		public function get_error_message(): string {
+			return $this->message;
+		}
+	}
+}
+
+if ( ! function_exists( 'is_wp_error' ) ) {
+	function is_wp_error( $value ): bool {
+		return $value instanceof WP_Error;
+	}
+}
+
+if ( ! function_exists( 'wp_remote_get' ) ) {
+	function wp_remote_get( $url, $args = array() ) {
+		unset( $args );
+		$responses = $GLOBALS['lpm_test_http_responses'] ?? array();
+		$url       = (string) $url;
+		if ( isset( $responses[ $url ] ) ) {
+			return array_merge(
+				array(
+					'response' => array( 'code' => 200 ),
+					'headers'  => array(),
+					'body'     => '',
+				),
+				$responses[ $url ]
+			);
+		}
+
+		return array(
+			'response' => array( 'code' => 404 ),
+			'headers'  => array(),
+			'body'     => '',
+		);
+	}
+}
+
+if ( ! function_exists( 'wp_remote_retrieve_response_code' ) ) {
+	function wp_remote_retrieve_response_code( $response ): int {
+		return (int) ( $response['response']['code'] ?? 0 );
+	}
+}
+
+if ( ! function_exists( 'wp_remote_retrieve_header' ) ) {
+	function wp_remote_retrieve_header( $response, string $header ) {
+		$headers = $response['headers'] ?? array();
+		$header  = strtolower( $header );
+		foreach ( $headers as $key => $value ) {
+			if ( strtolower( (string) $key ) === $header ) {
+				return $value;
+			}
+		}
+
+		return '';
+	}
+}
+
+if ( ! function_exists( 'wp_remote_retrieve_body' ) ) {
+	function wp_remote_retrieve_body( $response ): string {
+		return (string) ( $response['body'] ?? '' );
+	}
+}
+
 spl_autoload_register(
 	static function ( string $class_name ): void {
 		$prefix = 'Lilleprinsen\\PriceMonitor\\';

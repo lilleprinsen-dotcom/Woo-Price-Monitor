@@ -31,6 +31,7 @@ class DiscoverySettings {
 		return array(
 			'discovery_enabled'                   => 0,
 			'discovery_sku_scan_enabled'          => 1,
+			'discovery_sku_crawl_enabled'         => 1,
 			'discovery_gtin_source'               => 'global_unique_id',
 			'discovery_gtin_meta_key'             => '',
 			'discovery_max_product_pages_per_run' => 50,
@@ -38,6 +39,7 @@ class DiscoverySettings {
 			'discovery_max_requests_per_batch'    => 25,
 			'discovery_max_sku_searches_per_run'  => 5,
 			'discovery_search_urls_per_sku'       => 2,
+			'discovery_max_crawl_pages_per_run'   => 8,
 			'discovery_request_delay_seconds'     => 3,
 			'discovery_low_traffic_hour'          => 2,
 			'discovery_auto_pause_failures'       => 5,
@@ -123,6 +125,7 @@ class DiscoverySettings {
 		return array(
 			'discovery_enabled'                   => empty( $input['discovery_enabled'] ) ? 0 : 1,
 			'discovery_sku_scan_enabled'          => empty( $input['discovery_sku_scan_enabled'] ) ? 0 : 1,
+			'discovery_sku_crawl_enabled'         => empty( $input['discovery_sku_crawl_enabled'] ) ? 0 : 1,
 			'discovery_gtin_source'               => $this->sanitize_choice( $input['discovery_gtin_source'] ?? $defaults['discovery_gtin_source'], array_keys( $this->gtin_source_options() ), 'global_unique_id' ),
 			'discovery_gtin_meta_key'             => sanitize_key( (string) ( $input['discovery_gtin_meta_key'] ?? '' ) ),
 			'discovery_max_product_pages_per_run' => $this->sanitize_int( $input['discovery_max_product_pages_per_run'] ?? $defaults['discovery_max_product_pages_per_run'], 1, 500 ),
@@ -130,6 +133,7 @@ class DiscoverySettings {
 			'discovery_max_requests_per_batch'    => $this->sanitize_int( $input['discovery_max_requests_per_batch'] ?? $defaults['discovery_max_requests_per_batch'], 1, 100 ),
 			'discovery_max_sku_searches_per_run'  => $this->sanitize_int( $input['discovery_max_sku_searches_per_run'] ?? $defaults['discovery_max_sku_searches_per_run'], 1, 200 ),
 			'discovery_search_urls_per_sku'       => $this->sanitize_int( $input['discovery_search_urls_per_sku'] ?? $defaults['discovery_search_urls_per_sku'], 1, 10 ),
+			'discovery_max_crawl_pages_per_run'   => $this->sanitize_int( $input['discovery_max_crawl_pages_per_run'] ?? $defaults['discovery_max_crawl_pages_per_run'], 1, 50 ),
 			'discovery_request_delay_seconds'     => $this->sanitize_int( $input['discovery_request_delay_seconds'] ?? $defaults['discovery_request_delay_seconds'], 0, 30 ),
 			'discovery_low_traffic_hour'          => $this->sanitize_int( $input['discovery_low_traffic_hour'] ?? $defaults['discovery_low_traffic_hour'], 0, 23 ),
 			'discovery_auto_pause_failures'       => $this->sanitize_int( $input['discovery_auto_pause_failures'] ?? $defaults['discovery_auto_pause_failures'], 1, 50 ),

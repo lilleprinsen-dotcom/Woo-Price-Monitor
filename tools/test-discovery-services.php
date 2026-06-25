@@ -74,6 +74,8 @@ lpm_run_tests(
 			lpm_assert_true( $url_service->matches_domain( $normalized, 'example.no' ), 'Same-domain check should pass.' );
 			lpm_assert_true( ! $url_service->is_safe_url( 'http://127.0.0.1/admin' ), 'Localhost IPs must be blocked.' );
 			lpm_assert_true( ! $url_service->is_safe_url( 'https://example.no:22/product' ), 'Unexpected ports must be blocked.' );
+			lpm_assert_true( ! $url_service->looks_like_product_url( 'https://example.no/category/barnevogn', array(), array(), array( 'p' ) ), 'Single-letter product patterns must not match every https URL.' );
+			lpm_assert_true( $url_service->looks_like_product_url( 'https://example.no/p/10201031', array(), array(), array( 'p' ) ), 'Single-letter product patterns should still match path segments.' );
 		},
 		'EAN source resolves SKU, custom meta and variation before parent fallback' => static function () use ( $identifiers ): void {
 			$GLOBALS['lpm_test_products'] = array(
