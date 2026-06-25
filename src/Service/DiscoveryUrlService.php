@@ -187,7 +187,17 @@ class DiscoveryUrlService {
 		}
 
 		foreach ( $product_patterns as $pattern ) {
-			if ( '' !== $pattern && str_contains( $normalized, strtolower( $pattern ) ) ) {
+			$pattern = strtolower( trim( $pattern ) );
+			if ( '' === $pattern ) {
+				continue;
+			}
+			if ( strlen( $pattern ) <= 1 ) {
+				if ( preg_match( '#/(?:' . preg_quote( $pattern, '#' ) . ')(?:/|-|_|$)#', $normalized ) ) {
+					return true;
+				}
+				continue;
+			}
+			if ( str_contains( $normalized, $pattern ) ) {
 				return true;
 			}
 		}

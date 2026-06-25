@@ -67,13 +67,16 @@ Source labels are plain-language labels such as **Structured product data**, **P
 
 ## Scan Monitored SKUs
 
-Use **Scan monitored SKUs** for the Reprice-style workflow: the plugin takes the SKUs from **Products to Monitor**, searches the competitor website, queues possible product pages, reads identifiers and prices, then creates suggested matches.
+Use **Scan monitored SKUs** for the Reprice-style workflow: the plugin takes the SKUs from **Products to Monitor**, crawls a small safe set of pages on the competitor website, searches the competitor website, queues possible product pages, reads identifiers and prices, then creates suggested matches.
 
 The button is shown in **WooCommerce > Competitor Prices > Find Matches**, in the **Competitors** table. After clicking it, wait a minute and open **Suggested Matches**. Matches are still review-only until an admin approves them.
 
 The default scan is intentionally bounded:
 
 - It searches only explicitly selected products.
+- It starts from the competitor website and any pages you added under **Add page with many products**.
+- It follows only a small number of same-domain links per run.
+- It queues product pages when a selected SKU is found on the page or in a same-domain product link.
 - It uses only a few common competitor search URLs per SKU.
 - It stays on the competitor domain by default.
 - It leaves part of the request batch for reading product pages and creating suggestions.
@@ -152,6 +155,8 @@ Useful settings:
 
 - Weekly discovery jobs: off unless enabled.
 - SKU scanning: on by default for selected products.
+- SKU crawling: on by default for selected products.
+- Max crawl pages per run: default 8.
 - Max SKU searches per run: default 5.
 - Search URL attempts per SKU: default 2.
 - Search URL templates: editable under **Advanced Settings** for competitors with unusual search pages.

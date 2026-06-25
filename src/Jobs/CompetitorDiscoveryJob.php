@@ -157,6 +157,53 @@ class CompetitorDiscoveryJob {
 				$this->delay( $settings );
 			}
 
+			if ( ! empty( $settings['discovery_sku_crawl_enabled'] ) && $requests < $request_limit && ! empty( $selected_products ) ) {
+				foreach ( $this->competitors_for_run( $competitor_id ) as $competitor ) {
+					if ( empty( $competitor['enabled'] ) || $requests >= $request_limit ) {
+						continue;
+					}
+
+					$result = $this->sku_search->crawl_for_selected_skus(
+						$competitor,
+						$selected_products,
+						$this->discovery_repository->get_seed_urls_for_competitor( (int) $competitor['id'] ),
+						max( 1, $request_limit - $requests )
+					);
+					$requests += (int) ( $result['request_count'] ?? 0 );
+
+					foreach ( (array) ( $result['matched_products'] ?? array() ) as $discovery_product_id ) {
+						$this->discovery_repository->mark_discovery_product_run( (int) $discovery_product_id );
+					}
+
+					if ( empty( $result['success'] ) ) {
+						++$failures;
+						$last_error = (string) ( $result['technical_details'] ?? $result['message'] ?? '' );
+						$this->record_health( (int) $competitor['id'], false, $last_error, '' );
+						continue;
+					}
+
+					foreach ( $result['urls'] as $url ) {
+						$this->discovery_repository->store_discovered_product(
+							(int) $competitor['id'],
+							$url,
+							array(
+								'url_hash'          => $this->url_service->hash_url( $url ),
+								'discovery_source'  => 'sku_crawl',
+								'domain'            => $this->url_service->get_domain( $url ),
+								'extraction_status' => 'queued',
+								'raw_metadata'      => array(
+									'matched_discovery_product_ids' => array_map( 'absint', (array) ( $result['matched_products'] ?? array() ) ),
+								),
+							)
+						);
+						++$discovered;
+					}
+
+					$this->record_health( (int) $competitor['id'], true, '', '' );
+					$this->delay( $settings );
+				}
+			}
+
 			if ( ! empty( $settings['discovery_sku_scan_enabled'] ) && $requests < $request_limit && ! empty( $selected_products ) ) {
 				$competitors = $this->competitors_for_run( $competitor_id );
 				$sku_searches = 0;
