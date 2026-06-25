@@ -14,6 +14,7 @@ use Lilleprinsen\PriceMonitor\Service\CompetitorProductExtractor;
 use Lilleprinsen\PriceMonitor\Service\DiscoverySourceService;
 use Lilleprinsen\PriceMonitor\Service\DiscoveryUrlService;
 use Lilleprinsen\PriceMonitor\Service\MatchSuggestionService;
+use Lilleprinsen\PriceMonitor\Service\SkuSearchDiscoveryService;
 use Lilleprinsen\PriceMonitor\Settings\DiscoverySettings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -34,6 +35,7 @@ class CompetitorDiscoveryJob {
 	private CompetitorProductExtractor $extractor;
 	private MatchSuggestionService $matcher;
 	private DiscoverySourceService $source_service;
+	private SkuSearchDiscoveryService $sku_search;
 	private DiscoveryUrlService $url_service;
 
 	/** Constructor. */
@@ -44,6 +46,7 @@ class CompetitorDiscoveryJob {
 		CompetitorProductExtractor $extractor,
 		MatchSuggestionService $matcher,
 		DiscoverySourceService $source_service,
+		SkuSearchDiscoveryService $sku_search,
 		DiscoveryUrlService $url_service
 	) {
 		$this->repository           = $repository;
@@ -52,6 +55,7 @@ class CompetitorDiscoveryJob {
 		$this->extractor            = $extractor;
 		$this->matcher              = $matcher;
 		$this->source_service       = $source_service;
+		$this->sku_search           = $sku_search;
 		$this->url_service          = $url_service;
 	}
 
@@ -112,6 +116,7 @@ class CompetitorDiscoveryJob {
 		$request_limit  = max( 1, min( 100, absint( $settings['discovery_max_requests_per_batch'] ?? 25 ) ) );
 		$product_limit  = max( 1, min( 500, absint( $settings['discovery_max_product_pages_per_run'] ?? 50 ) ) );
 		$listing_limit  = max( 0, min( 50, absint( $settings['discovery_max_listing_pages_per_run'] ?? 5 ) ) );
+		$sku_scan_limit = max( 1, min( 200, absint( $settings['discovery_max_sku_searches_per_run'] ?? 25 ) ) );
 		$run_id         = $this->discovery_repository->create_run( $competitor_id > 0 ? $competitor_id : null, 'batch_discovery', $request_limit );
 		$processed      = 0;
 		$suggestions    = 0;
@@ -122,6 +127,8 @@ class CompetitorDiscoveryJob {
 		$last_hash      = '';
 
 		try {
+			$selected_products = $this->discovery_repository->get_enabled_products_for_matching( 500 );
+
 			$seed_rows = $this->discovery_repository->get_due_seed_urls( $competitor_id, $listing_limit, $offset );
 			foreach ( $seed_rows as $seed ) {
 				if ( $requests >= $request_limit ) {
@@ -150,8 +157,60 @@ class CompetitorDiscoveryJob {
 				$this->delay( $settings );
 			}
 
-			$selected_products = $this->discovery_repository->get_enabled_products_for_matching( 500 );
-			$product_rows      = $this->discovery_repository->get_due_discovered_product_pages( $competitor_id, min( $product_limit, max( 0, $request_limit - $requests ) ), 0 );
+			if ( ! empty( $settings['discovery_sku_scan_enabled'] ) && $requests < $request_limit && ! empty( $selected_products ) ) {
+				$competitors = $this->competitors_for_run( $competitor_id );
+				$sku_searches = 0;
+
+				foreach ( $competitors as $competitor ) {
+					if ( empty( $competitor['enabled'] ) ) {
+						continue;
+					}
+
+					foreach ( $selected_products as $product ) {
+						if ( $requests >= $request_limit || $sku_searches >= $sku_scan_limit ) {
+							break 2;
+						}
+						if ( '' === trim( (string) ( $product->sku ?? '' ) ) ) {
+							continue;
+						}
+
+						$result = $this->sku_search->discover_for_product( $competitor, $product );
+						$requests += (int) ( $result['request_count'] ?? 0 );
+						++$sku_searches;
+						$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
+
+						if ( empty( $result['success'] ) ) {
+							++$failures;
+							$last_error = (string) ( $result['technical_details'] ?? $result['message'] ?? '' );
+							$this->record_health( (int) $competitor['id'], false, $last_error, '' );
+							continue;
+						}
+
+						foreach ( $result['urls'] as $url ) {
+							$this->discovery_repository->store_discovered_product(
+								(int) $competitor['id'],
+								$url,
+								array(
+									'url_hash'          => $this->url_service->hash_url( $url ),
+									'discovery_source'  => 'sku_search',
+									'domain'            => $this->url_service->get_domain( $url ),
+									'extraction_status' => 'queued',
+									'raw_metadata'      => array(
+										'searched_sku'          => (string) ( $result['sku'] ?? $product->sku ),
+										'discovery_product_id'  => (int) $product->id,
+									),
+								)
+							);
+							++$discovered;
+						}
+
+						$this->record_health( (int) $competitor['id'], true, '', '' );
+						$this->delay( $settings );
+					}
+				}
+			}
+
+			$product_rows = $this->discovery_repository->get_due_discovered_product_pages( $competitor_id, min( $product_limit, max( 0, $request_limit - $requests ) ), 0 );
 
 			foreach ( $product_rows as $row ) {
 				if ( $requests >= $request_limit ) {
@@ -189,6 +248,20 @@ class CompetitorDiscoveryJob {
 		} finally {
 			delete_transient( self::LOCK_KEY );
 		}
+	}
+
+	/**
+	 * Competitors to scan in this run.
+	 *
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function competitors_for_run( int $competitor_id ): array {
+		if ( $competitor_id > 0 ) {
+			$competitor = $this->repository->get_competitor( $competitor_id );
+			return $competitor ? array( $competitor ) : array();
+		}
+
+		return $this->repository->get_competitors( 1, 200 );
 	}
 
 	/** Record competitor health. */
