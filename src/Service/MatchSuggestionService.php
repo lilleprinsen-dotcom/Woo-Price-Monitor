@@ -2,12 +2,12 @@
 /**
  * Match scoring for competitor discovery suggestions.
  *
- * @package LillePrinsen\PriceMonitor\Service
+ * @package Lilleprinsen\PriceMonitor\Service
  */
 
-namespace LillePrinsen\PriceMonitor\Service;
+namespace Lilleprinsen\PriceMonitor\Service;
 
-use LillePrinsen\PriceMonitor\Database\DiscoveryRepository;
+use Lilleprinsen\PriceMonitor\Database\DiscoveryRepository;
 
 if ( ! defined( 'ABSPATH' ) ) {
     exit;

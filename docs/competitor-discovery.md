@@ -10,20 +10,37 @@ You can add products from:
 
 - The product edit screen: check **Include in competitor discovery**.
 - The WooCommerce product list: use the bulk action **Include in competitor discovery**.
-- **WooCommerce > Competitor Prices > Products to Monitor**: paste SKUs into **Add products by SKU**.
+- **WooCommerce > Competitor Prices > Products to Monitor**: paste SKUs, product IDs, or variation IDs.
 
-The selected-products page shows SKU, EAN/GTIN, brand, pending suggestions, last discovery run, and status. Identifier counts and duplicate warnings are shown on the overview page.
+Variation identifiers are preferred over parent product identifiers. Parent values are used only when the variation value is empty.
+
+The selected-products page shows product name, SKU, EAN/GTIN, EAN source, brand, pending suggestions, and last discovery run. Identifier counts and duplicate warnings are shown on the overview page.
+
+## EAN/GTIN Source
+
+Open **WooCommerce > Competitor Prices > Advanced Settings** and choose **Where is EAN/GTIN stored?**
+
+Options:
+
+- Product SKU
+- Built-in product GTIN/global unique ID field, if available
+- Custom field / product meta key
+- Do not use EAN/GTIN
+
+If **Custom field / product meta key** is selected, enter **EAN/GTIN meta key**. Examples: `_alg_ean`, `_wpm_gtin_code`, `_global_unique_id`, `ean`, `gtin`, `barcode`.
+
+Use **Test EAN/GTIN source** on **Products to Monitor**. The test only checks selected discovery products, not the full catalog.
 
 ## Add Or Test A Competitor
 
 Open **WooCommerce > Competitor Prices > Find Matches**.
 
 1. Choose an existing competitor or create a new one.
-2. Enter the competitor name and website/domain when creating a new competitor.
-3. Paste one competitor product URL.
-4. Click **Test Product Page**.
+2. Paste one competitor product URL.
+3. Click **Test Product Page**.
+4. Review detected values.
 
-The assistant shows the values it found:
+The assistant shows:
 
 - Product title
 - SKU
@@ -37,43 +54,91 @@ The assistant shows the values it found:
 - Image
 - Canonical URL
 
-Source labels are plain-language labels such as **Structured product data**, **Product meta tag**, **Page content**, and **Image URL**. Technical details stay hidden unless the page could not be read.
+Source labels are plain-language labels such as **Structured product data**, **Product meta tag**, **Page content**, **Image URL**, and **Custom competitor rule**.
+
+## Add Discovery Sources
+
+Use **Add page with many products** for conservative discovery sources.
+
+Supported source types:
+
+- Example product URL
+- Page with many products
+- Sitemap URL
+
+By default, source discovery stays on the competitor domain, removes common tracking parameters, deduplicates URLs, skips cart/checkout/account/search/filter URLs, and only queues URLs that look like product pages.
+
+Use **Run small discovery** per competitor to queue a bounded Action Scheduler batch. Discovery uses request limits, page limits, delays, locks, and resume-friendly stored state.
 
 ## Review Suggested Matches
 
 Open **WooCommerce > Competitor Prices > Suggested Matches**.
 
-Each suggestion explains why it was suggested and shows a confidence label:
+Each suggestion shows:
+
+- Our product and identifiers
+- Competitor product title and URL
+- Competitor price and stock
+- Plain-language explanation
+- Confidence label
+
+Confidence labels:
 
 - **High confidence**: exact EAN/GTIN, exact SKU, or exact MPN with the same brand.
 - **Medium confidence**: same brand and very similar product title.
 - **Low confidence**: similar title or weak identifier evidence.
 
-Use **Approve** to convert the suggestion into the existing competitor link structure used by regular price monitoring. Use **Reject** to keep the same suggestion from reappearing unless product identifiers or competitor page data changes.
+Use **Approve** to create or update the existing competitor link used by regular price monitoring. Use **Reject** to keep the same suggestion from reappearing unless product identifiers or competitor page content changes. Use **Retest** to read the competitor page again before deciding.
 
 No suggestions are auto-approved by default.
 
-## Advanced Settings
+## Manual Product URL Add
 
-Open **WooCommerce > Competitor Prices > Advanced Settings**.
+On a WooCommerce product edit screen, use **Competitor Price Assistant > Add competitor URL**.
+
+When the product is saved, the plugin tests the URL and shows:
+
+- **Safe match** when SKU/EAN is found on the competitor page.
+- **Unverified match** when SKU/EAN is not found. Check **Add even if unverified** to add anyway.
+- **Failed** when the page cannot be read.
+
+Accepted URLs create or update the existing competitor link structure used by regular price monitoring.
+
+## Health Status
+
+The overview shows competitor health:
+
+- Working
+- Needs attention
+- Paused
+- Blocked / request failed
+- Extraction changed
+- No recent successful checks
+
+Health includes last run, success/failure counts, pending suggestions, approved monitored links, and the last plain-language issue. Competitors are paused after repeated discovery failures based on the configured threshold.
+
+## Advanced Settings
 
 Useful settings:
 
 - Weekly discovery jobs: off unless enabled.
 - Max product pages per competitor run: default 50.
+- Max requests per batch: default 25.
 - Request delay: default 3 seconds.
-- EAN/GTIN fallback meta keys: examples include `_alg_ean`, `_wpm_gtin_code`, `_global_unique_id`, `ean`, `gtin`, and `barcode`.
-- MPN and brand meta keys.
 - Same-domain safety: enabled by default.
+- Advanced URL include/exclude/product patterns.
+- Advanced fallback meta keys for EAN/GTIN, MPN, and brand.
 
-Variation-level identifiers are preferred over parent product identifiers when WooCommerce exposes them through the product object or configured meta keys.
+Competitor-specific technical extraction rules can be stored as JSON in competitor notes for advanced users. Normal admins should not need them.
 
 ## Performance Notes
 
 Discovery is designed for stores with large catalogs. It only uses explicitly selected products for matching, normally around 100 to 300 products. The selected product table caches normalized identifiers so matching does not query all product meta on every run.
 
-Background jobs refresh known competitor product pages in bounded batches. One failed competitor page does not block existing approved price monitoring.
+Background jobs process explicit source URLs and known product URLs in bounded batches. One failed competitor does not block existing approved price monitoring.
 
-## Limitations
+## Safety Notes
+
+The plugin uses the WordPress HTTP API only. It allows HTTP/HTTPS, blocks obvious local/private/reserved targets where possible, validates ports, checks DNS-resolved addresses where PHP allows it, and keeps same-domain discovery on by default.
 
 The assistant does not bypass bot protection, CAPTCHA, JavaScript-only product pages, or blocked requests. It does not run a browser inside WordPress, use proxy rotation, scrape Google, or change WooCommerce product prices automatically.

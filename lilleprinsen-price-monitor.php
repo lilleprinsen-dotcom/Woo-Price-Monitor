@@ -3,7 +3,7 @@
  * Plugin Name: Lilleprinsen Price Monitor
  * Plugin URI: https://github.com/lilleprinsen-dotcom/Woo-Price-Monitor
  * Description: Admin-only WooCommerce competitor price monitoring foundation.
- * Version: 0.2.0
+ * Version: 0.2.1
  * Requires PHP: 8.0
  * Author: Lilleprinsen
  * Text Domain: lilleprinsen-price-monitor
@@ -16,7 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 if ( ! defined( 'LPM_VERSION' ) ) {
-	define( 'LPM_VERSION', '0.2.0' );
+	define( 'LPM_VERSION', '0.2.1' );
 }
 
 if ( ! defined( 'LPM_PLUGIN_FILE' ) ) {
