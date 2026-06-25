@@ -311,6 +311,9 @@ class CompetitorProductExtractor {
 			return array();
 		}
 		$decoded = json_decode( $notes, true );
+		if ( ! is_array( $decoded ) && str_contains( $notes, '\\' ) ) {
+			$decoded = json_decode( (string) preg_replace( '/\\\\(?!["\\\\\/bfnrtu])/', '\\\\\\\\', $notes ), true );
+		}
 
 		return is_array( $decoded ) ? $decoded : array();
 	}
