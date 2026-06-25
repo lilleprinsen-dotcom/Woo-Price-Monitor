@@ -36,8 +36,8 @@ class DiscoverySettings {
 			'discovery_max_product_pages_per_run' => 50,
 			'discovery_max_listing_pages_per_run' => 5,
 			'discovery_max_requests_per_batch'    => 25,
-			'discovery_max_sku_searches_per_run'  => 25,
-			'discovery_search_urls_per_sku'       => 4,
+			'discovery_max_sku_searches_per_run'  => 5,
+			'discovery_search_urls_per_sku'       => 2,
 			'discovery_request_delay_seconds'     => 3,
 			'discovery_low_traffic_hour'          => 2,
 			'discovery_auto_pause_failures'       => 5,
@@ -244,7 +244,8 @@ class DiscoverySettings {
 
 		foreach ( $items as $item ) {
 			$item = trim( sanitize_text_field( (string) $item ) );
-			if ( '' === $item || false === strpos( $item, '{sku}' ) && false === strpos( $item, '{query}' ) && false === strpos( $item, '%s' ) ) {
+			$has_placeholder = false !== strpos( $item, '{sku}' ) || false !== strpos( $item, '{query}' ) || false !== strpos( $item, '%s' );
+			if ( '' === $item || ! $has_placeholder ) {
 				continue;
 			}
 			$out[] = substr( $item, 0, 180 );
