@@ -30,11 +30,14 @@ class DiscoverySettings {
 	public function defaults(): array {
 		return array(
 			'discovery_enabled'                   => 0,
+			'discovery_sku_scan_enabled'          => 1,
 			'discovery_gtin_source'               => 'global_unique_id',
 			'discovery_gtin_meta_key'             => '',
 			'discovery_max_product_pages_per_run' => 50,
 			'discovery_max_listing_pages_per_run' => 5,
 			'discovery_max_requests_per_batch'    => 25,
+			'discovery_max_sku_searches_per_run'  => 25,
+			'discovery_search_urls_per_sku'       => 4,
 			'discovery_request_delay_seconds'     => 3,
 			'discovery_low_traffic_hour'          => 2,
 			'discovery_auto_pause_failures'       => 5,
@@ -47,6 +50,7 @@ class DiscoverySettings {
 			'discovery_include_url_patterns'      => '',
 			'discovery_exclude_url_patterns'      => 'cart,checkout,account,login,search,filter,wp-admin,add-to-cart',
 			'discovery_product_url_patterns'      => 'product,produkt,p,varer,vare',
+			'discovery_sku_search_url_templates'  => '?s={sku},search?q={sku},search?query={sku},catalogsearch/result/?q={sku}',
 		);
 	}
 
@@ -118,11 +122,14 @@ class DiscoverySettings {
 
 		return array(
 			'discovery_enabled'                   => empty( $input['discovery_enabled'] ) ? 0 : 1,
+			'discovery_sku_scan_enabled'          => empty( $input['discovery_sku_scan_enabled'] ) ? 0 : 1,
 			'discovery_gtin_source'               => $this->sanitize_choice( $input['discovery_gtin_source'] ?? $defaults['discovery_gtin_source'], array_keys( $this->gtin_source_options() ), 'global_unique_id' ),
 			'discovery_gtin_meta_key'             => sanitize_key( (string) ( $input['discovery_gtin_meta_key'] ?? '' ) ),
 			'discovery_max_product_pages_per_run' => $this->sanitize_int( $input['discovery_max_product_pages_per_run'] ?? $defaults['discovery_max_product_pages_per_run'], 1, 500 ),
 			'discovery_max_listing_pages_per_run' => $this->sanitize_int( $input['discovery_max_listing_pages_per_run'] ?? $defaults['discovery_max_listing_pages_per_run'], 0, 50 ),
 			'discovery_max_requests_per_batch'    => $this->sanitize_int( $input['discovery_max_requests_per_batch'] ?? $defaults['discovery_max_requests_per_batch'], 1, 100 ),
+			'discovery_max_sku_searches_per_run'  => $this->sanitize_int( $input['discovery_max_sku_searches_per_run'] ?? $defaults['discovery_max_sku_searches_per_run'], 1, 200 ),
+			'discovery_search_urls_per_sku'       => $this->sanitize_int( $input['discovery_search_urls_per_sku'] ?? $defaults['discovery_search_urls_per_sku'], 1, 10 ),
 			'discovery_request_delay_seconds'     => $this->sanitize_int( $input['discovery_request_delay_seconds'] ?? $defaults['discovery_request_delay_seconds'], 0, 30 ),
 			'discovery_low_traffic_hour'          => $this->sanitize_int( $input['discovery_low_traffic_hour'] ?? $defaults['discovery_low_traffic_hour'], 0, 23 ),
 			'discovery_auto_pause_failures'       => $this->sanitize_int( $input['discovery_auto_pause_failures'] ?? $defaults['discovery_auto_pause_failures'], 1, 50 ),
@@ -135,6 +142,7 @@ class DiscoverySettings {
 			'discovery_include_url_patterns'      => $this->sanitize_pattern_list( $input['discovery_include_url_patterns'] ?? $defaults['discovery_include_url_patterns'] ),
 			'discovery_exclude_url_patterns'      => $this->sanitize_pattern_list( $input['discovery_exclude_url_patterns'] ?? $defaults['discovery_exclude_url_patterns'] ),
 			'discovery_product_url_patterns'      => $this->sanitize_pattern_list( $input['discovery_product_url_patterns'] ?? $defaults['discovery_product_url_patterns'] ),
+			'discovery_sku_search_url_templates'  => $this->sanitize_search_template_list( $input['discovery_sku_search_url_templates'] ?? $defaults['discovery_sku_search_url_templates'] ),
 		);
 	}
 
@@ -220,6 +228,26 @@ class DiscoverySettings {
 			if ( '' !== $item ) {
 				$out[] = substr( $item, 0, 120 );
 			}
+		}
+
+		return implode( ',', array_values( array_unique( array_slice( $out, 0, 25 ) ) ) );
+	}
+
+	/**
+	 * Sanitize search URL templates.
+	 *
+	 * @param mixed $value Raw value.
+	 */
+	private function sanitize_search_template_list( $value ): string {
+		$items = is_array( $value ) ? $value : explode( ',', (string) $value );
+		$out   = array();
+
+		foreach ( $items as $item ) {
+			$item = trim( sanitize_text_field( (string) $item ) );
+			if ( '' === $item || false === strpos( $item, '{sku}' ) && false === strpos( $item, '{query}' ) && false === strpos( $item, '%s' ) ) {
+				continue;
+			}
+			$out[] = substr( $item, 0, 180 );
 		}
 
 		return implode( ',', array_values( array_unique( array_slice( $out, 0, 25 ) ) ) );
