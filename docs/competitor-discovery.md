@@ -77,6 +77,7 @@ The default scan is intentionally bounded:
 - It starts from the competitor website and any pages you added under **Add page with many products**.
 - It follows only a small number of same-domain links per run.
 - It queues product pages when a selected SKU is found on the page or in a same-domain product link.
+- It also queues a bounded number of product-looking links from crawled listing pages, because many stores only show the SKU after opening the product page.
 - It uses only a few common competitor search URLs per SKU.
 - It stays on the competitor domain by default.
 - It leaves part of the request batch for reading product pages and creating suggestions.
@@ -157,6 +158,7 @@ Useful settings:
 - SKU scanning: on by default for selected products.
 - SKU crawling: on by default for selected products.
 - Max crawl pages per run: default 8.
+- Candidate product pages from crawl: default 40.
 - Max SKU searches per run: default 5.
 - Search URL attempts per SKU: default 2.
 - Search URL templates: editable under **Advanced Settings** for competitors with unusual search pages.
