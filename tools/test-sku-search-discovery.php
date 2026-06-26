@@ -66,11 +66,13 @@ lpm_run_tests(
 				array(
 					'discovery_sku_crawl_enabled'       => '1',
 					'discovery_max_crawl_pages_per_run' => '999',
+					'discovery_max_crawl_candidate_urls' => '999',
 				)
 			);
 
 			lpm_assert_same( 1, $sanitized['discovery_sku_crawl_enabled'], 'SKU crawling should be enabled when checked.' );
 			lpm_assert_same( 50, $sanitized['discovery_max_crawl_pages_per_run'], 'Crawl pages must be capped.' );
+			lpm_assert_same( 200, $sanitized['discovery_max_crawl_candidate_urls'], 'Candidate URLs must be capped.' );
 		},
 		'Crawler follows bounded same-domain pages and finds monitored SKU links' => static function () use ( $sku_search ): void {
 			update_option(
@@ -107,6 +109,43 @@ lpm_run_tests(
 			lpm_assert_same( 2, $result['request_count'], 'Crawler should stop after the bounded pages it needed.' );
 			lpm_assert_same( array( 'https://competitor.no/thule/chariot-sport-2' ), $result['urls'], 'Crawler should queue the same-domain product link that mentions the monitored SKU.' );
 			lpm_assert_same( array( 7 ), $result['matched_products'], 'Crawler should report the selected discovery product it matched.' );
+		},
+		'Crawler queues product candidates when SKU is hidden on product page' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_max_crawl_pages_per_run'  => 5,
+					'discovery_max_crawl_candidate_urls' => 10,
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/' => array(
+					'body' => '<a href="/barnevogn">Barnevogn</a>',
+				),
+				'https://competitor.no/barnevogn' => array(
+					'body' => '<a href="/produkt/thule-chariot-sport-2">Thule Chariot Sport 2</a><a href="/kategori/thule">Thule category</a>',
+				),
+			);
+
+			$result = $sku_search->crawl_for_selected_skus(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				array(
+					(object) array(
+						'id'             => 7,
+						'sku'            => '10201031',
+						'normalized_sku' => '10201031',
+					),
+				),
+				array(),
+				5
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Crawler should still succeed when SKUs are hidden until product-page extraction.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2' ), $result['urls'], 'Crawler should queue product-looking links for extraction even without SKU in listing text.' );
+			lpm_assert_same( array(), $result['matched_products'], 'Candidate-only crawl should not claim a selected product match until extraction verifies identifiers.' );
 		},
 	)
 );

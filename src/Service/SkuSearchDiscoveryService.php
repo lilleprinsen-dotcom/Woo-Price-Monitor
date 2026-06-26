@@ -165,14 +165,15 @@ class SkuSearchDiscoveryService {
 
 		$settings      = $this->settings->get_all();
 		$ports         = array_map( 'absint', $this->settings->get_list( 'discovery_allow_ports' ) );
-		$max_pages     = max( 1, min( absint( $settings['discovery_max_crawl_pages_per_run'] ?? 8 ), max( 1, $request_budget ) ) );
-		$queue         = array();
-		$queued        = array();
-		$visited       = array();
-		$urls          = array();
-		$matched       = array();
-		$errors        = array();
-		$requests      = 0;
+		$max_pages       = max( 1, min( absint( $settings['discovery_max_crawl_pages_per_run'] ?? 8 ), max( 1, $request_budget ) ) );
+		$candidate_limit = max( 1, min( 200, absint( $settings['discovery_max_crawl_candidate_urls'] ?? 40 ) ) );
+		$queue           = array();
+		$queued          = array();
+		$visited         = array();
+		$urls            = array();
+		$matched         = array();
+		$errors          = array();
+		$requests        = 0;
 
 		foreach ( $this->crawl_start_urls( $competitor, $seed_urls ) as $start_url ) {
 			$this->enqueue_crawl_url( $queue, $queued, $start_url, 0, $domain, $ports );
@@ -237,6 +238,13 @@ class SkuSearchDiscoveryService {
 				$urls[] = $matched_url;
 			}
 
+			foreach ( $this->product_candidate_urls_from_html( $body, $page_url, $domain, $depth > 0 ) as $candidate_url ) {
+				if ( count( array_unique( $urls ) ) >= $candidate_limit ) {
+					break;
+				}
+				$urls[] = $candidate_url;
+			}
+
 			if ( $depth < 1 ) {
 				foreach ( $this->crawlable_urls_from_html( $body, $page_url, $domain ) as $next_url ) {
 					if ( count( $queue ) >= self::MAX_QUEUE_URLS ) {
@@ -279,6 +287,35 @@ class SkuSearchDiscoveryService {
 					continue;
 				}
 				if ( ! $this->is_crawlable_url( $url ) ) {
+					continue;
+				}
+				$urls[] = $url;
+			}
+		}
+
+		return array_values( array_unique( $urls ) );
+	}
+
+	/**
+	 * Extract bounded same-domain candidate product URLs from crawled pages.
+	 *
+	 * A listing page often does not show SKU in the link text. These candidates are
+	 * queued for the normal extractor, which then reads the product page and matches
+	 * SKU/EAN/MPN before creating suggestions.
+	 *
+	 * @return array<int,string>
+	 */
+	public function product_candidate_urls_from_html( string $html, string $base_url, string $domain, bool $broad_listing_page = false ): array {
+		$urls = array();
+		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$href = html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$url  = $this->url_service->resolve( $href, $base_url );
+				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
+					continue;
+				}
+				if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
 					continue;
 				}
 				$urls[] = $url;
@@ -455,6 +492,29 @@ class SkuSearchDiscoveryService {
 		$has_price_signal     = str_contains( $text, 'product:price' ) || str_contains( $text, '"price"' ) || str_contains( $text, ' pris' ) || str_contains( $text, ' kr' );
 
 		return $has_identifier_label && $has_price_signal;
+	}
+
+	/**
+	 * Conservative product-candidate link heuristic.
+	 */
+	private function looks_like_product_candidate_link( string $url, string $text, bool $broad_listing_page ): bool {
+		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+			return true;
+		}
+		if ( ! $broad_listing_page ) {
+			return false;
+		}
+
+		$path = (string) wp_parse_url( $url, PHP_URL_PATH );
+		$text = trim( wp_strip_all_tags( $text ) );
+		if ( '' === $path || '/' === $path || '' === $text ) {
+			return false;
+		}
+		if ( preg_match( '#/(?:category|kategori|brand|merke|collection|collections|search|sok|blog|news|nyheter)(?:/|$)#i', $path ) ) {
+			return false;
+		}
+
+		return substr_count( trim( $path, '/' ), '/' ) >= 1 || preg_match( '#[a-z0-9]+-[a-z0-9]+#i', $path );
 	}
 
 	/**

@@ -25,6 +25,10 @@ class DiscoveryRepository {
 	public function upsert_discovery_product( int $product_id, int $variation_id, array $identifiers ): int {
 		global $wpdb;
 
+		if ( $product_id <= 0 ) {
+			return 0;
+		}
+
 		$table       = $this->table( 'discovery_products' );
 		$now         = current_time( 'mysql' );
 		$existing_id = (int) $wpdb->get_var(
@@ -133,7 +137,7 @@ class DiscoveryRepository {
 			$like = '%' . $wpdb->esc_like( $search ) . '%';
 			return $wpdb->get_results(
 				$wpdb->prepare(
-					"SELECT * FROM {$table} WHERE enabled = 1 AND (sku LIKE %s OR gtin LIKE %s OR mpn LIKE %s OR brand LIKE %s) ORDER BY updated_at DESC LIMIT %d OFFSET %d",
+					"SELECT * FROM {$table} WHERE enabled = 1 AND product_id > 0 AND (sku LIKE %s OR gtin LIKE %s OR mpn LIKE %s OR brand LIKE %s) ORDER BY updated_at DESC LIMIT %d OFFSET %d",
 					$like,
 					$like,
 					$like,
@@ -144,7 +148,7 @@ class DiscoveryRepository {
 			);
 		}
 
-		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE enabled = 1 ORDER BY updated_at DESC LIMIT %d OFFSET %d", $per_page, $offset ) );
+		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE enabled = 1 AND product_id > 0 ORDER BY updated_at DESC LIMIT %d OFFSET %d", $per_page, $offset ) );
 	}
 
 	/**
@@ -158,11 +162,11 @@ class DiscoveryRepository {
 		if ( '' !== $search ) {
 			$like = '%' . $wpdb->esc_like( $search ) . '%';
 			return (int) $wpdb->get_var(
-				$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND (sku LIKE %s OR gtin LIKE %s OR mpn LIKE %s OR brand LIKE %s)", $like, $like, $like, $like )
+				$wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0 AND (sku LIKE %s OR gtin LIKE %s OR mpn LIKE %s OR brand LIKE %s)", $like, $like, $like, $like )
 			);
 		}
 
-		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1" );
+		return (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0" );
 	}
 
 	/**
@@ -175,7 +179,7 @@ class DiscoveryRepository {
 
 		$table = $this->table( 'discovery_products' );
 
-		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE enabled = 1 ORDER BY priority DESC, updated_at DESC LIMIT %d", $limit ) );
+		return $wpdb->get_results( $wpdb->prepare( "SELECT * FROM {$table} WHERE enabled = 1 AND product_id > 0 ORDER BY priority DESC, updated_at DESC LIMIT %d", $limit ) );
 	}
 
 	/**
@@ -189,11 +193,11 @@ class DiscoveryRepository {
 		$table = $this->table( 'discovery_products' );
 
 		return array(
-			'selected'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1" ),
-			'with_sku'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND normalized_sku <> ''" ),
-			'with_gtin'  => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND normalized_gtin <> ''" ),
-			'with_mpn'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND normalized_mpn <> ''" ),
-			'missing_id' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND normalized_sku = '' AND normalized_gtin = '' AND normalized_mpn = ''" ),
+			'selected'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0" ),
+			'with_sku'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_sku <> ''" ),
+			'with_gtin'  => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_gtin <> ''" ),
+			'with_mpn'   => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_mpn <> ''" ),
+			'missing_id' => (int) $wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_sku = '' AND normalized_gtin = '' AND normalized_mpn = ''" ),
 			'duplicates' => $this->count_duplicate_identifiers(),
 		);
 	}
@@ -659,11 +663,11 @@ class DiscoveryRepository {
 
 		$table = $this->table( 'discovery_products' );
 		$sql   = "SELECT SUM(duplicates) FROM (
-			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND normalized_gtin <> '' GROUP BY normalized_gtin HAVING COUNT(*) > 1
+			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_gtin <> '' GROUP BY normalized_gtin HAVING COUNT(*) > 1
 			UNION ALL
-			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND normalized_sku <> '' GROUP BY normalized_sku HAVING COUNT(*) > 1
+			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_sku <> '' GROUP BY normalized_sku HAVING COUNT(*) > 1
 			UNION ALL
-			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND normalized_mpn <> '' GROUP BY normalized_mpn HAVING COUNT(*) > 1
+			SELECT COUNT(*) - 1 AS duplicates FROM {$table} WHERE enabled = 1 AND product_id > 0 AND normalized_mpn <> '' GROUP BY normalized_mpn HAVING COUNT(*) > 1
 		) duplicate_counts";
 
 		return (int) $wpdb->get_var( $sql );
