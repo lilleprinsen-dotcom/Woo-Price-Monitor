@@ -244,6 +244,7 @@ class CompetitorDiscoveryJob {
 									'extraction_status' => 'queued',
 									'raw_metadata'      => array(
 										'searched_sku'          => (string) ( $result['sku'] ?? $product->sku ),
+										'searched_name'         => (string) ( $result['searched_name'] ?? '' ),
 										'discovery_product_id'  => (int) $product->id,
 									),
 								)
