@@ -65,14 +65,59 @@ lpm_run_tests(
 			$sanitized = $settings->sanitize(
 				array(
 					'discovery_sku_crawl_enabled'       => '1',
+					'discovery_name_search_enabled'      => '1',
 					'discovery_max_crawl_pages_per_run' => '999',
 					'discovery_max_crawl_candidate_urls' => '999',
 				)
 			);
 
 			lpm_assert_same( 1, $sanitized['discovery_sku_crawl_enabled'], 'SKU crawling should be enabled when checked.' );
+			lpm_assert_same( 1, $sanitized['discovery_name_search_enabled'], 'Name search fallback should be enabled when checked.' );
 			lpm_assert_same( 50, $sanitized['discovery_max_crawl_pages_per_run'], 'Crawl pages must be capped.' );
 			lpm_assert_same( 200, $sanitized['discovery_max_crawl_candidate_urls'], 'Candidate URLs must be capped.' );
+		},
+		'Name search extraction queues title-relevant product candidates only' => static function () use ( $sku_search ): void {
+			$html = '<a href="/produkt/thule-chariot-sport-2-midnight-black">Thule Chariot Sport 2 Midnight Black</a><a href="/produkt/cybex-priam">Cybex Priam</a><a href="/kategori/thule">Thule</a>';
+			$urls = $sku_search->name_matched_urls_from_html( $html, 'https://competitor.no/search?q=thule', 'Thule Chariot Sport 2 midnight black', 'competitor.no' );
+
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-midnight-black' ), $urls, 'Name search should queue matching product links and skip unrelated/category links.' );
+		},
+		'Product-name search fallback finds candidates when SKU search finds nothing' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=10201031' => array(
+					'response' => array( 'code' => 404 ),
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black' => array(
+					'body' => '<a href="/produkt/thule-chariot-sport-2-double-midnight-black">Thule Chariot Sport 2 double midnight black</a><a href="/produkt/other-product">Other product</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => '10201031',
+					'normalized_sku' => '10201031',
+					'product_name'   => 'Thule Chariot Sport 2 double midnight black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Name search fallback should succeed after SKU search produces no candidate URLs.' );
+			lpm_assert_same( 2, $result['request_count'], 'Name fallback should keep requests bounded.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black' ), $result['urls'], 'Name fallback should queue only relevant product candidates.' );
+			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
 		'Crawler follows bounded same-domain pages and finds monitored SKU links' => static function () use ( $sku_search ): void {
 			update_option(

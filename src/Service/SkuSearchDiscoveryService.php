@@ -55,6 +55,7 @@ class SkuSearchDiscoveryService {
 		$urls          = array();
 		$requests      = 0;
 		$errors        = array();
+		$sku_evidence  = false;
 
 		foreach ( $templates as $template ) {
 			$search_url = $this->build_search_url( $domain, $template, $sku );
@@ -85,6 +86,7 @@ class SkuSearchDiscoveryService {
 				$next_url = $this->url_service->resolve( (string) $next, $search_url );
 				if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) ) {
 					$urls[] = $next_url;
+					$sku_evidence = true;
 				}
 				continue;
 			}
@@ -113,6 +115,68 @@ class SkuSearchDiscoveryService {
 
 			if ( $this->page_mentions_sku( $body, $sku ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 				$urls[] = $search_url;
+				$sku_evidence = true;
+			}
+		}
+
+		if ( ( empty( $urls ) || ! $sku_evidence ) && ! empty( $settings['discovery_name_search_enabled'] ) ) {
+			$name_query = $this->product_name_query( $product );
+			if ( '' !== $name_query && strtolower( $name_query ) !== strtolower( $sku ) ) {
+				foreach ( $templates as $template ) {
+					if ( $requests >= $request_limit * 2 ) {
+						break;
+					}
+
+					$search_url = $this->build_search_url( $domain, $template, $name_query );
+					if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
+						continue;
+					}
+
+					$response = wp_remote_get(
+						$search_url,
+						array(
+							'timeout'     => absint( $settings['discovery_request_timeout'] ?? 12 ),
+							'redirection' => 0,
+							'user-agent'  => $this->user_agent(),
+							'headers'     => array( 'Accept' => 'text/html,application/xhtml+xml' ),
+						)
+					);
+					++$requests;
+
+					if ( is_wp_error( $response ) ) {
+						$errors[] = $response->get_error_message();
+						continue;
+					}
+
+					$code = (int) wp_remote_retrieve_response_code( $response );
+					if ( $code >= 300 && $code < 400 ) {
+						$location = wp_remote_retrieve_header( $response, 'location' );
+						$next     = is_array( $location ) ? reset( $location ) : $location;
+						$next_url = $this->url_service->resolve( (string) $next, $search_url );
+						if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) && $this->text_matches_product_name( $next_url, $name_query ) ) {
+							$urls[] = $next_url;
+						}
+						continue;
+					}
+
+					if ( $code < 200 || $code >= 400 ) {
+						$errors[] = 'HTTP status ' . $code . ' for ' . $search_url;
+						continue;
+					}
+
+					$body = (string) wp_remote_retrieve_body( $response );
+					if ( '' === trim( $body ) ) {
+						continue;
+					}
+
+					foreach ( $this->name_matched_urls_from_html( $body, $search_url, $name_query, $domain ) as $candidate ) {
+						$urls[] = $candidate;
+					}
+
+					if ( $this->text_matches_product_name( $body, $name_query ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+						$urls[] = $search_url;
+					}
+				}
 			}
 		}
 
@@ -126,6 +190,7 @@ class SkuSearchDiscoveryService {
 			'technical_details'    => implode( "\n", array_unique( $errors ) ),
 			'request_count'        => $requests,
 			'sku'                  => $sku,
+			'searched_name'        => $this->product_name_query( $product ),
 			'discovery_product_id' => (int) ( $product->id ?? 0 ),
 		);
 	}
@@ -316,6 +381,41 @@ class SkuSearchDiscoveryService {
 					continue;
 				}
 				if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
+					continue;
+				}
+				$urls[] = $url;
+			}
+		}
+
+		return array_values( array_unique( $urls ) );
+	}
+
+	/**
+	 * Extract product-looking URLs whose link text or URL matches the selected product name.
+	 *
+	 * These are only candidate pages. The normal extractor and matcher must still
+	 * find SKU/EAN/MPN or other match evidence before a suggestion is created.
+	 *
+	 * @return array<int,string>
+	 */
+	public function name_matched_urls_from_html( string $html, string $base_url, string $product_name, string $domain ): array {
+		$urls = array();
+		if ( '' === trim( $product_name ) ) {
+			return $urls;
+		}
+
+		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$href = html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$url  = $this->url_service->resolve( $href, $base_url );
+				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
+					continue;
+				}
+				if ( ! $this->looks_like_product_candidate_link( $url, $text, true ) ) {
+					continue;
+				}
+				if ( ! $this->text_matches_product_name( $href . ' ' . $text, $product_name ) ) {
 					continue;
 				}
 				$urls[] = $url;
@@ -552,6 +652,89 @@ class SkuSearchDiscoveryService {
 	 */
 	private function normalize_identifier( string $value ): string {
 		return (string) preg_replace( '/[^a-z0-9]+/i', '', $value );
+	}
+
+	/**
+	 * Build a safe competitor-search query from a selected product name.
+	 */
+	private function product_name_query( object $product ): string {
+		$name = '';
+		foreach ( array( 'product_name', 'title', 'name' ) as $key ) {
+			if ( ! empty( $product->{$key} ) ) {
+				$name = (string) $product->{$key};
+				break;
+			}
+		}
+
+		if ( '' === $name && function_exists( 'get_the_title' ) ) {
+			$lookup_id = absint( $product->variation_id ?? 0 );
+			if ( $lookup_id <= 0 ) {
+				$lookup_id = absint( $product->product_id ?? 0 );
+			}
+			if ( $lookup_id > 0 ) {
+				$name = (string) get_the_title( $lookup_id );
+			}
+		}
+
+		$name = html_entity_decode( wp_strip_all_tags( $name ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$name = preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $name ) ?: '';
+		$name = trim( preg_replace( '/\s+/u', ' ', $name ) ?: '' );
+		if ( '' === $name ) {
+			return '';
+		}
+
+		$terms = array_slice( preg_split( '/\s+/u', $name ) ?: array(), 0, 10 );
+
+		return substr( implode( ' ', $terms ), 0, 90 );
+	}
+
+	/**
+	 * Check whether text has enough meaningful overlap with a selected product name.
+	 */
+	private function text_matches_product_name( string $text, string $product_name ): bool {
+		$terms = $this->significant_name_terms( $product_name );
+		if ( empty( $terms ) ) {
+			return false;
+		}
+
+		$normalized_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$hits = 0;
+		foreach ( $terms as $term ) {
+			if ( false !== strpos( $normalized_text, $term ) ) {
+				++$hits;
+			}
+		}
+
+		if ( count( $terms ) <= 2 ) {
+			return $hits === count( $terms );
+		}
+
+		return $hits >= 2;
+	}
+
+	/**
+	 * Significant name words for candidate-page filtering.
+	 *
+	 * @return array<int,string>
+	 */
+	private function significant_name_terms( string $product_name ): array {
+		$normalized = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', $product_name ) );
+		$raw_terms  = preg_split( '/\s+/u', trim( $normalized ) ) ?: array();
+		$stop_words = array( 'and', 'the', 'for', 'with', 'og', 'med', 'til', 'på', 'i', 'av', 'gen' );
+		$terms      = array();
+
+		foreach ( $raw_terms as $term ) {
+			$term = trim( $term );
+			if ( '' === $term || in_array( $term, $stop_words, true ) ) {
+				continue;
+			}
+			if ( strlen( $term ) < 3 && ! preg_match( '/\d/', $term ) ) {
+				continue;
+			}
+			$terms[] = $term;
+		}
+
+		return array_values( array_unique( array_slice( $terms, 0, 8 ) ) );
 	}
 
 	/** Build one absolute search URL. */

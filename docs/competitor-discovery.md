@@ -9,7 +9,7 @@ The normal workflow is simple:
 3. Click **Scan monitored SKUs**.
 4. Review and approve suggested matches.
 
-The assistant searches the competitor website for the SKUs you selected, checks possible competitor product pages, and suggests matches when it finds the same SKU/EAN/MPN or strong product evidence.
+The assistant searches the competitor website for the SKUs you selected, checks possible competitor product pages, and suggests matches when it finds the same SKU/EAN/MPN or strong product evidence. If a competitor search does not find trustworthy SKU evidence, the assistant can also search by the product name to find possible pages, then it still reads the page and verifies identifiers before suggesting a match.
 
 ## Select Products
 
@@ -79,6 +79,7 @@ The default scan is intentionally bounded:
 - It queues product pages when a selected SKU is found on the page or in a same-domain product link.
 - It also queues a bounded number of product-looking links from crawled listing pages, because many stores only show the SKU after opening the product page.
 - It uses only a few common competitor search URLs per SKU.
+- If SKU search finds no trustworthy SKU evidence, it can try the selected product name as a fallback. Product-name results are treated only as possible pages; they do not become suggestions until the product page is checked.
 - It stays on the competitor domain by default.
 - It leaves part of the request batch for reading product pages and creating suggestions.
 - It never scans the full WooCommerce catalog automatically.
@@ -157,6 +158,7 @@ Useful settings:
 - Weekly discovery jobs: off unless enabled.
 - SKU scanning: on by default for selected products.
 - SKU crawling: on by default for selected products.
+- Product-name fallback: on by default, used only when SKU search has no trustworthy SKU evidence.
 - Max crawl pages per run: default 8.
 - Candidate product pages from crawl: default 40.
 - Max SKU searches per run: default 5.
