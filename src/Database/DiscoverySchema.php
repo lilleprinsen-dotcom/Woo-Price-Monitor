@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
  * Handles dedicated discovery table creation and upgrades.
  */
 class DiscoverySchema {
-	public const VERSION = '1.1.0';
+	public const VERSION = '1.1.1';
 
 	private const OPTION_NAME = 'lpm_discovery_schema_version';
 
@@ -85,6 +85,8 @@ class DiscoverySchema {
 			PRIMARY KEY  (id),
 			UNIQUE KEY product_variation (product_id, variation_id),
 			KEY enabled (enabled),
+			KEY enabled_updated_at (enabled, updated_at),
+			KEY enabled_priority_updated_at (enabled, priority, updated_at),
 			KEY normalized_sku (normalized_sku),
 			KEY normalized_gtin (normalized_gtin),
 			KEY normalized_mpn (normalized_mpn),
@@ -113,6 +115,7 @@ class DiscoverySchema {
 			KEY competitor_id (competitor_id),
 			KEY source_type (source_type),
 			KEY status (status),
+			KEY competitor_status_checked (competitor_id, status, last_checked_at),
 			KEY last_checked_at (last_checked_at)
 		) $charset_collate";
 
@@ -156,6 +159,7 @@ class DiscoverySchema {
 			KEY normalized_gtin (normalized_gtin),
 			KEY normalized_mpn (normalized_mpn),
 			KEY extraction_status (extraction_status),
+			KEY competitor_status_checked (competitor_id, extraction_status, last_checked_at),
 			KEY last_checked_at (last_checked_at)
 		) $charset_collate";
 
@@ -187,8 +191,12 @@ class DiscoverySchema {
 			KEY product_id (product_id),
 			KEY competitor_id (competitor_id),
 			KEY status (status),
+			KEY status_created_at (status, created_at),
+			KEY product_status (product_id, status),
+			KEY competitor_status (competitor_id, status),
 			KEY confidence_label (confidence_label),
-			KEY match_type (match_type)
+			KEY match_type (match_type),
+			KEY updated_at (updated_at)
 		) $charset_collate";
 
 		$sql[] = "CREATE TABLE {$tables['discovery_runs']} (
@@ -212,7 +220,9 @@ class DiscoverySchema {
 			KEY competitor_id (competitor_id),
 			KEY status (status),
 			KEY source (source),
-			KEY started_at (started_at)
+			KEY source_status (source, status),
+			KEY started_at (started_at),
+			KEY status_updated_at (status, updated_at)
 		) $charset_collate";
 
 		$sql[] = "CREATE TABLE {$tables['discovery_competitor_health']} (
@@ -236,7 +246,8 @@ class DiscoverySchema {
 			UNIQUE KEY competitor_id (competitor_id),
 			KEY status (status),
 			KEY last_run_at (last_run_at),
-			KEY last_success_at (last_success_at)
+			KEY last_success_at (last_success_at),
+			KEY updated_at (updated_at)
 		) $charset_collate";
 
 		foreach ( $sql as $statement ) {

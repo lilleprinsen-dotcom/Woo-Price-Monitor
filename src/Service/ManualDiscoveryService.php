@@ -21,6 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ManualDiscoveryService {
 	private const OPTION_PREFIX = 'lpm_manual_discovery_run_';
 	private const MAX_RESULTS_PER_RUN = 500;
+	private const MAX_PAIRS_PER_RUN = 500;
 	private const RETENTION_SECONDS = DAY_IN_SECONDS;
 
 	private Repository $repository;
@@ -57,6 +58,7 @@ class ManualDiscoveryService {
 		$run         = self::build_run_state( $run_id, $pairs );
 
 		$this->save_run( $run );
+		$this->log_event( 'info', 'manual_discovery_run_started', __( 'Manual competitor discovery run started.', 'lilleprinsen-price-monitor' ), array( 'run_id' => $run_id, 'total_pairs' => (int) $run['total'], 'discovery_product_id' => $discovery_product_id, 'competitor_id' => $competitor_id ) );
 
 		return $this->public_run_state( $run );
 	}
@@ -124,6 +126,7 @@ class ManualDiscoveryService {
 
 		if ( (int) $run['cursor'] >= (int) $run['total'] ) {
 			$run['status'] = 'completed';
+			$this->log_event( 'info', 'manual_discovery_run_completed', __( 'Manual competitor discovery run completed.', 'lilleprinsen-price-monitor' ), array( 'run_id' => (string) $run['id'], 'processed' => (int) $run['processed'], 'found' => (int) $run['found'], 'errors' => (int) $run['errors'] ) );
 		}
 		$run['updated_at'] = current_time( 'mysql' );
 		$this->save_run( $run );
@@ -146,6 +149,7 @@ class ManualDiscoveryService {
 			$run['status'] = 'cancelled';
 			$run['updated_at'] = current_time( 'mysql' );
 			$this->save_run( $run );
+			$this->log_event( 'warning', 'manual_discovery_run_cancelled', __( 'Manual competitor discovery run cancelled.', 'lilleprinsen-price-monitor' ), array( 'run_id' => $run_id, 'processed' => (int) ( $run['processed'] ?? 0 ), 'total' => (int) ( $run['total'] ?? 0 ) ) );
 		}
 
 		return array_merge( array( 'success' => true, 'message' => __( 'Manual discovery run cancelled.', 'lilleprinsen-price-monitor' ) ), $this->public_run_state( $run ) );
@@ -182,6 +186,7 @@ class ManualDiscoveryService {
 		}
 
 		$this->discovery_repository->approve_suggestion( $suggestion_id, $user_id, $link_id );
+		$this->log_event( 'info', 'manual_discovery_suggestion_approved', __( 'Manual discovery suggestion approved as an active monitored competitor link.', 'lilleprinsen-price-monitor' ), array( 'suggestion_id' => $suggestion_id, 'competitor_link_id' => $link_id, 'competitor_id' => (int) $suggestion->competitor_id ), (int) $suggestion->product_id );
 
 		return array(
 			'success' => true,
@@ -202,6 +207,7 @@ class ManualDiscoveryService {
 		}
 
 		$this->discovery_repository->reject_suggestion( $suggestion_id, $user_id );
+		$this->log_event( 'info', 'manual_discovery_suggestion_rejected', __( 'Manual discovery suggestion rejected.', 'lilleprinsen-price-monitor' ), array( 'suggestion_id' => $suggestion_id, 'competitor_id' => (int) $suggestion->competitor_id ), (int) $suggestion->product_id );
 
 		return array( 'success' => true, 'message' => __( 'Suggestion rejected. It will not reappear unless the competitor page changes.', 'lilleprinsen-price-monitor' ) );
 	}
@@ -255,6 +261,8 @@ class ManualDiscoveryService {
 	 * @return array<string,mixed>
 	 */
 	public static function build_run_state( string $run_id, array $pairs ): array {
+		$pairs = array_slice( $pairs, 0, self::MAX_PAIRS_PER_RUN );
+
 		return array(
 			'id'                   => $run_id,
 			'status'               => empty( $pairs ) ? 'completed' : 'running',
@@ -390,6 +398,7 @@ class ManualDiscoveryService {
 		$product = $this->discovery_repository->get_discovery_product( (int) $pair['discovery_product_id'] );
 		$competitor = $this->repository->get_competitor( (int) $pair['competitor_id'] );
 		$row = $this->base_result_row( $pair );
+		$this->log_event( 'info', 'manual_discovery_pair_checked', __( 'Manual discovery checked a selected product against a competitor.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $pair['discovery_product_id'], 'competitor_id' => (int) $pair['competitor_id'] ), (int) ( $pair['product_id'] ?? 0 ) );
 		if ( ! $product || ! $competitor ) {
 			$row['status'] = 'error';
 			$row['error'] = __( 'Selected product or competitor was not found.', 'lilleprinsen-price-monitor' );
@@ -403,6 +412,7 @@ class ManualDiscoveryService {
 			$row['error'] = self::no_match_reason( $search );
 			$row['details'] = (string) ( $search['technical_details'] ?? '' );
 			$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
+			$this->log_event( 'warning', 'manual_discovery_no_match', __( 'Manual discovery found no competitor match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'search_url' => (string) $row['search_url'] ), (int) $product->product_id );
 			return $row;
 		}
 
@@ -413,6 +423,8 @@ class ManualDiscoveryService {
 				$row['competitor_url'] = (string) $url;
 				$row['error'] = self::no_match_reason( $search, $result );
 				$row['details'] = (string) ( $result['technical_details'] ?? '' );
+				$event = 'JavaScript required' === (string) $row['error'] ? 'manual_discovery_js_required' : 'manual_discovery_price_extraction_failed';
+				$this->log_event( 'warning', $event, __( 'Manual discovery could not extract a usable competitor product page.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'url' => (string) $url ), (int) $product->product_id );
 				continue;
 			}
 
@@ -427,6 +439,7 @@ class ManualDiscoveryService {
 				$row['detected_gtin'] = (string) ( $result['gtin'] ?? '' );
 				$row['detected_price'] = $this->format_detected_price( $result );
 				$row['error'] = self::no_match_reason( $search, $result );
+				$this->log_event( 'warning', 'manual_discovery_no_match', __( 'Manual discovery read a competitor page but did not create a match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'url' => (string) $url ), (int) $product->product_id );
 				continue;
 			}
 
@@ -444,6 +457,7 @@ class ManualDiscoveryService {
 			$row['match_reason'] = $suggestion ? (string) $suggestion->explanation : '';
 			$row['error'] = '';
 			$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
+			$this->log_event( 'info', 'manual_discovery_match_found', __( 'Manual discovery found a suggested competitor match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'suggestion_id' => (int) $row['suggestion_id'], 'confidence' => (string) $row['confidence'], 'url' => (string) $url ), (int) $product->product_id );
 			return $row;
 		}
 
@@ -543,7 +557,7 @@ class ManualDiscoveryService {
 		}
 
 		$like = self::OPTION_PREFIX . '%';
-		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s", $like ), ARRAY_A );
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s ORDER BY option_id ASC LIMIT %d", $like, 100 ), ARRAY_A );
 		if ( ! is_array( $rows ) ) {
 			return;
 		}
@@ -572,5 +586,20 @@ class ManualDiscoveryService {
 			'errors' => (int) ( $run['errors'] ?? 0 ),
 			'large_run' => (int) ( $run['total'] ?? 0 ) >= 25,
 		);
+	}
+
+	/**
+	 * Write an admin-visible diagnostic log when the repository is available.
+	 *
+	 * @param array<string,mixed> $context Log context.
+	 */
+	private function log_event( string $level, string $event, string $message, array $context = array(), ?int $product_id = null ): void {
+		if ( ! isset( $this->repository ) || ! method_exists( $this->repository, 'write_log' ) ) {
+			return;
+		}
+
+		$allowed = array( 'run_id', 'total_pairs', 'processed', 'found', 'errors', 'total', 'discovery_product_id', 'competitor_id', 'suggestion_id', 'competitor_link_id', 'confidence', 'reason', 'search_url', 'url' );
+		$safe_context = array_intersect_key( $context, array_flip( $allowed ) );
+		$this->repository->write_log( $level, $event, $message, $safe_context, $product_id );
 	}
 }

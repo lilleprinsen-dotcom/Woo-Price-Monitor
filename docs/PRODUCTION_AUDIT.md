@@ -7,7 +7,7 @@
 - Not ready for broad automatic price updates.
 - Not ready for direct WhatsApp provider delivery or an external scraper worker.
 
-The plugin is designed to start as an admin-only, dry-run price-control tool. Real WooCommerce price updates exist only behind explicit safety settings and logged-in admin confirmation. Scheduled checks are bounded and disabled by default.
+The plugin is designed to start as an admin-only, dry-run price-control tool. Real WooCommerce price updates exist only behind explicit safety settings and logged-in admin confirmation. Scheduled checks are bounded and disabled by default. JavaScript-only competitor pages are flagged as unsupported by the internal checker unless a future external scraper/browser worker is configured.
 
 ## Safety Checklist
 
@@ -15,6 +15,9 @@ The plugin is designed to start as an admin-only, dry-run price-control tool. Re
 - No frontend competitor checks.
 - No frontend external HTTP requests.
 - No full product catalog scans.
+- Competitor discovery searches only explicitly selected discovery products.
+- Manual discovery run payloads are hard-capped and stale wp_options run records are cleaned safely without deleting suggestions or approved competitor links.
+- Manual discovery logs started/completed/cancelled runs, checked pairs, no-match reasons, extraction failures, JavaScript-required pages, approvals, and rejections without storing secrets or raw HTML.
 - No automatic WooCommerce price updates by default.
 - Dry-run mode defaults on.
 - Emergency price update disable defaults on.

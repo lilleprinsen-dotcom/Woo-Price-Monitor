@@ -75,6 +75,20 @@ lpm_run_tests(
 			lpm_assert_same( 9, $pairs[0]['discovery_product_id'], 'Pair should preserve selected discovery product ID.' );
 			lpm_assert_same( 8, $pairs[0]['competitor_id'], 'Pair should preserve competitor ID.' );
 		},
+		'Manual discovery run state is hard capped for option storage' => static function (): void {
+			$pairs = array();
+			for ( $i = 1; $i <= 550; $i++ ) {
+				$pairs[] = array(
+					'discovery_product_id' => $i,
+					'competitor_id' => 1,
+				);
+			}
+
+			$run = ManualDiscoveryService::build_run_state( 'large-option-test', $pairs );
+
+			lpm_assert_same( 500, $run['total'], 'Manual run option payloads should be capped to avoid unbounded wp_options growth.' );
+			lpm_assert_same( 500, count( $run['pairs'] ), 'Stored run pairs should match the hard cap.' );
+		},
 		'Targeted retest uses one product plus one competitor IDs' => static function (): void {
 			$pairs = ManualDiscoveryService::build_run_pairs(
 				array( (object) array( 'id' => 123, 'product_id' => 99, 'variation_id' => 0, 'sku' => 'RETEST' ) ),
