@@ -126,13 +126,24 @@ class SkuSearchDiscoveryService {
 					),
 				);
 				$candidates = $this->sku_matched_urls_from_html( $body, $search_url, $needles, $domain );
+				$identifier_page_candidates = array();
+				if ( empty( $candidates ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+					$identifier_page_candidates = $this->product_candidate_urls_from_html( $body, $search_url, $domain, true );
+				}
 
 				foreach ( $candidates as $candidate ) {
 					$urls[] = $candidate;
 					$sku_evidence = true;
 				}
+				foreach ( $identifier_page_candidates as $candidate ) {
+					$urls[] = $candidate;
+					$sku_evidence = true;
+				}
+				if ( ! empty( $identifier_page_candidates ) ) {
+					$errors[] = 'Search results page mentioned SKU/EAN and exposed visible product-card URLs for ' . $search_url;
+				}
 
-				if ( empty( $candidates ) ) {
+				if ( empty( $candidates ) && empty( $identifier_page_candidates ) ) {
 					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings, $this->raw_product_name( $product ) );
 					if ( ! empty( $algolia['searched_url'] ) ) {
 						$searched_urls[] = (string) $algolia['searched_url'];
@@ -152,11 +163,11 @@ class SkuSearchDiscoveryService {
 				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 					$urls[] = $search_url;
 					$sku_evidence = true;
-				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) ) {
+				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $identifier_page_candidates ) ) {
 					$errors[] = 'Search results page mentioned SKU/EAN but did not expose a product URL for ' . $search_url;
 				}
 
-				if ( empty( $candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+				if ( empty( $candidates ) && empty( $identifier_page_candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
 					$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
 				}
 			}
@@ -410,25 +421,15 @@ class SkuSearchDiscoveryService {
 	 */
 	public function sku_matched_urls_from_html( string $html, string $base_url, array $needles, string $domain ): array {
 		$urls = array();
-		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER ) ) {
-			foreach ( $matches as $match ) {
-				$href = html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$url  = $this->url_service->resolve( $href, $base_url );
-				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) ) {
-					continue;
-				}
-				if ( $this->looks_like_listing_or_category_url( $url ) ) {
-					continue;
-				}
-				if ( ! $this->text_mentions_any_sku( $href . ' ' . $text, $needles ) ) {
-					continue;
-				}
-				if ( ! $this->is_crawlable_url( $url ) ) {
-					continue;
-				}
-				$urls[] = $url;
+		foreach ( $this->candidate_links_from_html( $html, $base_url, $domain ) as $candidate ) {
+			$url = (string) $candidate['url'];
+			if ( $this->looks_like_listing_or_category_url( $url ) || ! $this->is_crawlable_url( $url ) ) {
+				continue;
 			}
+			if ( ! $this->text_mentions_any_sku( (string) $candidate['raw'] . ' ' . (string) $candidate['text'] . ' ' . $url, $needles ) ) {
+				continue;
+			}
+			$urls[] = $url;
 		}
 
 		return array_values( array_unique( $urls ) );
@@ -445,22 +446,16 @@ class SkuSearchDiscoveryService {
 	 */
 	public function product_candidate_urls_from_html( string $html, string $base_url, string $domain, bool $broad_listing_page = false ): array {
 		$urls = array();
-		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER ) ) {
-			foreach ( $matches as $match ) {
-				$href = html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$url  = $this->url_service->resolve( $href, $base_url );
-				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
-					continue;
-				}
-				if ( $this->looks_like_listing_or_category_url( $url ) ) {
-					continue;
-				}
-				if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
-					continue;
-				}
-				$urls[] = $url;
+		foreach ( $this->candidate_links_from_html( $html, $base_url, $domain ) as $candidate ) {
+			$url = (string) $candidate['url'];
+			if ( $this->looks_like_listing_or_category_url( $url ) || ! $this->is_crawlable_url( $url ) ) {
+				continue;
 			}
+			$text = trim( (string) $candidate['text'] . ' ' . (string) $candidate['context'] );
+			if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
+				continue;
+			}
+			$urls[] = $url;
 		}
 
 		return array_values( array_unique( $urls ) );
@@ -480,34 +475,140 @@ class SkuSearchDiscoveryService {
 			return array();
 		}
 
-		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
-			foreach ( $matches as $match ) {
-				$href = html_entity_decode( (string) $match[2][0], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3][0] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$url  = $this->url_service->resolve( $href, $base_url );
-				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
-					continue;
-				}
-				if ( ! $this->looks_like_product_candidate_link( $url, $text, true ) ) {
-					continue;
-				}
-				if ( $this->candidate_name_term_hits( $href . ' ' . $text . ' ' . $url, $product_name ) < 2 ) {
-					continue;
-				}
-				$direct_score = $this->candidate_match_score( $url, $href . ' ' . $text, $product_name );
-				if ( $direct_score <= 0 ) {
-					continue;
-				}
-				$context = $this->anchor_context_text( $html, (int) $match[0][1], strlen( (string) $match[0][0] ) );
-				$score = max( $direct_score, $this->candidate_match_score( $url, $href . ' ' . $text . ' ' . $context, $product_name ) );
-				if ( $score < $this->minimum_name_candidate_score( $product_name ) ) {
-					continue;
-				}
-				$this->add_scored_url( $candidates, $url, $score );
+		foreach ( $this->candidate_links_from_html( $html, $base_url, $domain ) as $candidate ) {
+			$url = (string) $candidate['url'];
+			if ( ! $this->is_crawlable_url( $url ) || ! $this->looks_like_product_candidate_link( $url, (string) $candidate['text'] . ' ' . (string) $candidate['context'], true ) ) {
+				continue;
 			}
+			if ( $this->candidate_name_term_hits( (string) $candidate['raw'] . ' ' . (string) $candidate['text'] . ' ' . $url, $product_name ) < 2 ) {
+				continue;
+			}
+			$direct_score = $this->candidate_match_score( $url, (string) $candidate['raw'] . ' ' . (string) $candidate['text'], $product_name );
+			if ( $direct_score <= 0 ) {
+				continue;
+			}
+			$score = max( $direct_score, $this->candidate_match_score( $url, (string) $candidate['raw'] . ' ' . (string) $candidate['text'] . ' ' . (string) $candidate['context'], $product_name ) );
+			if ( $score < $this->minimum_name_candidate_score( $product_name ) ) {
+				continue;
+			}
+			$this->add_scored_url( $candidates, $url, $score );
 		}
 
 		return $this->rank_scored_urls( $candidates );
+	}
+
+	/**
+	 * Extract same-domain URL candidates from anchors, forms, buttons and common
+	 * JS/data attributes used by product cards.
+	 *
+	 * @return array<int,array{url:string,text:string,context:string,raw:string}>
+	 */
+	private function candidate_links_from_html( string $html, string $base_url, string $domain ): array {
+		$candidates = array();
+		if ( preg_match_all( '#<a\b([^>]*)>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $matches as $match ) {
+				$tag = (string) $match[0][0];
+				$attrs = $this->html_attributes_from_tag( $tag );
+				$href = (string) ( $attrs['href'] ?? '' );
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[2][0] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$context = $this->anchor_context_text( $html, (int) $match[0][1], strlen( $tag ) );
+				$this->add_candidate_link( $candidates, $this->url_service->resolve( $href, $base_url ), $text, $context, $href, $domain );
+			}
+		}
+
+		if ( preg_match_all( '#<([a-z][a-z0-9:-]*)\b([^>]*)>#is', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
+			foreach ( $matches as $match ) {
+				$tag = strtolower( (string) $match[1][0] );
+				if ( in_array( $tag, array( 'img', 'script', 'link', 'meta', 'source' ), true ) ) {
+					continue;
+				}
+				$tag_html = (string) $match[0][0];
+				$attrs = $this->html_attributes_from_tag( $tag_html );
+				$context = $this->anchor_context_text( $html, (int) $match[0][1], strlen( $tag_html ) );
+				foreach ( $attrs as $name => $value ) {
+					if ( ! $this->is_url_bearing_attribute( $name ) ) {
+						continue;
+					}
+					foreach ( $this->urls_from_attribute_value( $value, $base_url ) as $url ) {
+						$this->add_candidate_link( $candidates, $url, '', $context, $value, $domain );
+					}
+				}
+			}
+		}
+
+		return array_values( $candidates );
+	}
+
+	/**
+	 * @return array<string,string>
+	 */
+	private function html_attributes_from_tag( string $tag ): array {
+		$attrs = array();
+		if ( preg_match_all( '#([a-zA-Z0-9_:\-]+)\s*=\s*(["\'])(.*?)\2#is', $tag, $matches, PREG_SET_ORDER ) ) {
+			foreach ( $matches as $match ) {
+				$attrs[ strtolower( (string) $match[1] ) ] = html_entity_decode( (string) $match[3], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+			}
+		}
+
+		return $attrs;
+	}
+
+	private function is_url_bearing_attribute( string $name ): bool {
+		$name = strtolower( $name );
+		if ( in_array( $name, array( 'src', 'srcset', 'poster', 'style', 'class', 'id' ), true ) ) {
+			return false;
+		}
+		if ( in_array( $name, array( 'href', 'action', 'formaction', 'onclick' ), true ) ) {
+			return true;
+		}
+
+		return str_contains( $name, 'url' ) || str_contains( $name, 'href' ) || in_array( $name, array( 'data-post', 'data-mage-init', 'data-click' ), true );
+	}
+
+	/**
+	 * @return array<int,string>
+	 */
+	private function urls_from_attribute_value( string $value, string $base_url ): array {
+		$urls = array();
+		$value = html_entity_decode( str_replace( '\/', '/', $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		if ( preg_match_all( '#https?://[^\s"\'<>\\\\)]+#i', $value, $matches ) ) {
+			foreach ( $matches[0] as $url ) {
+				$urls[] = $this->url_service->normalize( (string) $url );
+			}
+		}
+		if ( preg_match_all( '#(?:"|\')((?:/|\\./|\.\./)[^"\'<>\\\\)]+)(?:"|\')#', $value, $matches ) ) {
+			foreach ( $matches[1] as $url ) {
+				$urls[] = $this->url_service->resolve( (string) $url, $base_url );
+			}
+		}
+		if ( preg_match( '#^(?:https?://|/|\\./|\.\./)#i', trim( $value ) ) ) {
+			$urls[] = $this->url_service->resolve( trim( $value ), $base_url );
+		}
+
+		return array_values( array_unique( array_filter( $urls ) ) );
+	}
+
+	/**
+	 * @param array<string,array{url:string,text:string,context:string,raw:string}> $candidates Candidate map.
+	 */
+	private function add_candidate_link( array &$candidates, string $url, string $text, string $context, string $raw, string $domain ): void {
+		$url = $this->url_service->normalize( $url );
+		if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) ) {
+			return;
+		}
+		if ( isset( $candidates[ $url ] ) ) {
+			$candidates[ $url ]['text'] .= ' ' . $text;
+			$candidates[ $url ]['context'] .= ' ' . $context;
+			$candidates[ $url ]['raw'] .= ' ' . $raw;
+			return;
+		}
+
+		$candidates[ $url ] = array(
+			'url'     => $url,
+			'text'    => $text,
+			'context' => $context,
+			'raw'     => $raw,
+		);
 	}
 
 	/**
