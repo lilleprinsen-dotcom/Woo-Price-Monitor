@@ -338,6 +338,68 @@ lpm_run_tests(
 			lpm_assert_true( in_array( 'https://BTHP9JUMB1-dsn.algolia.net/1/indexes/wp_posts_product/query', $result['searched_urls'], true ), 'Search details should show that the public Algolia product index was queried without exposing the API key.' );
 			lpm_assert_true( str_contains( $result['technical_details'], 'Algolia product search found possible product URLs' ), 'Diagnostics should explain the Algolia fallback.' );
 		},
+		'Name search still runs after identifier search returns a candidate' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 2,
+					'discovery_sku_search_url_templates' => '?s={query}&post_type=product, ?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$algolia_config = '<script type="text/javascript">var algolia = {"application_id":"BTHP9JUMB1","search_api_key":"545bf09bb920b3fb99b0708f8055cc10","indices":{"posts_product":{"name":"wp_posts_product","id":"posts_product","enabled":true}}};</script>';
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://denlillebarnebutikken.no/?s=10201031&post_type=product' => array(
+					'body' => '<html><head><title>10201031 - denlillebarnebutikken.no</title></head><body>' . $algolia_config . '10201031</body></html>',
+				),
+				'https://BTHP9JUMB1-dsn.algolia.net/1/indexes/wp_posts_product/query' => array(
+					'body' => wp_json_encode(
+						array(
+							'hits' => array(
+								array(
+									'permalink'  => 'https://denlillebarnebutikken.no/product/easygrow-cover-me-stormtrekk-navy-melange/',
+									'post_title' => 'Easygrow, Cover Me Stormtrekk - Navy Melange',
+									'sku'        => '10200091',
+								),
+							),
+						)
+					),
+				),
+				'https://denlillebarnebutikken.no/?s=10201031' => array(
+					'body' => '<html><head><title>10201031 - denlillebarnebutikken.no</title></head><body>10201031</body></html>',
+				),
+				'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black&post_type=product' => array(
+					'body' => '<a href="/product/thule-chariot-sport2-double-black/">Thule, Multisportsvogn, Chariot Sport 2, Double - Black</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'denlillebarnebutikken.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '10201031',
+					'normalized_sku'  => '10201031',
+					'gtin'            => '197074564740',
+					'normalized_gtin' => '197074564740',
+					'product_name'    => 'Thule Chariot Sport 2 double (Gen 3 2024) - midnight black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Discovery should keep name-search candidates even after identifier search returns a candidate.' );
+			lpm_assert_same(
+				array(
+					'https://denlillebarnebutikken.no/product/easygrow-cover-me-stormtrekk-navy-melange/',
+					'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/',
+				),
+				$result['urls'],
+				'Name search should add the intended product URL after an earlier false candidate.'
+			);
+			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black&post_type=product', $result['searched_urls'], true ), 'Search logs should prove the product name URL was tested.' );
+		},
 		'Name search queues redirects to product pages' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,

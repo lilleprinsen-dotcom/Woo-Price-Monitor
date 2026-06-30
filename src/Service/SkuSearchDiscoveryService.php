@@ -162,7 +162,7 @@ class SkuSearchDiscoveryService {
 			}
 		}
 
-		if ( ( empty( $urls ) || ! $sku_evidence ) && ! empty( $settings['discovery_name_search_enabled'] ) ) {
+		if ( ! empty( $settings['discovery_name_search_enabled'] ) ) {
 			$name_queries = array_values(
 				array_filter(
 					$this->product_name_queries( $product ),
