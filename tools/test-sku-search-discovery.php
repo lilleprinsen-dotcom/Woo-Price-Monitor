@@ -233,6 +233,63 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-black' ), $result['urls'], 'Shorter name search should queue the competitor product with a different color/title wording.' );
 			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double', $result['searched_urls'], true ), 'Search logs should show the shorter name URL that found the candidate.' );
 		},
+		'Search results pages that mention identifiers do not block name fallback' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 4,
+					'discovery_sku_search_url_templates' => '?s={query}&post_type=product, ?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=10201031&post_type=product' => array(
+					'body' => '<html><head><title>10201031 - competitor.no</title></head><body>10201031 197074564740</body></html>',
+				),
+				'https://competitor.no/?s=10201031' => array(
+					'body' => '<html><head><title>10201031 - competitor.no</title></head><body>10201031 197074564740</body></html>',
+				),
+				'https://competitor.no/?s=197074564740&post_type=product' => array(
+					'body' => '<html><head><title>197074564740 - competitor.no</title></head><body>197074564740</body></html>',
+				),
+				'https://competitor.no/?s=197074564740' => array(
+					'body' => '<html><head><title>197074564740 - competitor.no</title></head><body>197074564740</body></html>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black&post_type=product' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black&post_type=product' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black' => array(
+					'body' => '<a href="/produkt/thule-chariot-sport-2-double-black">Thule Chariot Sport 2 double black</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '10201031',
+					'normalized_sku'  => '10201031',
+					'gtin'            => '197074564740',
+					'normalized_gtin' => '197074564740',
+					'product_name'    => 'Thule Chariot Sport 2 double (Gen 3 2024) - midnight black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Identifier search result pages must not prevent the name fallback from trying title queries.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-black' ), $result['urls'], 'The name fallback should find the product URL after identifier search pages fail to expose one.' );
+			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'Search logs should include the name URL that found the product.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Search results page mentioned SKU/EAN' ), 'Diagnostics should explain why identifier search pages were not accepted as product pages.' );
+		},
 		'Name search queues redirects to product pages' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
