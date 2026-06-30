@@ -22,6 +22,7 @@ class ManualDiscoveryService {
 	private const OPTION_PREFIX = 'lpm_manual_discovery_run_';
 	private const MAX_RESULTS_PER_RUN = 500;
 	private const MAX_PAIRS_PER_RUN = 500;
+	private const MAX_CANDIDATE_URLS_PER_PAIR = 8;
 	private const RETENTION_SECONDS = DAY_IN_SECONDS;
 
 	private Repository $repository;
@@ -418,7 +419,7 @@ class ManualDiscoveryService {
 			return $row;
 		}
 
-		foreach ( array_slice( (array) $search['urls'], 0, 3 ) as $url ) {
+		foreach ( self::candidate_urls_for_processing( (array) $search['urls'] ) as $url ) {
 			$result = $this->extractor->test_url( (string) $url, $competitor );
 			if ( empty( $result['success'] ) ) {
 				$row['status'] = 'error';
@@ -467,6 +468,17 @@ class ManualDiscoveryService {
 
 		$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
 		return $row;
+	}
+
+	/**
+	 * Keep product-page extraction bounded while allowing normal search-result
+	 * pages to surface a relevant product that is not in the first row.
+	 *
+	 * @param array<int,mixed> $urls Candidate product URLs.
+	 * @return array<int,string>
+	 */
+	public static function candidate_urls_for_processing( array $urls ): array {
+		return array_slice( array_values( array_filter( array_map( 'strval', $urls ) ) ), 0, self::MAX_CANDIDATE_URLS_PER_PAIR );
 	}
 
 	/** @param array<string,mixed> $pair Pair. */
@@ -546,6 +558,13 @@ class ManualDiscoveryService {
 			$lines[] = __( 'Name queries prepared:', 'lilleprinsen-price-monitor' );
 			foreach ( array_slice( $searched_names, 0, 6 ) as $name ) {
 				$lines[] = '- ' . $name;
+			}
+		}
+		$candidate_urls = self::candidate_urls_for_processing( (array) ( $search['urls'] ?? array() ) );
+		if ( ! empty( $candidate_urls ) ) {
+			$lines[] = __( 'Candidate product pages checked:', 'lilleprinsen-price-monitor' );
+			foreach ( $candidate_urls as $url ) {
+				$lines[] = '- ' . $url;
 			}
 		}
 		if ( ! empty( $search['technical_details'] ) ) {
