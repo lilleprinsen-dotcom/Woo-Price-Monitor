@@ -150,6 +150,56 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black' ), $result['urls'], 'Name fallback should queue only relevant product candidates.' );
 			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
+		'Product-name search fallback tries shorter title variants' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 4,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=10201031' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=197074564740' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double' => array(
+					'body' => '<a href="/produkt/thule-chariot-sport-2-double-black">Thule Chariot Sport 2 double black</a><a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '10201031',
+					'normalized_sku'  => '10201031',
+					'gtin'            => '197074564740',
+					'normalized_gtin' => '197074564740',
+					'product_name'    => 'Thule Chariot Sport 2 double (Gen 3 2024) - midnight black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Name search should try shorter variants when the full product title is too exact.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-black' ), $result['urls'], 'Shorter name search should queue the competitor product with a different color/title wording.' );
+			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double', $result['searched_urls'], true ), 'Search logs should show the shorter name URL that found the candidate.' );
+		},
 		'EAN search can find candidates when SKU search has no hit' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
