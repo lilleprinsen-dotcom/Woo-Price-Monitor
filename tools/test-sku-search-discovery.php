@@ -113,6 +113,17 @@ lpm_run_tests(
 
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-midnight-black' ), $urls, 'Name search should queue matching product links and skip unrelated/category links.' );
 		},
+		'Name search ranks product-card context ahead of weak nearby candidates' => static function () use ( $sku_search ): void {
+			$html = '<article class="product"><a href="/product/thule-multisportsvogn-chariot-sport-single-midnight-black/"><img alt=""></a><h2>Thule, Multisportsvogn, Chariot Sport Single - Midnight Black</h2><span>kr 13 999,-</span></article>'
+				. '<article class="product"><a href="/product/easygrow-cover-me-stormtrekk-navy-melange-2/"><img alt=""></a><h2>Easygrow, Cover Me Stormtrekk - Navy Melange</h2><span>kr 499,-</span></article>'
+				. '<article class="product"><a href="/product-category/barnevogn/thule-barnevogner/"><img alt=""></a><h2>Thule barnevogner</h2></article>'
+				. '<article class="product"><a href="/product/thule-multisportsvogn-chariot-sport-2-double-black/"><img alt=""></a><h2>Thule, Multisportsvogn, Chariot Sport 2, Double - Black</h2><span>kr 14 599,-</span></article>';
+			$urls = $sku_search->name_matched_urls_from_html( $html, 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double&post_type=product', 'Thule Chariot Sport 2 double (Gen 3 2024) - midnight black', 'denlillebarnebutikken.no' );
+
+			lpm_assert_same( 'https://denlillebarnebutikken.no/product/thule-multisportsvogn-chariot-sport-2-double-black/', $urls[0] ?? '', 'The visible product-card title should make the double black product the first candidate.' );
+			lpm_assert_true( ! in_array( 'https://denlillebarnebutikken.no/product-category/barnevogn/thule-barnevogner/', $urls, true ), 'Product category URLs must not be queued as product pages.' );
+			lpm_assert_true( ! in_array( 'https://denlillebarnebutikken.no/product/easygrow-cover-me-stormtrekk-navy-melange-2/', $urls, true ), 'Unrelated product cards should not be queued from nearby page text.' );
+		},
 		'Product-name search fallback finds candidates when SKU search finds nothing' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
@@ -336,7 +347,7 @@ lpm_run_tests(
 			lpm_assert_true( $result['success'], 'Public Algolia product search should provide product URLs when the HTML search page has no links.' );
 			lpm_assert_same( array( 'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/' ), $result['urls'], 'Algolia result permalink should be queued as the candidate product URL.' );
 			lpm_assert_true( in_array( 'https://BTHP9JUMB1-dsn.algolia.net/1/indexes/wp_posts_product/query', $result['searched_urls'], true ), 'Search details should show that the public Algolia product index was queried without exposing the API key.' );
-			lpm_assert_true( str_contains( $result['technical_details'], 'Algolia product search found possible product URLs' ), 'Diagnostics should explain the Algolia fallback.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Algolia product search found relevant product URLs' ), 'Diagnostics should explain the Algolia fallback.' );
 		},
 		'Name search still runs after identifier search returns a candidate' => static function () use ( $sku_search ): void {
 			update_option(
@@ -390,14 +401,7 @@ lpm_run_tests(
 			unset( $GLOBALS['lpm_test_http_responses'] );
 
 			lpm_assert_true( $result['success'], 'Discovery should keep name-search candidates even after identifier search returns a candidate.' );
-			lpm_assert_same(
-				array(
-					'https://denlillebarnebutikken.no/product/easygrow-cover-me-stormtrekk-navy-melange/',
-					'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/',
-				),
-				$result['urls'],
-				'Name search should add the intended product URL after an earlier false candidate.'
-			);
+			lpm_assert_same( array( 'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/' ), $result['urls'], 'Wrong-SKU Algolia hits should not crowd out the intended name-search product URL.' );
 			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black&post_type=product', $result['searched_urls'], true ), 'Search logs should prove the product name URL was tested.' );
 			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black&post_type=product', $result['searched_urls'], true ), 'Search logs should include the simplified name query with the first template.' );
 			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'Search logs should include the simplified name query with the second template.' );
