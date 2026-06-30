@@ -189,6 +189,7 @@ class DiscoveryAdminPage {
 		$health      = $this->health_by_competitor();
 		$settings    = array_merge( ( new Settings() )->get_all(), $this->settings->get_all() );
 		$links       = $this->repository->get_active_competitor_links_status( 25 );
+		$active_competitors = array_values( array_filter( $competitors, static fn( $competitor ) => ! empty( $competitor['enabled'] ) ) );
 		?>
 		<div class="notice notice-info inline" style="margin:16px 0;padding:12px 14px;">
 			<p><strong><?php esc_html_e( 'Guided setup', 'lilleprinsen-price-monitor' ); ?></strong></p>
@@ -209,6 +210,7 @@ class DiscoveryAdminPage {
 			<?php $this->metric( __( 'With EAN/GTIN', 'lilleprinsen-price-monitor' ), $quality['with_gtin'] ); ?>
 			<?php $this->metric( __( 'Pending suggested matches', 'lilleprinsen-price-monitor' ), $pending ); ?>
 		</div>
+		<?php $this->render_admin_test_status_panel( $quality['selected'], $active_competitors, $settings ); ?>
 		<h2><?php esc_html_e( 'Safety status', 'lilleprinsen-price-monitor' ); ?></h2>
 		<div style="display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 16px;">
 			<?php $this->status_badge( __( 'Scheduled checks', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ); ?>
@@ -262,9 +264,12 @@ class DiscoveryAdminPage {
 			<button class="button"><?php esc_html_e( 'Test EAN/GTIN source', 'lilleprinsen-price-monitor' ); ?></button>
 		</form>
 		<form method="get" style="margin:12px 0;"><input type="hidden" name="page" value="lpm-competitor-prices" /><input type="hidden" name="view" value="products" /><input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search selected products', 'lilleprinsen-price-monitor' ); ?>" /> <button class="button"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button></form>
-		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN/GTIN', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN source', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Brand', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Pending suggestions', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Last discovery run', 'lilleprinsen-price-monitor' ); ?></th><th></th></tr></thead><tbody>
+		<?php if ( 0 === $total ) : ?>
+			<div class="notice notice-warning inline"><p><?php esc_html_e( 'No products are selected yet. Add a few SKUs below before running discovery; the assistant will never scan the full WooCommerce catalog.', 'lilleprinsen-price-monitor' ); ?> <a class="button button-primary" href="#lpm_sku_list"><?php esc_html_e( 'Add products', 'lilleprinsen-price-monitor' ); ?></a></p></div>
+		<?php endif; ?>
+		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN/GTIN', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN source', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Brand', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Pending suggestions', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Last discovery run', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th></tr></thead><tbody>
 		<?php foreach ( $products as $product ) : $edit_id = (int) ( $product->variation_id ?: $product->product_id ); ?>
-			<tr><td><a href="<?php echo esc_url( get_edit_post_link( $edit_id ) ); ?>"><?php echo esc_html( get_the_title( $edit_id ) ); ?></a></td><td><?php echo esc_html( (string) $product->sku ); ?></td><td><?php echo esc_html( (string) $product->gtin ); ?></td><td><?php echo esc_html( (string) $product->gtin_source ); ?></td><td><?php echo esc_html( (string) $product->brand ); ?></td><td><?php echo esc_html( (string) ( $counts[ (int) $product->id ] ?? 0 ) ); ?></td><td><?php echo esc_html( (string) ( $product->last_discovery_at ?: __( 'Not run yet', 'lilleprinsen-price-monitor' ) ) ); ?></td><td><form method="post"><?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="remove_product" /><input type="hidden" name="discovery_product_id" value="<?php echo esc_attr( (string) $product->id ); ?>" /><button class="button-link-delete"><?php esc_html_e( 'Remove', 'lilleprinsen-price-monitor' ); ?></button></form></td></tr>
+			<tr><td><a href="<?php echo esc_url( get_edit_post_link( $edit_id ) ); ?>"><?php echo esc_html( get_the_title( $edit_id ) ); ?></a></td><td><?php echo esc_html( (string) $product->sku ); ?></td><td><?php echo esc_html( (string) $product->gtin ); ?></td><td><?php echo esc_html( (string) $product->gtin_source ); ?></td><td><?php echo esc_html( (string) $product->brand ); ?></td><td><?php echo esc_html( (string) ( $counts[ (int) $product->id ] ?? 0 ) ); ?></td><td><?php echo esc_html( (string) ( $product->last_discovery_at ?: __( 'Not run yet', 'lilleprinsen-price-monitor' ) ) ); ?></td><td><button type="button" class="button" data-lpm-start-product="<?php echo esc_attr( (string) $product->id ); ?>"><?php esc_html_e( 'Find matches now', 'lilleprinsen-price-monitor' ); ?></button> <form method="post" style="display:inline-block;margin-left:6px;"><?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="remove_product" /><input type="hidden" name="discovery_product_id" value="<?php echo esc_attr( (string) $product->id ); ?>" /><button class="button-link-delete"><?php esc_html_e( 'Remove', 'lilleprinsen-price-monitor' ); ?></button></form></td></tr>
 		<?php endforeach; ?>
 		<?php if ( empty( $products ) ) : ?><tr><td colspan="8"><?php esc_html_e( 'No products selected yet.', 'lilleprinsen-price-monitor' ); ?></td></tr><?php endif; ?>
 		</tbody></table>
@@ -280,6 +285,9 @@ class DiscoveryAdminPage {
 		<?php $this->render_step_guidance( 3 ); ?>
 		<p><?php esc_html_e( 'Add the competitor, test one real product page, confirm the price field, then scan only your selected products.', 'lilleprinsen-price-monitor' ); ?></p>
 		<?php $this->render_manual_discovery_panel(); ?>
+		<?php if ( empty( $competitors ) ) : ?>
+			<div class="notice notice-warning inline"><p><?php esc_html_e( 'No competitors exist yet. Add a competitor profile below, then test one product page before running discovery.', 'lilleprinsen-price-monitor' ); ?> <a class="button button-primary" href="#competitor_name"><?php esc_html_e( 'Add competitor', 'lilleprinsen-price-monitor' ); ?></a></p></div>
+		<?php endif; ?>
 		<form method="post" style="max-width:900px;">
 			<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="test_product_page" />
 			<table class="form-table" role="presentation"><tr><th><label for="competitor_id"><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></label></th><td><?php $this->competitor_select( 'competitor_id', $competitors ); ?></td></tr><tr><th><label for="competitor_name"><?php esc_html_e( 'Competitor name', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="competitor_name" name="competitor_name" type="text" class="regular-text" /><p class="description"><?php esc_html_e( 'Only needed when creating a new competitor.', 'lilleprinsen-price-monitor' ); ?></p></td></tr><tr><th><label for="competitor_domain"><?php esc_html_e( 'Website/domain', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="competitor_domain" name="competitor_domain" type="text" class="regular-text" placeholder="example.no" /></td></tr><tr><th><label for="product_url"><?php esc_html_e( 'Example product URL', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="product_url" name="product_url" type="url" class="large-text" required /><p class="description"><?php esc_html_e( 'Use a normal product page from the competitor. The checker reads server-rendered HTML only.', 'lilleprinsen-price-monitor' ); ?></p></td></tr></table>
@@ -309,8 +317,8 @@ class DiscoveryAdminPage {
 		</form>
 		<h3><?php esc_html_e( 'Competitors', 'lilleprinsen-price-monitor' ); ?></h3>
 		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Name', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Domain', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Price field', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Search templates', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Seed URLs', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th></tr></thead><tbody>
-		<?php foreach ( $competitors as $competitor ) : $seeds = $this->discovery_repository->get_seed_urls_for_competitor( (int) $competitor['id'] ); ?>
-			<tr><td><?php echo esc_html( $competitor['name'] ); ?><?php if ( ! empty( $competitor['requires_javascript'] ) ) : ?><br><small style="color:#b32d2e;"><?php esc_html_e( 'JavaScript warning saved', 'lilleprinsen-price-monitor' ); ?></small><?php endif; ?></td><td><?php echo esc_html( (string) $competitor['domain'] ); ?></td><td><?php echo esc_html( $this->price_field_label( (string) ( $competitor['monitored_price_field'] ?? 'sale_price_first' ) ) ); ?></td><td><?php echo esc_html( implode( ', ', array_slice( $this->sku_search->search_templates( $competitor ), 0, 3 ) ) ); ?></td><td><?php echo esc_html( (string) count( $seeds ) ); ?></td><td><form method="post" style="display:inline-block;"><?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="run_small_discovery" /><input type="hidden" name="competitor_id" value="<?php echo esc_attr( (string) $competitor['id'] ); ?>" /><button class="button"><?php esc_html_e( 'Run discovery for selected products', 'lilleprinsen-price-monitor' ); ?></button></form></td></tr>
+		<?php foreach ( $competitors as $competitor ) : $seeds = $this->discovery_repository->get_seed_urls_for_competitor( (int) $competitor['id'] ); $templates = $this->sku_search->search_templates( $competitor ); ?>
+			<tr><td><?php echo esc_html( $competitor['name'] ); ?><?php if ( ! empty( $competitor['requires_javascript'] ) ) : ?><br><small style="color:#b32d2e;"><?php esc_html_e( 'JavaScript warning saved', 'lilleprinsen-price-monitor' ); ?></small><?php endif; ?></td><td><?php echo esc_html( (string) $competitor['domain'] ); ?></td><td><?php echo esc_html( $this->price_field_label( (string) ( $competitor['monitored_price_field'] ?? 'sale_price_first' ) ) ); ?></td><td><?php echo esc_html( implode( ', ', array_slice( $templates, 0, 3 ) ) ); ?><?php if ( empty( $templates ) && empty( $seeds ) ) : ?><br><small style="color:#b32d2e;"><?php esc_html_e( 'No search template or source URLs. Discovery may not find matches for this competitor.', 'lilleprinsen-price-monitor' ); ?></small><?php endif; ?></td><td><?php echo esc_html( (string) count( $seeds ) ); ?></td><td><button type="button" class="button button-primary" data-lpm-start-competitor="<?php echo esc_attr( (string) $competitor['id'] ); ?>"><?php esc_html_e( 'Search selected products now', 'lilleprinsen-price-monitor' ); ?></button> <form method="post" style="display:inline-block;margin-left:6px;"><?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="run_small_discovery" /><input type="hidden" name="competitor_id" value="<?php echo esc_attr( (string) $competitor['id'] ); ?>" /><button class="button"><?php esc_html_e( 'Queue scheduled discovery', 'lilleprinsen-price-monitor' ); ?></button></form></td></tr>
 		<?php endforeach; ?>
 		</tbody></table>
 		<?php
@@ -706,6 +714,32 @@ class DiscoveryAdminPage {
 		<?php
 	}
 
+	/**
+	 * Real admin testing readiness checklist.
+	 *
+	 * @param array<int,array<string,mixed>> $active_competitors Active competitor profiles.
+	 * @param array<string,mixed>            $settings Combined plugin/discovery settings.
+	 */
+	private function render_admin_test_status_panel( int $selected_products, array $active_competitors, array $settings ): void {
+		$js_warning_count = count( array_filter( $active_competitors, static fn( $competitor ) => ! empty( $competitor['requires_javascript'] ) ) );
+		$real_updates_enabled = ! empty( $settings['allow_real_price_updates'] ) && empty( $settings['disable_all_price_updates'] );
+		?>
+		<h2><?php esc_html_e( 'Admin test readiness', 'lilleprinsen-price-monitor' ); ?></h2>
+		<div style="background:#fff;border:1px solid #ccd0d4;padding:14px;margin:12px 0 18px;">
+			<p style="margin-top:0;"><?php esc_html_e( 'Use this checklist before real admin testing. Discovery still searches only selected products and all matches remain approval-first.', 'lilleprinsen-price-monitor' ); ?></p>
+			<div style="display:flex;gap:8px;flex-wrap:wrap;">
+				<?php $this->status_badge_text( __( 'Selected discovery products', 'lilleprinsen-price-monitor' ), (string) $selected_products, $selected_products > 0 ? 'good' : 'warning' ); ?>
+				<?php $this->status_badge_text( __( 'Active competitors', 'lilleprinsen-price-monitor' ), (string) count( $active_competitors ), count( $active_competitors ) > 0 ? 'good' : 'warning' ); ?>
+				<?php $this->status_badge_text( __( 'Scheduled discovery', 'lilleprinsen-price-monitor' ), ! empty( $settings['discovery_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['discovery_enabled'] ) ? 'warning' : 'muted' ); ?>
+				<?php $this->status_badge_text( __( 'Scheduled price checks', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?>
+				<?php $this->status_badge_text( __( 'Dry-run mode', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? __( 'On', 'lilleprinsen-price-monitor' ) : __( 'Off', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'good' : 'warning' ); ?>
+				<?php $this->status_badge_text( __( 'Real WooCommerce price updates', 'lilleprinsen-price-monitor' ), $real_updates_enabled ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), $real_updates_enabled ? 'danger' : 'good' ); ?>
+				<?php $this->status_badge_text( __( 'JavaScript-only competitors', 'lilleprinsen-price-monitor' ), (string) $js_warning_count, $js_warning_count > 0 ? 'warning' : 'good' ); ?>
+			</div>
+		</div>
+		<?php
+	}
+
 	private function render_step_guidance( int $current_step ): void {
 		$steps = array(
 			1 => __( 'Select WooCommerce products to monitor.', 'lilleprinsen-price-monitor' ),
@@ -839,6 +873,17 @@ class DiscoveryAdminPage {
 		$border     = $enabled ? '#00a32a' : '#8c8f94';
 		$text       = $enabled ? __( 'On', 'lilleprinsen-price-monitor' ) : __( 'Off', 'lilleprinsen-price-monitor' );
 		printf( '<span style="display:inline-flex;gap:6px;align-items:center;border:1px solid %1$s;background:%2$s;border-radius:999px;padding:4px 10px;"><strong>%3$s</strong> %4$s</span>', esc_attr( $border ), esc_attr( $background ), esc_html( $label ), esc_html( $text ) );
+	}
+
+	private function status_badge_text( string $label, string $value, string $tone = 'muted' ): void {
+		$tones = array(
+			'good'    => array( '#00a32a', '#e7f7ed' ),
+			'warning' => array( '#996800', '#fff8e5' ),
+			'danger'  => array( '#b32d2e', '#fcf0f1' ),
+			'muted'   => array( '#8c8f94', '#f6f7f7' ),
+		);
+		$colors = $tones[ $tone ] ?? $tones['muted'];
+		printf( '<span style="display:inline-flex;gap:6px;align-items:center;border:1px solid %1$s;background:%2$s;border-radius:999px;padding:4px 10px;"><strong>%3$s</strong> %4$s</span>', esc_attr( $colors[0] ), esc_attr( $colors[1] ), esc_html( $label ), esc_html( $value ) );
 	}
 
 	private function pagination( int $total, int $page, string $view, string $search = '' ): void {

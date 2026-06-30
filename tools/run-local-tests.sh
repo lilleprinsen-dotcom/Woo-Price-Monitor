@@ -3,6 +3,7 @@ set -u
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 FAILED=0
+TIMEOUT_SECONDS="${LPM_TEST_TIMEOUT_SECONDS:-20}"
 
 if ! command -v php >/dev/null 2>&1; then
 	echo "php is not available on PATH."
@@ -22,10 +23,19 @@ TESTS=(
 	"$ROOT_DIR/tools/test-manual-discovery.php"
 )
 
+COMPLETED=()
+
 for test_file in "${TESTS[@]}"; do
-	if ! php "$test_file"; then
+	test_name="$(basename "$test_file")"
+	echo "Running ${test_name}..."
+	if ! php -d max_execution_time="$TIMEOUT_SECONDS" "$test_file"; then
 		FAILED=1
+		echo "Test block failed or timed out: ${test_name}"
+		echo "Completed before failure: ${COMPLETED[*]:-(none)}"
+		echo "Timeout limit per PHP test file: ${TIMEOUT_SECONDS}s"
+		continue
 	fi
+	COMPLETED+=("$test_name")
 done
 
 if [ "$FAILED" -ne 0 ]; then

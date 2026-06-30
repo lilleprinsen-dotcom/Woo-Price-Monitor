@@ -158,7 +158,13 @@
 		}
 
 		var reason = tr.insertCell();
-		appendText(reason, row.match_reason || row.error);
+		if (row.error || row.status === 'no_match' || row.status === 'error') {
+			var reasonStrong = document.createElement('strong');
+			reasonStrong.textContent = text(row.error || row.match_reason || 'No match found');
+			reason.appendChild(reasonStrong);
+		} else {
+			appendText(reason, row.match_reason || row.error);
+		}
 		if (row.details) {
 			var details = document.createElement('details');
 			var summary = document.createElement('summary');
@@ -267,6 +273,25 @@
 		startRun(panel, productValue, competitorValue, false);
 	}
 
+	function startShortcut(productId, competitorId) {
+		var panel = document.querySelector('[data-lpm-manual-discovery-panel]');
+		if (!panel) {
+			return;
+		}
+		var product = panel.querySelector('[data-lpm-manual-product]');
+		var competitor = panel.querySelector('[data-lpm-manual-competitor]');
+		if (product) {
+			product.value = productId || '0';
+		}
+		if (competitor) {
+			competitor.value = competitorId || '0';
+		}
+		startPanelRun(panel);
+		if (panel.scrollIntoView) {
+			panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+		}
+	}
+
 	function cancelRun(panel) {
 		var runId = panel.dataset.currentRunId || '';
 		if (!runId) {
@@ -335,5 +360,17 @@
 
 	document.addEventListener('DOMContentLoaded', function () {
 		Array.prototype.forEach.call(document.querySelectorAll('[data-lpm-manual-discovery-panel]'), bindPanel);
+		document.addEventListener('click', function (event) {
+			var productStart = event.target.closest('[data-lpm-start-product]');
+			var competitorStart = event.target.closest('[data-lpm-start-competitor]');
+			if (productStart) {
+				event.preventDefault();
+				startShortcut(productStart.dataset.lpmStartProduct || '0', '0');
+			}
+			if (competitorStart) {
+				event.preventDefault();
+				startShortcut('0', competitorStart.dataset.lpmStartCompetitor || '0');
+			}
+		});
 	});
 })();

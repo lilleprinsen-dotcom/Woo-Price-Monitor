@@ -223,5 +223,45 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2' ), $result['urls'], 'Crawler should queue product-looking links for extraction even without SKU in listing text.' );
 			lpm_assert_same( array(), $result['matched_products'], 'Candidate-only crawl should not claim a selected product match until extraction verifies identifiers.' );
 		},
+		'Crawler stays bounded when many same-domain links are present' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_max_crawl_pages_per_run'  => 2,
+					'discovery_max_crawl_candidate_urls' => 3,
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$links = '';
+			for ( $i = 1; $i <= 40; $i++ ) {
+				$links .= '<a href="/kategori/side-' . $i . '">Category ' . $i . '</a><a href="/produkt/item-' . $i . '">Product ' . $i . '</a>';
+			}
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/' => array(
+					'body' => $links,
+				),
+				'https://competitor.no/kategori/side-1' => array(
+					'body' => '<a href="/produkt/deeper-1">Deeper product</a>',
+				),
+			);
+
+			$result = $sku_search->crawl_for_selected_skus(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				array(
+					(object) array(
+						'id'             => 7,
+						'sku'            => '10201031',
+						'normalized_sku' => '10201031',
+					),
+				),
+				array(),
+				2
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['request_count'] <= 2, 'Crawler should never exceed the explicit request budget.' );
+			lpm_assert_true( count( $result['urls'] ) <= 3, 'Crawler should never exceed the configured candidate URL limit.' );
+		},
 	)
 );
