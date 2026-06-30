@@ -28,6 +28,24 @@ final class AdminAssets {
 				true
 			);
 
+			wp_localize_script(
+				'lpm-discovery-admin',
+				'LPM_DISCOVERY',
+				array(
+					'ajaxUrl' => admin_url( 'admin-ajax.php' ),
+					'nonce'   => wp_create_nonce( 'lpm_discovery_ajax' ),
+					'i18n'    => array(
+						'starting'       => __( 'Starting discovery...', 'lilleprinsen-price-monitor' ),
+						'processing'     => __( 'Searching selected products...', 'lilleprinsen-price-monitor' ),
+						'complete'       => __( 'Manual discovery complete.', 'lilleprinsen-price-monitor' ),
+						'largeRun'       => __( 'This run has many product/competitor checks. It will process in small batches and may take a few minutes.', 'lilleprinsen-price-monitor' ),
+						'activeLink'     => __( 'Active monitored link', 'lilleprinsen-price-monitor' ),
+						'error'          => __( 'Manual discovery failed. See Details for more information.', 'lilleprinsen-price-monitor' ),
+						'confirmLarge'   => __( 'This will search only selected products, but it may take a few minutes. Continue?', 'lilleprinsen-price-monitor' ),
+					),
+				)
+			);
+
 			return;
 		}
 

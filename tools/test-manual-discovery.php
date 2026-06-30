@@ -1,0 +1,107 @@
+<?php
+/**
+ * Local tests for manual live discovery helpers.
+ *
+ * @package LilleprinsenPriceMonitor
+ */
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/test-bootstrap.php';
+
+use Lilleprinsen\PriceMonitor\Service\ManualDiscoveryService;
+
+if ( ! function_exists( 'get_the_title' ) ) {
+	function get_the_title( $post_id ) {
+		return $GLOBALS['lpm_test_titles'][ (int) $post_id ] ?? 'Product ' . (int) $post_id;
+	}
+}
+
+lpm_run_tests(
+	'ManualDiscoveryService',
+	array(
+		'Manual discovery job creation builds selected product and active competitor pairs' => static function (): void {
+			$GLOBALS['lpm_test_titles'][101] = 'Selected Stroller';
+			$pairs = ManualDiscoveryService::build_run_pairs(
+				array(
+					(object) array(
+						'id' => 7,
+						'product_id' => 101,
+						'variation_id' => 0,
+						'sku' => 'SKU-101',
+						'gtin' => '7040000000101',
+						'brand' => 'Brand A',
+					),
+				),
+				array(
+					array( 'id' => 3, 'name' => 'Competitor A', 'enabled' => 1 ),
+				)
+			);
+			$run = ManualDiscoveryService::build_run_state( 'manual-1', $pairs );
+
+			lpm_assert_same( 1, $run['total'], 'One selected product against one competitor should create one job pair.' );
+			lpm_assert_same( 'running', $run['status'], 'Non-empty manual runs should start as running.' );
+			lpm_assert_same( 'Selected Stroller', $run['pairs'][0]['product_title'], 'Job rows should include product title for live feedback.' );
+			lpm_assert_same( 'SKU-101', $run['pairs'][0]['sku'], 'Job rows should include our SKU.' );
+		},
+		'Manual discovery only uses explicitly selected products passed to the run builder' => static function (): void {
+			$pairs = ManualDiscoveryService::build_run_pairs(
+				array(
+					(object) array( 'id' => 1, 'product_id' => 11, 'variation_id' => 0, 'sku' => 'SELECTED-1' ),
+					(object) array( 'id' => 2, 'product_id' => 12, 'variation_id' => 0, 'sku' => 'SELECTED-2' ),
+				),
+				array(
+					array( 'id' => 1, 'name' => 'Competitor A', 'enabled' => 1 ),
+					array( 'id' => 2, 'name' => 'Competitor B', 'enabled' => 1 ),
+				)
+			);
+
+			lpm_assert_same( 4, count( $pairs ), 'Only the two provided selected products should be paired with competitors.' );
+			lpm_assert_same( array( 'SELECTED-1', 'SELECTED-1', 'SELECTED-2', 'SELECTED-2' ), array_column( $pairs, 'sku' ), 'No product outside the selected input should appear.' );
+		},
+		'Manual discovery supports one product versus one competitor' => static function (): void {
+			$pairs = ManualDiscoveryService::build_run_pairs(
+				array( (object) array( 'id' => 9, 'product_id' => 99, 'variation_id' => 0, 'sku' => 'ONE' ) ),
+				array( array( 'id' => 8, 'name' => 'One Competitor', 'enabled' => 1 ) )
+			);
+
+			lpm_assert_same( 1, count( $pairs ), 'One product versus one competitor should produce exactly one pair.' );
+			lpm_assert_same( 9, $pairs[0]['discovery_product_id'], 'Pair should preserve selected discovery product ID.' );
+			lpm_assert_same( 8, $pairs[0]['competitor_id'], 'Pair should preserve competitor ID.' );
+		},
+		'Manual discovery no-match reasons are explicit' => static function (): void {
+			lpm_assert_same( 'competitor search URL not configured', ManualDiscoveryService::no_match_reason( array( 'technical_details' => 'no search page: add a search URL template' ) ), 'Missing search templates should be explicit.' );
+			lpm_assert_same( 'search page returned no product URLs', ManualDiscoveryService::no_match_reason( array( 'technical_details' => 'No product URLs found for this selected SKU.' ) ), 'Empty search results should be explicit.' );
+			lpm_assert_same( 'JavaScript required', ManualDiscoveryService::no_match_reason( array(), array( 'requires_javascript' => true ) ), 'JavaScript-only pages should be warnings only.' );
+			lpm_assert_same( 'no price found', ManualDiscoveryService::no_match_reason( array(), array( 'monitored_price' => null ) ), 'Pages without detected price should be explicit.' );
+			lpm_assert_same( 'HTTP blocked/error', ManualDiscoveryService::no_match_reason( array( 'technical_details' => 'HTTP status 403' ) ), 'Blocked HTTP responses should be explicit.' );
+		},
+		'Approving from live results builds an active competitor link' => static function (): void {
+			$data = ManualDiscoveryService::competitor_link_data_for_approval(
+				(object) array(
+					'competitor_id' => 4,
+					'competitor_url' => 'https://competitor.no/product/sku-101',
+					'confidence_label' => 'High confidence',
+				),
+				array( 'name' => 'Competitor A' ),
+				22
+			);
+
+			lpm_assert_same( 22, $data['monitored_product_id'], 'Approved live result should target the monitored product.' );
+			lpm_assert_same( 4, $data['competitor_id'], 'Approved live result should preserve competitor profile.' );
+			lpm_assert_same( 'https://competitor.no/product/sku-101', $data['competitor_url'], 'Approved live result should preserve competitor URL.' );
+			lpm_assert_same( 'exact', $data['match_type'], 'High confidence live result should create an exact competitor link.' );
+			lpm_assert_same( 1, $data['enabled'], 'Approved live result should create an active competitor link.' );
+		},
+		'Manual discovery creates suggestions without auto-approving them during processing' => static function (): void {
+			$method = new ReflectionMethod( ManualDiscoveryService::class, 'process_pair' );
+			$source = file_get_contents( LPM_TEST_ROOT . '/src/Service/ManualDiscoveryService.php' );
+			$lines  = file( LPM_TEST_ROOT . '/src/Service/ManualDiscoveryService.php' );
+			$body   = implode( '', array_slice( $lines ?: array(), $method->getStartLine() - 1, $method->getEndLine() - $method->getStartLine() + 1 ) );
+
+			lpm_assert_true( str_contains( (string) $source, 'create_suggestions' ), 'Processing should create suggestions when matches are found.' );
+			lpm_assert_true( ! str_contains( $body, 'approve_suggestion' ), 'Processing must not auto-approve suggestions.' );
+			lpm_assert_true( str_contains( $source, 'add_competitor_link' ), 'Dedicated approval flow should create active competitor links.' );
+		},
+	)
+);
