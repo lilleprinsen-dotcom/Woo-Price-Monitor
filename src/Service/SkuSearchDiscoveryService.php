@@ -57,6 +57,10 @@ class SkuSearchDiscoveryService {
 		$errors        = array();
 		$sku_evidence  = false;
 
+		if ( empty( $templates ) ) {
+			return $this->failure( 'No search template is configured for this competitor.', 'no search page: add a search URL template containing {sku} or {query}.', 0, $sku, (int) ( $product->id ?? 0 ) );
+		}
+
 		foreach ( $templates as $template ) {
 			$search_url = $this->build_search_url( $domain, $template, $sku );
 			if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
@@ -98,6 +102,7 @@ class SkuSearchDiscoveryService {
 
 			$body = (string) wp_remote_retrieve_body( $response );
 			if ( '' === trim( $body ) ) {
+				$errors[] = 'No product URLs: empty search page for ' . $search_url;
 				continue;
 			}
 
@@ -116,6 +121,10 @@ class SkuSearchDiscoveryService {
 			if ( $this->page_mentions_sku( $body, $sku ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 				$urls[] = $search_url;
 				$sku_evidence = true;
+			}
+
+			if ( ! $this->page_mentions_sku( $body, $sku ) && empty( $candidates ) ) {
+				$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
 			}
 		}
 
@@ -166,6 +175,7 @@ class SkuSearchDiscoveryService {
 
 					$body = (string) wp_remote_retrieve_body( $response );
 					if ( '' === trim( $body ) ) {
+						$errors[] = 'No product URLs: empty name-search page for ' . $search_url;
 						continue;
 					}
 
@@ -182,9 +192,12 @@ class SkuSearchDiscoveryService {
 
 		$urls = array_values( array_unique( array_map( array( $this->url_service, 'normalize' ), $urls ) ) );
 		$urls = array_values( array_filter( $urls ) );
+		if ( empty( $urls ) && empty( $errors ) ) {
+			$errors[] = 'No product URLs found for this selected SKU.';
+		}
 
 		return array(
-			'success'              => ! empty( $urls ) || empty( $errors ),
+			'success'              => ! empty( $urls ),
 			'urls'                 => $urls,
 			'message'              => sprintf( 'Found %1$d possible pages for SKU %2$s.', count( $urls ), $sku ),
 			'technical_details'    => implode( "\n", array_unique( $errors ) ),
@@ -438,7 +451,7 @@ class SkuSearchDiscoveryService {
 			$raw = is_array( $notes['search_url_templates'] ) ? $notes['search_url_templates'] : explode( ',', (string) $notes['search_url_templates'] );
 			foreach ( $raw as $template ) {
 				$template = trim( sanitize_text_field( (string) $template ) );
-				if ( '' !== $template ) {
+				if ( '' !== $template && $this->has_search_placeholder( $template ) ) {
 					$templates[] = $template;
 				}
 			}
@@ -449,6 +462,10 @@ class SkuSearchDiscoveryService {
 		}
 
 		return array_values( array_unique( array_filter( $templates ) ) );
+	}
+
+	private function has_search_placeholder( string $template ): bool {
+		return false !== strpos( $template, '{sku}' ) || false !== strpos( $template, '{query}' ) || false !== strpos( $template, '%s' );
 	}
 
 	/**

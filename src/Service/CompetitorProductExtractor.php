@@ -127,6 +127,11 @@ class CompetitorProductExtractor {
 			'canonical_url_hash'  => '',
 			'extraction_status'   => 'partial',
 			'extraction_source'   => '',
+			'price_candidates'     => array(),
+			'monitored_price'      => null,
+			'monitored_price_field'=> '',
+			'requires_javascript'  => false,
+			'warnings'             => array(),
 			'sources'             => array(),
 			'raw_metadata'        => array(),
 			'content_hash'        => hash( 'sha256', wp_strip_all_tags( $html ) ),
@@ -139,6 +144,7 @@ class CompetitorProductExtractor {
 		$this->merge_json_ld( $data, $json );
 		$this->merge_meta( $data, $meta, $url );
 		$this->apply_competitor_rules( $data, $html, $meta, $competitor );
+		$this->merge_visible_price_candidates( $data, $html );
 
 		if ( '' === $data['canonical_url'] && '' !== $canon ) {
 			$data['canonical_url']      = $canon;
@@ -171,9 +177,16 @@ class CompetitorProductExtractor {
 
 		$data['regular_price']   = $this->normalize_price( $data['regular_price'] );
 		$data['sale_price']      = $this->normalize_price( $data['sale_price'] );
+		$data['price_candidates'] = $this->normalized_price_candidates( $data['price_candidates'] );
+		$data['monitored_price_field'] = $this->chosen_monitored_price_field( $data, $competitor );
+		$data['monitored_price'] = $this->price_for_field( $data, $data['monitored_price_field'] );
 		$data['normalized_sku']  = $this->normalize_identifier( (string) $data['sku'] );
 		$data['normalized_gtin'] = $this->normalize_gtin( (string) $data['gtin'] );
 		$data['normalized_mpn']  = $this->normalize_identifier( (string) $data['mpn'] );
+		if ( $this->looks_javascript_required( $html, $data ) ) {
+			$data['requires_javascript'] = true;
+			$data['warnings'][] = 'This page appears to require JavaScript. The internal checker reads HTML only, so it may not see the live price.';
+		}
 
 		$data['extraction_status'] = ( null !== $data['sale_price'] || null !== $data['regular_price'] ) ? 'success' : 'partial';
 		$data['extraction_source'] = $this->primary_source( $data['sources'] );
@@ -184,7 +197,32 @@ class CompetitorProductExtractor {
 			'meta'    => $meta,
 			'json_ld' => $json,
 			'rules'   => $this->advanced_rules( $competitor ),
+			'price_candidates' => $data['price_candidates'],
 		);
+
+		return $data;
+	}
+
+	/**
+	 * Build profile updates from a tested price candidate.
+	 *
+	 * @param array<string,mixed> $candidate Candidate from price_candidates.
+	 * @return array<string,mixed>
+	 */
+	public function profile_rule_from_price_candidate( array $candidate ): array {
+		$field  = sanitize_key( (string) ( $candidate['field'] ?? '' ) );
+		$source = sanitize_text_field( (string) ( $candidate['source'] ?? '' ) );
+		$rule   = sanitize_text_field( (string) ( $candidate['rule'] ?? '' ) );
+
+		$data = array( 'monitored_price_field' => in_array( $field, array( 'regular_price', 'sale_price' ), true ) ? $field : 'sale_price_first' );
+		if ( in_array( $source, array( 'selector', 'custom_rule' ), true ) && '' !== $rule ) {
+			if ( 'sale_price' === $field ) {
+				$data['sale_price_selector'] = $rule;
+			} else {
+				$data['regular_price_selector'] = $rule;
+				$data['price_selector'] = $rule;
+			}
+		}
 
 		return $data;
 	}
@@ -227,6 +265,9 @@ class CompetitorProductExtractor {
 				$data[ $field ] = $value;
 			}
 			$data['sources'][ $field ] = 'Custom competitor rule';
+			if ( in_array( $field, array( 'regular_price', 'sale_price' ), true ) ) {
+				$this->add_price_candidate( $data, $field, $value, 'selector', 'Selector', $selector );
+			}
 		}
 
 		if ( ! empty( $advanced['meta_map'] ) && is_array( $advanced['meta_map'] ) ) {
@@ -411,6 +452,9 @@ class CompetitorProductExtractor {
 					$offers = $offers[0];
 				}
 				$this->set_if_empty( $data, 'regular_price', $offers['price'] ?? '', 'Structured product data' );
+				if ( ! empty( $offers['price'] ) ) {
+					$this->add_price_candidate( $data, 'regular_price', $offers['price'], 'json_ld', 'JSON-LD', 'offers.price' );
+				}
 				$this->set_if_empty( $data, 'currency', $offers['priceCurrency'] ?? '', 'Structured product data' );
 				if ( 'unknown' === $data['stock_status'] && ! empty( $offers['availability'] ) ) {
 					$data['stock_status'] = $this->normalize_availability( (string) $offers['availability'] );
@@ -432,6 +476,12 @@ class CompetitorProductExtractor {
 		$this->set_if_empty( $data, 'title', $meta['og:title'] ?? '', 'Product meta tag' );
 		$this->set_if_empty( $data, 'regular_price', $meta['product:price:amount'] ?? '', 'Product meta tag' );
 		$this->set_if_empty( $data, 'sale_price', $meta['product:sale_price:amount'] ?? '', 'Product meta tag' );
+		if ( ! empty( $meta['product:price:amount'] ) ) {
+			$this->add_price_candidate( $data, 'regular_price', $meta['product:price:amount'], 'meta_tag', 'Meta tag', 'product:price:amount' );
+		}
+		if ( ! empty( $meta['product:sale_price:amount'] ) ) {
+			$this->add_price_candidate( $data, 'sale_price', $meta['product:sale_price:amount'], 'meta_tag', 'Meta tag', 'product:sale_price:amount' );
+		}
 		$this->set_if_empty( $data, 'currency', $meta['product:price:currency'] ?? $meta['product:sale_price:currency'] ?? '', 'Product meta tag' );
 		if ( '' === $data['image_url'] && ! empty( $meta['og:image'] ) ) {
 			$data['image_url'] = $this->url_service->resolve( $meta['og:image'], $base_url );
@@ -446,6 +496,127 @@ class CompetitorProductExtractor {
 			$data['stock_status'] = $this->normalize_availability( $meta['product:availability'] );
 			$data['sources']['stock_status'] = 'Product meta tag';
 		}
+	}
+
+	/**
+	 * Add visible-text price candidates without trusting them over structured data.
+	 *
+	 * @param array<string,mixed> $data Data by reference.
+	 */
+	private function merge_visible_price_candidates( array &$data, string $html ): void {
+		$text = html_entity_decode( wp_strip_all_tags( $html ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		if ( ! preg_match_all( '/(?:NOK|kr)\s*([0-9][0-9\s\.,]{1,12})|([0-9][0-9\s\.,]{1,12})\s*(?:NOK|kr)/iu', $text, $matches, PREG_SET_ORDER ) ) {
+			return;
+		}
+
+		foreach ( array_slice( $matches, 0, 8 ) as $index => $match ) {
+			$value = trim( (string) ( $match[1] ?: $match[2] ) );
+			$this->add_price_candidate( $data, 0 === $index ? 'regular_price' : 'detected_price', $value, 'visible_text', 'Visible page text', 'price text near NOK/kr' );
+		}
+	}
+
+	/**
+	 * @param array<string,mixed> $data Data by reference.
+	 * @param mixed               $value Raw price value.
+	 */
+	private function add_price_candidate( array &$data, string $field, $value, string $source, string $label, string $rule = '' ): void {
+		if ( ! isset( $data['price_candidates'] ) || ! is_array( $data['price_candidates'] ) ) {
+			$data['price_candidates'] = array();
+		}
+
+		$data['price_candidates'][] = array(
+			'field'  => sanitize_key( $field ),
+			'value'  => is_scalar( $value ) ? (string) $value : '',
+			'price'  => $this->normalize_price( $value ),
+			'source' => sanitize_key( $source ),
+			'label'  => sanitize_text_field( $label ),
+			'rule'   => sanitize_text_field( $rule ),
+		);
+	}
+
+	/**
+	 * Normalize and deduplicate detected price candidates.
+	 *
+	 * @param array<int,array<string,mixed>> $candidates Raw candidates.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function normalized_price_candidates( array $candidates ): array {
+		$out = array();
+		$seen = array();
+		foreach ( $candidates as $candidate ) {
+			$price = $this->normalize_price( $candidate['price'] ?? $candidate['value'] ?? null );
+			if ( null === $price ) {
+				continue;
+			}
+			$field = sanitize_key( (string) ( $candidate['field'] ?? 'detected_price' ) );
+			$key = $field . '|' . (string) $price . '|' . sanitize_key( (string) ( $candidate['source'] ?? '' ) ) . '|' . sanitize_text_field( (string) ( $candidate['rule'] ?? '' ) );
+			if ( isset( $seen[ $key ] ) ) {
+				continue;
+			}
+			$seen[ $key ] = true;
+			$out[] = array(
+				'field'  => $field,
+				'value'  => sanitize_text_field( (string) ( $candidate['value'] ?? $price ) ),
+				'price'  => $price,
+				'source' => sanitize_key( (string) ( $candidate['source'] ?? 'unknown' ) ),
+				'label'  => sanitize_text_field( (string) ( $candidate['label'] ?? 'Detected value' ) ),
+				'rule'   => sanitize_text_field( (string) ( $candidate['rule'] ?? '' ) ),
+			);
+		}
+
+		return array_slice( $out, 0, 12 );
+	}
+
+	/**
+	 * Pick the monitored price field from competitor profile and detected values.
+	 *
+	 * @param array<string,mixed> $data Extracted data.
+	 * @param array<string,mixed> $competitor Competitor profile.
+	 */
+	private function chosen_monitored_price_field( array $data, array $competitor ): string {
+		$field = sanitize_key( (string) ( $competitor['monitored_price_field'] ?? 'sale_price_first' ) );
+		if ( in_array( $field, array( 'regular_price', 'sale_price' ), true ) && null !== $this->price_for_field( $data, $field ) ) {
+			return $field;
+		}
+		if ( 'regular_price' === $field && null !== $this->price_for_field( $data, 'regular_price' ) ) {
+			return 'regular_price';
+		}
+		if ( null !== $this->price_for_field( $data, 'sale_price' ) ) {
+			return 'sale_price';
+		}
+		if ( null !== $this->price_for_field( $data, 'regular_price' ) ) {
+			return 'regular_price';
+		}
+
+		return '';
+	}
+
+	/**
+	 * @param array<string,mixed> $data Extracted data.
+	 */
+	private function price_for_field( array $data, string $field ): ?float {
+		if ( in_array( $field, array( 'regular_price', 'sale_price' ), true ) && array_key_exists( $field, $data ) ) {
+			return $this->normalize_price( $data[ $field ] );
+		}
+
+		return null;
+	}
+
+	/**
+	 * Detect pages that likely need a browser renderer.
+	 *
+	 * @param array<string,mixed> $data Extracted data.
+	 */
+	private function looks_javascript_required( string $html, array $data ): bool {
+		if ( null !== $data['monitored_price'] ) {
+			return false;
+		}
+
+		$lower = strtolower( $html );
+		$script_count = substr_count( $lower, '<script' );
+		$body_text = trim( wp_strip_all_tags( preg_replace( '#<script\b[^>]*>.*?</script>#is', '', $html ) ?: $html ) );
+
+		return $script_count >= 5 && strlen( $body_text ) < 400;
 	}
 
 	/** Extract canonical URL. */
@@ -638,6 +809,11 @@ class CompetitorProductExtractor {
 			'message'           => $message,
 			'technical_details' => $technical,
 			'extraction_status' => 'failed',
+			'price_candidates'  => array(),
+			'monitored_price'   => null,
+			'monitored_price_field' => '',
+			'requires_javascript' => false,
+			'warnings'          => array(),
 			'sources'           => array(),
 		);
 	}

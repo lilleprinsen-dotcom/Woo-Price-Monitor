@@ -745,6 +745,59 @@ final class Repository {
 		return false !== $updated;
 	}
 
+	/**
+	 * Recent active competitor links for admin monitoring status.
+	 *
+	 * @return array<int, array<string, mixed>>
+	 */
+	public function get_active_competitor_links_status( int $limit = 50 ): array {
+		$links_table     = $this->tables['competitor_links'];
+		$monitored_table = $this->tables['monitored_products'];
+		$competitors     = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $links_table ) || ! $this->table_exists( $monitored_table ) ) {
+			return array();
+		}
+
+		$limit = $this->sanitize_per_page( $limit );
+		if ( $this->table_exists( $competitors ) ) {
+			$sql = $this->wpdb->prepare(
+				"SELECT
+					cl.*,
+					mp.product_id,
+					mp.sku,
+					mp.check_frequency_hours,
+					c.name AS competitor_profile_name,
+					c.requires_javascript AS competitor_requires_javascript
+				FROM {$links_table} cl
+				INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
+				LEFT JOIN {$competitors} c ON cl.competitor_id = c.id
+				WHERE cl.enabled = %d AND mp.enabled = %d
+				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.updated_at DESC
+				LIMIT %d",
+				1,
+				1,
+				$limit
+			);
+		} else {
+			$sql = $this->wpdb->prepare(
+				"SELECT cl.*, mp.product_id, mp.sku, mp.check_frequency_hours
+				FROM {$links_table} cl
+				INNER JOIN {$monitored_table} mp ON cl.monitored_product_id = mp.id
+				WHERE cl.enabled = %d AND mp.enabled = %d
+				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.updated_at DESC
+				LIMIT %d",
+				1,
+				1,
+				$limit
+			);
+		}
+
+		$rows = $this->wpdb->get_results( $sql, ARRAY_A );
+
+		return is_array( $rows ) ? $rows : array();
+	}
+
 	private function unset_primary_competitor_links( int $monitored_product_id, int $except_link_id ): void {
 		$table = $this->tables['competitor_links'];
 
