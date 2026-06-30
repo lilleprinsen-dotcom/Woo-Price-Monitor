@@ -20,11 +20,14 @@ final class AdminAssets {
 		$page = isset( $_GET['page'] ) ? sanitize_key( wp_unslash( $_GET['page'] ) ) : '';
 
 		if ( 'lpm-competitor-prices' === $page ) {
+			$discovery_script_path = defined( 'LPM_PLUGIN_FILE' ) ? plugin_dir_path( LPM_PLUGIN_FILE ) . 'assets/discovery-admin.js' : '';
+			$discovery_script_version = is_readable( $discovery_script_path ) ? (string) filemtime( $discovery_script_path ) : LPM_VERSION;
+
 			wp_enqueue_script(
 				'lpm-discovery-admin',
 				LPM_PLUGIN_URL . 'assets/discovery-admin.js',
 				array(),
-				LPM_VERSION,
+				$discovery_script_version,
 				true
 			);
 

@@ -702,6 +702,9 @@ class DiscoveryAdminPage {
 			<?php if ( count( $products ) >= 25 || count( $competitors ) >= 5 ) : ?>
 				<p style="color:#996800;"><strong><?php esc_html_e( 'Large run warning:', 'lilleprinsen-price-monitor' ); ?></strong> <?php esc_html_e( 'This may take a few minutes. Results will appear below as each small batch finishes.', 'lilleprinsen-price-monitor' ); ?></p>
 			<?php endif; ?>
+			<?php if ( empty( $products ) || empty( $competitors ) ) : ?>
+				<p class="description" style="color:#b32d2e;"><strong><?php esc_html_e( 'Cannot start yet:', 'lilleprinsen-price-monitor' ); ?></strong> <?php echo esc_html( empty( $products ) ? __( 'Add at least one selected product first.', 'lilleprinsen-price-monitor' ) : __( 'Add or enable at least one competitor first.', 'lilleprinsen-price-monitor' ) ); ?></p>
+			<?php endif; ?>
 			<div data-lpm-manual-progress hidden>
 				<p><span data-lpm-manual-status class="lpm-status-badge"><?php esc_html_e( 'Queued', 'lilleprinsen-price-monitor' ); ?></span> <span data-lpm-manual-counts></span></p>
 				<progress data-lpm-manual-progress-bar value="0" max="100" style="width:100%;max-width:680px;"></progress>

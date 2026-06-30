@@ -2,6 +2,9 @@
 	'use strict';
 
 	function post(action, data) {
+		if (!window.LPM_DISCOVERY || !window.LPM_DISCOVERY.ajaxUrl) {
+			return Promise.reject(new Error('Manual discovery assets did not load correctly. Refresh the page and try again.'));
+		}
 		var form = new window.FormData();
 		form.append('action', action);
 		form.append('nonce', window.LPM_DISCOVERY ? window.LPM_DISCOVERY.nonce : '');
@@ -308,6 +311,10 @@
 	}
 
 	function bindPanel(panel) {
+		if (panel.dataset.lpmManualBound === '1') {
+			return;
+		}
+		panel.dataset.lpmManualBound = '1';
 		var start = panel.querySelector('[data-lpm-manual-start]');
 		var cancel = panel.querySelector('[data-lpm-manual-cancel]');
 		if (start) {
@@ -358,7 +365,11 @@
 		});
 	}
 
-	document.addEventListener('DOMContentLoaded', function () {
+	function bindDiscoveryUi() {
+		if (document.documentElement.dataset.lpmDiscoveryUiBound === '1') {
+			return;
+		}
+		document.documentElement.dataset.lpmDiscoveryUiBound = '1';
 		Array.prototype.forEach.call(document.querySelectorAll('[data-lpm-manual-discovery-panel]'), bindPanel);
 		document.addEventListener('click', function (event) {
 			var productStart = event.target.closest('[data-lpm-start-product]');
@@ -372,5 +383,11 @@
 				startShortcut('0', competitorStart.dataset.lpmStartCompetitor || '0');
 			}
 		});
-	});
+	}
+
+	if (document.readyState === 'loading') {
+		document.addEventListener('DOMContentLoaded', bindDiscoveryUi);
+	} else {
+		bindDiscoveryUi();
+	}
 })();
