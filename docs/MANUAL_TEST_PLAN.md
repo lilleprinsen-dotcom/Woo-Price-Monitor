@@ -14,6 +14,9 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 
 ## Checklist
 
+- [ ] Open WooCommerce > Competitor Prices > Overview and review Admin test readiness: selected discovery products, active competitors, scheduled discovery, scheduled price checks, dry-run mode, real WooCommerce price updates, and JavaScript-only competitor count.
+- [ ] Confirm the Overview says matches must be approved before monitoring starts.
+- [ ] Confirm real WooCommerce price updates are disabled and dry-run/emergency safety is enabled before testing on production data.
 - [ ] Activate the plugin from WordPress admin.
 - [ ] Confirm the WooCommerce submenu "Price Monitor" appears.
 - [ ] Confirm the custom tables exist: `lpm_monitored_products`, `lpm_competitors`, `lpm_competitor_links`, `lpm_product_groups`, `lpm_product_group_members`, `lpm_price_observations`, `lpm_price_suggestions`, `lpm_price_match_sessions`, `lpm_approval_tokens`, and `lpm_logs`.
@@ -160,6 +163,39 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Run `wp lpm cleanup` on staging and confirm it logs the cleanup summary.
 - [ ] Send test notification and confirm it writes a log entry only.
 - [ ] Confirm no WhatsApp, webhook, SMS, or email provider call is made.
+
+## Competitor Discovery Staging Walkthrough
+
+Use this short path before controlled live dry-run. It should be safe with a large catalog because discovery uses only products explicitly selected under Competitor Prices.
+
+- [ ] Install and activate on staging with WooCommerce active.
+- [ ] Keep `dry_run_mode` enabled, `disable_all_price_updates` enabled, and `allow_real_price_updates` disabled.
+- [ ] Go to WooCommerce > Competitor Prices > Products to Monitor.
+- [ ] Add exactly 10 staging products by SKU, product ID, or variation ID.
+- [ ] Confirm the selected-products count is 10 and no warning says products are missing.
+- [ ] Go to Find Matches and add 2 competitor profiles.
+- [ ] For each competitor, test one simple server-rendered product page.
+- [ ] Review detected JSON-LD, meta, selector, and visible text candidates.
+- [ ] Click Use this price for the best regular or sale price candidate and confirm the saved-rule notice. If the candidate came from JSON-LD, meta, or visible text, no CSS selector is required.
+- [ ] Add at least one search URL template using `{sku}` or `{query}`, or add a listing/sitemap source URL. If neither exists, confirm the competitor row warns that discovery may not find matches.
+- [ ] Use Test search template with one selected SKU and confirm the no-match reason is specific when nothing is found.
+- [ ] Click Find competitor matches now for all selected products and both competitors.
+- [ ] Confirm the large-run warning appears before the run is created.
+- [ ] Watch the live results table. Each row should show product title, SKU/EAN, competitor, source URL, found/no-match/error status, detected identifiers, detected price, confidence, match reason, and a visible no-match reason when applicable.
+- [ ] Expand Details only when technical diagnostics are needed.
+- [ ] Click Retest on one row and confirm only that product/competitor pair is retested.
+- [ ] Click Cancel during a run and confirm no further rows process. Already-created suggestions should remain.
+- [ ] Approve one clearly correct suggestion and confirm the row says Active monitored competitor link.
+- [ ] Open Overview and confirm the approved link appears in Active monitored competitor links with last checked, last price, last error, next check, and status columns.
+- [ ] Reject one weak suggestion and confirm it does not immediately reappear unless the competitor page data changes.
+- [ ] Run one small price check batch on staging and confirm WooCommerce product prices do not change.
+
+Known limitations:
+
+- JavaScript-only competitor pages are unsupported by the internal checker. They should show a JavaScript-required warning; the plugin must not pretend browser rendering worked.
+- Title-only and low-confidence matches are review-only and should be treated as risky until a human confirms model, color, bundle size, and variant.
+- Manual discovery run payloads are temporary wp_options records, capped and cleaned after retention. A future table-backed run store may be appropriate for very large interactive workflows.
+- Scheduled checks and discovery are bounded, but they should stay disabled during the first staging pass unless specifically tested.
 
 ## Frontend Price-Match Box And Coupons
 

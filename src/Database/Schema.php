@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '2.2.0';
+	public const VERSION = '2.2.1';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -73,6 +73,7 @@ final class Schema {
 			UNIQUE KEY product_id (product_id),
 			KEY sku (sku),
 			KEY enabled (enabled),
+			KEY enabled_updated_at (enabled, updated_at),
 			KEY priority (priority),
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
@@ -106,7 +107,8 @@ final class Schema {
 			KEY name (name),
 			KEY domain (domain),
 			KEY enabled (enabled),
-			KEY requires_javascript (requires_javascript)
+			KEY requires_javascript (requires_javascript),
+			KEY enabled_updated_at (enabled, updated_at)
 		) {$charset_collate};";
 
 		$sql[] = "CREATE TABLE {$tables['competitor_links']} (
@@ -135,6 +137,9 @@ final class Schema {
 			KEY enabled (enabled),
 			KEY is_primary (is_primary),
 			KEY enabled_last_checked_at (enabled, last_checked_at),
+			KEY enabled_next_check_after (enabled, next_check_after),
+			KEY monitored_enabled (monitored_product_id, enabled),
+			KEY competitor_enabled (competitor_id, enabled),
 			KEY next_check_after (next_check_after),
 			KEY last_checked_at (last_checked_at)
 		) {$charset_collate};";
@@ -197,6 +202,8 @@ final class Schema {
 			KEY product_id (product_id),
 			KEY success (success),
 			KEY checked_at (checked_at),
+			KEY success_checked_at (success, checked_at),
+			KEY product_checked_at (product_id, checked_at),
 			KEY competitor_checked_at (competitor_link_id, checked_at)
 		) {$charset_collate};";
 
@@ -233,7 +240,10 @@ final class Schema {
 			KEY suggestion_type (suggestion_type),
 			KEY status (status),
 			KEY status_type (status, suggestion_type),
-			KEY created_at (created_at)
+			KEY status_created_at (status, created_at),
+			KEY product_status (product_id, status),
+			KEY created_at (created_at),
+			KEY updated_at (updated_at)
 		) {$charset_collate};";
 
 		$sql[] = "CREATE TABLE {$tables['price_match_sessions']} (
@@ -298,6 +308,8 @@ final class Schema {
 			PRIMARY KEY  (id),
 			KEY level (level),
 			KEY event (event),
+			KEY event_created_at (event, created_at),
+			KEY level_created_at (level, created_at),
 			KEY product_id (product_id),
 			KEY created_at (created_at)
 		) {$charset_collate};";

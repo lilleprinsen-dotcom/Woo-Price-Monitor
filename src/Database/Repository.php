@@ -2328,6 +2328,16 @@ final class Repository {
 			'webhook_notification_failed',
 			'webhook_notification_skipped',
 			'webhook_test',
+			'manual_discovery_run_started',
+			'manual_discovery_run_completed',
+			'manual_discovery_run_cancelled',
+			'manual_discovery_pair_checked',
+			'manual_discovery_match_found',
+			'manual_discovery_no_match',
+			'manual_discovery_price_extraction_failed',
+			'manual_discovery_js_required',
+			'manual_discovery_suggestion_approved',
+			'manual_discovery_suggestion_rejected',
 			'retention_cleanup_completed',
 		);
 	}
