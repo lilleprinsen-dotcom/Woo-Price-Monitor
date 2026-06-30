@@ -161,6 +161,47 @@ lpm_run_tests(
 			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'The full product name query should be tested.' );
 			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
+		'Identifier search queues visible product cards when SKU is only on the result page' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => 'catalogsearch/result/?q={query}&origin=ORGANIC',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC' => array(
+					'body' => '<main><h1>Søkeresultater for: 20110754</h1><div class="product-item"><img src="/media/bag.jpg" alt="Bag, Thule, Black"><strong>Bag, Thule, Black</strong><span>kr 3 499,00</span><a class="action" href="/thule-urban-glide-3-bassinet-black-on-black">Se produkt</a></div></main>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'www.babycare.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '20110754',
+					'normalized_sku'  => '20110754',
+					'gtin'            => '872299049660',
+					'normalized_gtin' => '872299049660',
+					'product_name'    => 'Thule Urban Glide 3 bassinet - black on black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Exact SKU result pages should queue visible product cards even when the SKU is not in the product-card link.' );
+			lpm_assert_same( array( 'https://www.babycare.no/thule-urban-glide-3-bassinet-black-on-black' ), $result['urls'], 'The visible Babycare-style product card should be queued for extraction.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'exposed visible product-card URLs' ), 'Diagnostics should explain why the visible card was queued.' );
+		},
+		'Product card URL extraction reads button data attributes' => static function () use ( $sku_search ): void {
+			$html = '<section><h1>20110754</h1><article class="product"><img alt="Bag, Thule, Black"><h2>Bag, Thule, Black</h2><span>kr 3 499,00</span><button type="button" data-product-url="/thule-urban-glide-3-bassinet-black-on-black">Se produkt</button></article></section>';
+			$urls = $sku_search->product_candidate_urls_from_html( $html, 'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC', 'babycare.no', true );
+
+			lpm_assert_same( array( 'https://www.babycare.no/thule-urban-glide-3-bassinet-black-on-black' ), $urls, 'Search result cards should expose product URLs from button/data attributes.' );
+		},
 		'Identifier search queues exact-match redirects to product pages' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
