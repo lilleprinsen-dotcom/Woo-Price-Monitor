@@ -108,6 +108,23 @@ lpm_run_tests(
 			lpm_assert_same( 'SKU-ABC', $result['sku'], 'Meta retailer item ID should map to SKU.' );
 			lpm_assert_float_equals( 1199.0, (float) $result['sale_price'], 'Sale price should be captured separately.' );
 			lpm_assert_same( 'out_of_stock', $result['stock_status'], 'Meta availability should normalize.' );
+			lpm_assert_same( 'sale_price', $result['monitored_price_field'], 'Sale price should be the default monitored field when present.' );
+			lpm_assert_float_equals( 1199.0, (float) $result['monitored_price'], 'Chosen monitored price should follow the detected sale price.' );
+			lpm_assert_true( count( $result['price_candidates'] ) >= 2, 'Meta regular and sale prices should both appear as selectable candidates.' );
+		},
+		'Choosing detected candidate can be saved as a competitor extraction rule' => static function () use ( $extractor ): void {
+			$rule = $extractor->profile_rule_from_price_candidate(
+				array(
+					'field'  => 'regular_price',
+					'price'  => 1299,
+					'source' => 'selector',
+					'rule'   => '.product-price',
+				)
+			);
+
+			lpm_assert_same( 'regular_price', $rule['monitored_price_field'], 'Chosen regular price should become the monitored field.' );
+			lpm_assert_same( '.product-price', $rule['regular_price_selector'], 'Selector candidate should persist as regular price selector.' );
+			lpm_assert_same( '.product-price', $rule['price_selector'], 'Selector candidate should also populate the generic price selector.' );
 		},
 		'Competitor selectors and regex rules override extraction' => static function () use ( $extractor ): void {
 			$html = '<html><body><h1 id="name">Rule Product</h1><span class="sku">SKU-777</span><span class="now">899 kr</span><span class="brand">Rule Brand</span><div>EAN: 7030000000007</div></body></html>';
@@ -126,6 +143,14 @@ lpm_run_tests(
 			lpm_assert_same( '7030000000007', $result['gtin'], 'GTIN regex should be used.' );
 			lpm_assert_float_equals( 899.0, (float) $result['regular_price'], 'Price selector should be normalized.' );
 			lpm_assert_same( 'Custom competitor rule', $result['sources']['sku'], 'Rule source should be human-friendly.' );
+			lpm_assert_same( 'selector', $result['price_candidates'][0]['source'], 'Selector price should appear as a selector candidate.' );
+		},
+		'JavaScript-heavy pages are flagged instead of pretending rendering works' => static function () use ( $extractor ): void {
+			$html = '<html><head><script>window.__APP__={}</script><script></script><script></script><script></script><script></script></head><body><div id="app"></div></body></html>';
+			$result = $extractor->extract_html( $html, 'https://competitor.no/product/js-only' );
+
+			lpm_assert_true( $result['requires_javascript'], 'JS-heavy pages with no server-rendered price should be flagged.' );
+			lpm_assert_same( null, $result['monitored_price'], 'Internal checker should not invent a price for JS-only pages.' );
 		},
 		'Image filename fallback can supply SKU when metadata is missing' => static function () use ( $extractor ): void {
 			$html = '<html><head><meta property="product:price:amount" content="999"><meta property="og:image" content="https://competitor.no/media/10201031.jpg"></head><body>På lager</body></html>';
@@ -160,6 +185,29 @@ lpm_run_tests(
 			$result = $matcher->score_match( $product, $discovered );
 			lpm_assert_same( 'brand_title', $result['match_type'], 'Similar same-brand title should be considered.' );
 			lpm_assert_same( 'Medium confidence', $result['confidence_label'], 'Same brand and strong title should be medium confidence.' );
+		},
+		'Match scoring keeps title-only suggestions low confidence' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 3, 'product_id' => 30, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => '', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Thule Chariot Sport 2', 'brand' => '', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][30] = 'Thule Chariot Sport 2';
+			$result = $matcher->score_match( $product, $discovered );
+			lpm_assert_same( 'title_only', $result['match_type'], 'Title-only match should be allowed only as a weak suggestion.' );
+			lpm_assert_same( 'Low confidence', $result['confidence_label'], 'Title-only match must stay low confidence.' );
+			lpm_assert_true( $result['confidence_score'] <= 59, 'Title-only score must not reach medium confidence.' );
+		},
+		'Scheduled competitor checks are not wired to price updates' => static function (): void {
+			$reflection = new ReflectionClass( Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob::class );
+			$constructor = $reflection->getConstructor();
+			$parameters = $constructor ? $constructor->getParameters() : array();
+			$types = array_map(
+				static function ( ReflectionParameter $parameter ): string {
+					$type = $parameter->getType();
+					return $type ? (string) $type : '';
+				},
+				$parameters
+			);
+
+			lpm_assert_true( ! in_array( Lilleprinsen\PriceMonitor\Service\PriceUpdateService::class, $types, true ), 'Scheduled checks should not receive the price update service.' );
 		}
 	)
 );

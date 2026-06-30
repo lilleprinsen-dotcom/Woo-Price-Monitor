@@ -37,12 +37,43 @@ lpm_run_tests(
 		'Competitor notes can provide simple advanced search templates' => static function () use ( $sku_search ): void {
 			$templates = $sku_search->search_templates(
 				array(
-					'notes' => '{"search_url_templates":["finn?q={sku}","varer/sok/{sku}"]}',
+					'notes' => '{"search_url_templates":["finn?q={sku}","varer/sok/{sku}","ignored-without-placeholder"]}',
 				)
 			);
 
 			lpm_assert_true( in_array( 'finn?q={sku}', $templates, true ), 'Custom search template should be included.' );
 			lpm_assert_true( in_array( 'varer/sok/{sku}', $templates, true ), 'Path-style search template should be included.' );
+			lpm_assert_true( ! in_array( 'ignored-without-placeholder', $templates, true ), 'Templates without placeholders should be ignored.' );
+		},
+		'Search template test reports why no match was found' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 0,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?s={sku}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=NO-HIT' => array(
+					'body' => '<html><body>No products here</body></html>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 8,
+					'product_id'     => 102,
+					'sku'            => 'NO-HIT',
+					'normalized_sku' => 'NOHIT',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( ! $result['success'], 'No URLs should be reported as a failed discovery test.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'No SKU/EAN on page' ), 'No-match result should explain missing SKU/EAN and product URLs.' );
 		},
 		'Crawl extraction queues same-domain links that mention monitored SKUs' => static function () use ( $sku_search ): void {
 			$html = '<a href="/thule/chariot-sport-2">Thule Chariot Sport 2 - SKU 10201031</a><a href="/checkout?sku=10201031">Checkout</a><a href="https://other.no/product/10201031">Other</a><a href="/thule/other">No SKU</a>';

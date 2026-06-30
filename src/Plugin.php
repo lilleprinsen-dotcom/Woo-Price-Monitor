@@ -103,7 +103,7 @@ final class Plugin {
 		$sku_search           = new SkuSearchDiscoveryService( $url_service, $source_service, $discovery_settings );
 		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
 		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $sku_search, $url_service );
-		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service );
+		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service, $sku_search );
 		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
