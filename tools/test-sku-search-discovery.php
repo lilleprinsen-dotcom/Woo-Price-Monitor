@@ -146,8 +146,8 @@ lpm_run_tests(
 			unset( $GLOBALS['lpm_test_http_responses'] );
 
 			lpm_assert_true( $result['success'], 'Name search fallback should succeed after SKU search produces no candidate URLs.' );
-			lpm_assert_same( 2, $result['request_count'], 'Name fallback should keep requests bounded.' );
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black' ), $result['urls'], 'Name fallback should queue only relevant product candidates.' );
+			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'The full product name query should be tested.' );
 			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
 		'Identifier search queues exact-match redirects to product pages' => static function () use ( $sku_search ): void {
@@ -399,6 +399,10 @@ lpm_run_tests(
 				'Name search should add the intended product URL after an earlier false candidate.'
 			);
 			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20Gen%203%202024%20midnight%20black&post_type=product', $result['searched_urls'], true ), 'Search logs should prove the product name URL was tested.' );
+			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black&post_type=product', $result['searched_urls'], true ), 'Search logs should include the simplified name query with the first template.' );
+			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'Search logs should include the simplified name query with the second template.' );
+			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double&post_type=product', $result['searched_urls'], true ), 'Search logs should include the shortest prepared name query with the first template.' );
+			lpm_assert_true( in_array( 'https://denlillebarnebutikken.no/?s=Thule%20Chariot%20Sport%202%20double', $result['searched_urls'], true ), 'Search logs should include the shortest prepared name query with the second template.' );
 		},
 		'Name search queues redirects to product pages' => static function () use ( $sku_search ): void {
 			update_option(

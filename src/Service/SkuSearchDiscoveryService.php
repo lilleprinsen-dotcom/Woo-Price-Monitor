@@ -169,14 +169,8 @@ class SkuSearchDiscoveryService {
 					static fn( $name_query ) => '' !== $name_query && strtolower( $name_query ) !== strtolower( $sku )
 				)
 			);
-			$name_requests = 0;
-			$max_name_requests = min( 8, max( 1, $request_limit ) );
 			foreach ( $name_queries as $name_query ) {
 				foreach ( $templates as $template ) {
-					if ( $name_requests >= $max_name_requests ) {
-						break 2;
-					}
-
 					$search_url = $this->build_search_url( $domain, $template, $name_query );
 					if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
 						continue;
@@ -193,7 +187,6 @@ class SkuSearchDiscoveryService {
 						)
 					);
 					++$requests;
-					++$name_requests;
 
 					if ( is_wp_error( $response ) ) {
 						$errors[] = $response->get_error_message();
