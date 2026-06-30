@@ -106,6 +106,25 @@ lpm_run_tests(
 			lpm_assert_same( 'no price found', ManualDiscoveryService::no_match_reason( array(), array( 'monitored_price' => null ) ), 'Pages without detected price should be explicit.' );
 			lpm_assert_same( 'HTTP blocked/error', ManualDiscoveryService::no_match_reason( array( 'technical_details' => 'HTTP status 403' ) ), 'Blocked HTTP responses should be explicit.' );
 		},
+		'Manual discovery checks later search result candidates while staying bounded' => static function (): void {
+			$candidates = ManualDiscoveryService::candidate_urls_for_processing(
+				array(
+					'https://competitor.test/product/accessory-1',
+					'https://competitor.test/product/accessory-2',
+					'https://competitor.test/product/other-color',
+					'https://competitor.test/product/thule-chariot-sport-2-double-black',
+					'https://competitor.test/product/extra-5',
+					'https://competitor.test/product/extra-6',
+					'https://competitor.test/product/extra-7',
+					'https://competitor.test/product/extra-8',
+					'https://competitor.test/product/extra-9',
+				)
+			);
+
+			lpm_assert_same( 8, count( $candidates ), 'Manual discovery should remain bounded per product/competitor pair.' );
+			lpm_assert_same( 'https://competitor.test/product/thule-chariot-sport-2-double-black', $candidates[3], 'The fourth visible product candidate should be tested.' );
+			lpm_assert_true( ! in_array( 'https://competitor.test/product/extra-9', $candidates, true ), 'Candidates beyond the bounded cap should not be tested.' );
+		},
 		'Approving from live results builds an active competitor link' => static function (): void {
 			$data = ManualDiscoveryService::competitor_link_data_for_approval(
 				(object) array(
