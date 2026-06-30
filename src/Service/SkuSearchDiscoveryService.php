@@ -126,13 +126,30 @@ class SkuSearchDiscoveryService {
 					),
 				);
 				$candidates = $this->sku_matched_urls_from_html( $body, $search_url, $needles, $domain );
+				$voyado = array();
+				if ( empty( $candidates ) ) {
+					$voyado = $this->voyado_elevate_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings, $this->raw_product_name( $product ) );
+					if ( ! empty( $voyado['searched_url'] ) ) {
+						$searched_urls[] = (string) $voyado['searched_url'];
+					}
+					if ( (int) ( $voyado['request_count'] ?? 0 ) > 0 ) {
+						$requests += (int) $voyado['request_count'];
+					}
+					if ( ! empty( $voyado['message'] ) ) {
+						$errors[] = (string) $voyado['message'];
+					}
+				}
 				$identifier_page_candidates = array();
-				if ( empty( $candidates ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
 					$identifier_page_candidates = $this->product_candidate_urls_from_html( $body, $search_url, $domain, true );
 				}
 
 				foreach ( $candidates as $candidate ) {
 					$urls[] = $candidate;
+					$sku_evidence = true;
+				}
+				foreach ( (array) ( $voyado['urls'] ?? array() ) as $candidate ) {
+					$urls[] = (string) $candidate;
 					$sku_evidence = true;
 				}
 				foreach ( $identifier_page_candidates as $candidate ) {
@@ -143,7 +160,7 @@ class SkuSearchDiscoveryService {
 					$errors[] = 'Search results page mentioned SKU/EAN and exposed visible product-card URLs for ' . $search_url;
 				}
 
-				if ( empty( $candidates ) && empty( $identifier_page_candidates ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) ) {
 					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings, $this->raw_product_name( $product ) );
 					if ( ! empty( $algolia['searched_url'] ) ) {
 						$searched_urls[] = (string) $algolia['searched_url'];
@@ -163,11 +180,11 @@ class SkuSearchDiscoveryService {
 				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 					$urls[] = $search_url;
 					$sku_evidence = true;
-				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $identifier_page_candidates ) ) {
+				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) ) {
 					$errors[] = 'Search results page mentioned SKU/EAN but did not expose a product URL for ' . $search_url;
 				}
 
-				if ( empty( $candidates ) && empty( $identifier_page_candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
 					$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
 				}
 			}
@@ -234,6 +251,21 @@ class SkuSearchDiscoveryService {
 						$urls[] = $candidate;
 					}
 					if ( empty( $name_candidates ) ) {
+						$voyado = $this->voyado_elevate_product_urls_from_html( $body, $name_query, $domain, $ports, $settings, $this->raw_product_name( $product ) );
+						if ( ! empty( $voyado['searched_url'] ) ) {
+							$searched_urls[] = (string) $voyado['searched_url'];
+						}
+						if ( (int) ( $voyado['request_count'] ?? 0 ) > 0 ) {
+							$requests += (int) $voyado['request_count'];
+						}
+						foreach ( (array) ( $voyado['urls'] ?? array() ) as $candidate ) {
+							$urls[] = (string) $candidate;
+						}
+						if ( ! empty( $voyado['message'] ) ) {
+							$errors[] = (string) $voyado['message'];
+						}
+					}
+					if ( empty( $name_candidates ) && empty( $voyado['urls'] ) ) {
 						$algolia = $this->algolia_product_urls_from_html( $body, $name_query, $domain, $ports, $settings, $this->raw_product_name( $product ) );
 						if ( ! empty( $algolia['searched_url'] ) ) {
 							$searched_urls[] = (string) $algolia['searched_url'];
@@ -1018,6 +1050,180 @@ class SkuSearchDiscoveryService {
 			'request_count' => 1,
 			'message'       => empty( $urls ) ? 'Algolia product search returned no relevant same-domain product URLs.' : 'Algolia product search found relevant product URLs from the public product index.',
 		);
+	}
+
+	/**
+	 * Query a public Voyado Elevate search index when a competitor page exposes
+	 * its client-side configuration.
+	 *
+	 * @param array<int,int|string> $ports Allowed ports.
+	 * @param array<string,mixed>   $settings Discovery settings.
+	 * @return array{urls:array<int,string>,searched_url:string,request_count:int,message:string}
+	 */
+	private function voyado_elevate_product_urls_from_html( string $html, string $query, string $domain, array $ports, array $settings, string $product_name = '' ): array {
+		$config = $this->voyado_elevate_config_from_html( $html );
+		if ( empty( $config ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => '',
+				'request_count' => 0,
+				'message'       => '',
+			);
+		}
+
+		$endpoint = sprintf( 'https://%s.elevate-api.cloud/api/storefront/v3/queries/search-page', (string) $config['cluster_id'] );
+		if ( ! $this->url_service->is_safe_url( $endpoint, $ports ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => '',
+				'request_count' => 0,
+				'message'       => 'Voyado Elevate search endpoint was not safe.',
+			);
+		}
+
+		$request_url = add_query_arg(
+			array(
+				'market'        => (string) $config['market'],
+				'locale'        => (string) $config['locale'],
+				'touchpoint'    => 'DESKTOP',
+				'sessionKey'    => 'lpm-' . substr( hash( 'sha256', $domain ), 0, 24 ),
+				'customerKey'   => 'lpm-' . substr( hash( 'sha256', $domain . '-customer' ), 0, 24 ),
+				'q'             => $query,
+				'limit'         => 8,
+				'skip'          => 0,
+				'sort'          => 'RELEVANCE',
+				'notify'        => 'false',
+				'presentCustom' => 'ajax_add_to_cart|magento_product_type|variant_key|number.product_id',
+			),
+			$endpoint
+		);
+
+		$response = wp_remote_get(
+			$request_url,
+			array(
+				'timeout'     => absint( $settings['discovery_request_timeout'] ?? 12 ),
+				'redirection' => 0,
+				'user-agent'  => $this->user_agent(),
+				'headers'     => array( 'Accept' => 'application/json' ),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => $endpoint,
+				'request_count' => 1,
+				'message'       => 'Voyado Elevate product search failed: ' . $response->get_error_message(),
+			);
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code < 200 || $code >= 300 ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => $endpoint,
+				'request_count' => 1,
+				'message'       => 'Voyado Elevate product search returned HTTP status ' . $code . '.',
+			);
+		}
+
+		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$candidates = array();
+		foreach ( $this->voyado_elevate_products_from_response( is_array( $decoded ) ? $decoded : array() ) as $product ) {
+			$hit_text = $this->voyado_elevate_hit_text( $product );
+			$score = $this->algolia_hit_score( $query, $product_name, $hit_text );
+			if ( $score <= 0 ) {
+				continue;
+			}
+			foreach ( array( 'link', 'url' ) as $field ) {
+				$url = $this->url_service->resolve( (string) ( $product[ $field ] ?? '' ), 'https://' . $domain . '/' );
+				if ( $this->is_safe_same_domain_url( $url, $domain, $ports ) && ! $this->looks_like_search_results_url( $url ) && ! $this->looks_like_listing_or_category_url( $url ) ) {
+					$this->add_scored_url( $candidates, $url, $score + $this->candidate_match_score( $url, $hit_text, '' !== $product_name ? $product_name : $query ) );
+					break;
+				}
+			}
+		}
+
+		$urls = $this->rank_scored_urls( $candidates );
+
+		return array(
+			'urls'          => $urls,
+			'searched_url'  => $endpoint,
+			'request_count' => 1,
+			'message'       => empty( $urls ) ? 'Voyado Elevate product search returned no relevant same-domain product URLs.' : 'Voyado Elevate product search found relevant product URLs from the public product index.',
+		);
+	}
+
+	/**
+	 * @return array{cluster_id:string,market:string,locale:string}|array<string,mixed>
+	 */
+	private function voyado_elevate_config_from_html( string $html ): array {
+		$decoded = html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$decoded = str_replace( array( '\/', '\\/' ), '/', $decoded );
+		if ( ! preg_match( '/"clusterId"\s*:\s*"([a-zA-Z0-9\-]{4,})"/', $decoded, $cluster ) ) {
+			return array();
+		}
+
+		$market = preg_match( '/"market"\s*:\s*"([A-Z]{2})"/', $decoded, $market_match ) ? (string) $market_match[1] : 'NO';
+		$locale = preg_match( '/"locale"\s*:\s*"([a-z]{2}(?:-|_)[A-Z]{2})"/', $decoded, $locale_match ) ? str_replace( '_', '-', (string) $locale_match[1] ) : 'nb-NO';
+
+		return array(
+			'cluster_id' => (string) $cluster[1],
+			'market'     => $market,
+			'locale'     => $locale,
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $response Voyado response.
+	 * @return array<int,array<string,mixed>>
+	 */
+	private function voyado_elevate_products_from_response( array $response ): array {
+		$products = array();
+		$groups = $response['primaryList']['productGroups'] ?? array();
+		foreach ( is_array( $groups ) ? $groups : array() as $group ) {
+			if ( ! is_array( $group ) ) {
+				continue;
+			}
+			foreach ( is_array( $group['products'] ?? null ) ? $group['products'] : array() as $product ) {
+				if ( is_array( $product ) ) {
+					$products[] = $product;
+				}
+			}
+		}
+
+		return $products;
+	}
+
+	/**
+	 * @param array<string,mixed> $product Voyado product.
+	 */
+	private function voyado_elevate_hit_text( array $product ): string {
+		$parts = array();
+		foreach ( array( 'key', 'title', 'brand', 'link', 'url' ) as $field ) {
+			if ( ! empty( $product[ $field ] ) && is_scalar( $product[ $field ] ) ) {
+				$parts[] = (string) $product[ $field ];
+			}
+		}
+		foreach ( is_array( $product['variants'] ?? null ) ? $product['variants'] : array() as $variant ) {
+			if ( ! is_array( $variant ) ) {
+				continue;
+			}
+			foreach ( array( 'key', 'link' ) as $field ) {
+				if ( ! empty( $variant[ $field ] ) && is_scalar( $variant[ $field ] ) ) {
+					$parts[] = (string) $variant[ $field ];
+				}
+			}
+		}
+		foreach ( is_array( $product['custom'] ?? null ) ? $product['custom'] : array() as $values ) {
+			foreach ( is_array( $values ) ? $values : array() as $value ) {
+				if ( is_array( $value ) && ! empty( $value['label'] ) && is_scalar( $value['label'] ) ) {
+					$parts[] = (string) $value['label'];
+				}
+			}
+		}
+
+		return implode( ' ', $parts );
 	}
 
 	/**
