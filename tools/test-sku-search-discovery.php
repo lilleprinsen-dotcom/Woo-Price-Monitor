@@ -290,6 +290,54 @@ lpm_run_tests(
 			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20midnight%20black', $result['searched_urls'], true ), 'Search logs should include the name URL that found the product.' );
 			lpm_assert_true( str_contains( $result['technical_details'], 'Search results page mentioned SKU/EAN' ), 'Diagnostics should explain why identifier search pages were not accepted as product pages.' );
 		},
+		'Public Algolia product index can supply product URLs when HTML search is thin' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$algolia_config = '<script type="text/javascript">var algolia = {"application_id":"BTHP9JUMB1","search_api_key":"545bf09bb920b3fb99b0708f8055cc10","indices":{"posts_product":{"name":"wp_posts_product","id":"posts_product","enabled":true}},"autocomplete":{"sources":[{"index_id":"posts_product","index_name":"wp_posts_product","enabled":true}]}};</script>';
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://denlillebarnebutikken.no/?s=10201031' => array(
+					'body' => '<html><head><title>10201031 - denlillebarnebutikken.no</title></head><body>' . $algolia_config . '10201031</body></html>',
+				),
+				'https://BTHP9JUMB1-dsn.algolia.net/1/indexes/wp_posts_product/query' => array(
+					'body' => wp_json_encode(
+						array(
+							'hits' => array(
+								array(
+									'permalink'  => 'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/',
+									'post_title' => 'Thule, Multisportsvogn, Chariot Sport 2, Double - Black',
+									'sku'        => '10201031',
+								),
+							),
+						)
+					),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'denlillebarnebutikken.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => '10201031',
+					'normalized_sku' => '10201031',
+					'product_name'   => 'Thule Chariot Sport 2 double midnight black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Public Algolia product search should provide product URLs when the HTML search page has no links.' );
+			lpm_assert_same( array( 'https://denlillebarnebutikken.no/product/thule-chariot-sport2-double-black/' ), $result['urls'], 'Algolia result permalink should be queued as the candidate product URL.' );
+			lpm_assert_true( in_array( 'https://BTHP9JUMB1-dsn.algolia.net/1/indexes/wp_posts_product/query', $result['searched_urls'], true ), 'Search details should show that the public Algolia product index was queried without exposing the API key.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Algolia product search found possible product URLs' ), 'Diagnostics should explain the Algolia fallback.' );
+		},
 		'Name search queues redirects to product pages' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
