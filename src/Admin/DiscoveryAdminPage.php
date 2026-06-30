@@ -295,17 +295,22 @@ class DiscoveryAdminPage {
 			<p><button class="button button-primary"><?php esc_html_e( 'Test Product Page', 'lilleprinsen-price-monitor' ); ?></button></p>
 		</form>
 		<?php $this->render_last_test(); ?>
-		<h3><?php esc_html_e( 'Search templates', 'lilleprinsen-price-monitor' ); ?></h3>
-		<p><?php esc_html_e( 'Templates are used only for Products to Monitor. Use {sku} or {query} where the selected product SKU should be inserted.', 'lilleprinsen-price-monitor' ); ?></p>
+		<h3><?php esc_html_e( 'Search setup', 'lilleprinsen-price-monitor' ); ?></h3>
+		<div class="notice notice-info inline"><p><?php esc_html_e( 'Use this when discovery does not find a product you know the competitor has. Search the competitor site manually for one selected product SKU or EAN, paste the search-results URL below, and the assistant will save it as a reusable search template.', 'lilleprinsen-price-monitor' ); ?></p></div>
 		<form method="post" style="max-width:900px;">
 			<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="save_competitor_search_template" />
-			<table class="form-table" role="presentation"><tr><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->competitor_select( 'template_competitor_id', $competitors, false ); ?></td></tr><tr><th><?php esc_html_e( 'Search URL templates', 'lilleprinsen-price-monitor' ); ?></th><td><input name="search_url_templates" class="large-text" placeholder="?s={sku}, search?q={sku}" /><p class="description"><?php esc_html_e( 'Comma-separated. These override or supplement the global defaults for this competitor.', 'lilleprinsen-price-monitor' ); ?></p></td></tr></table>
-			<p><button class="button"><?php esc_html_e( 'Save search templates', 'lilleprinsen-price-monitor' ); ?></button></p>
+			<table class="form-table" role="presentation">
+				<tr><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->competitor_select( 'template_competitor_id', $competitors, false ); ?></td></tr>
+				<tr><th><label for="lpm_search_result_url"><?php esc_html_e( 'Paste search-results URL', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="lpm_search_result_url" name="search_result_url" class="large-text" placeholder="https://competitor.no/search?q=10201031" /><p class="description"><?php esc_html_e( 'Open the competitor site, search for one of your selected product SKUs or EANs, then paste the URL from the browser address bar.', 'lilleprinsen-price-monitor' ); ?></p></td></tr>
+				<tr><th><label for="lpm_search_result_value"><?php esc_html_e( 'SKU/EAN you searched for', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="lpm_search_result_value" name="search_result_value" class="regular-text" placeholder="10201031" /><p class="description"><?php esc_html_e( 'The assistant replaces this value with a reusable placeholder. Use the same SKU or EAN that appears in the pasted URL.', 'lilleprinsen-price-monitor' ); ?></p></td></tr>
+				<tr><th><label for="lpm_search_url_templates"><?php esc_html_e( 'Advanced templates', 'lilleprinsen-price-monitor' ); ?></label></th><td><input id="lpm_search_url_templates" name="search_url_templates" class="large-text" placeholder="?s={sku}, search?q={query}, finn?q={ean}" /><p class="description"><?php esc_html_e( 'Optional. Use {sku}, {ean}, {gtin}, or {query}. Comma-separated templates are allowed.', 'lilleprinsen-price-monitor' ); ?></p></td></tr>
+			</table>
+			<p><button class="button"><?php esc_html_e( 'Save search setup', 'lilleprinsen-price-monitor' ); ?></button></p>
 		</form>
 		<form method="post" style="max-width:900px;">
 			<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?><input type="hidden" name="lpm_discovery_action" value="test_search_template" />
-			<table class="form-table" role="presentation"><tr><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->competitor_select( 'search_test_competitor_id', $competitors, false ); ?></td></tr><tr><th><?php esc_html_e( 'One SKU to test', 'lilleprinsen-price-monitor' ); ?></th><td><input name="test_sku" class="regular-text" required /></td></tr></table>
-			<p><button class="button"><?php esc_html_e( 'Test search template', 'lilleprinsen-price-monitor' ); ?></button></p>
+			<table class="form-table" role="presentation"><tr><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->competitor_select( 'search_test_competitor_id', $competitors, false ); ?></td></tr><tr><th><?php esc_html_e( 'One selected product identifier', 'lilleprinsen-price-monitor' ); ?></th><td><input name="test_sku" class="regular-text" required placeholder="SKU or EAN" /> <input name="test_gtin" class="regular-text" placeholder="<?php esc_attr_e( 'Optional EAN/GTIN', 'lilleprinsen-price-monitor' ); ?>" /><p class="description"><?php esc_html_e( 'Test with the SKU and, if available, EAN/GTIN from one selected product. The checker will try both within the configured request limit.', 'lilleprinsen-price-monitor' ); ?></p></td></tr></table>
+			<p><button class="button"><?php esc_html_e( 'Test search setup', 'lilleprinsen-price-monitor' ); ?></button></p>
 		</form>
 		<?php $this->render_last_search_test(); ?>
 		<h3 id="lpm-add-product-source"><?php esc_html_e( 'Add page with many products', 'lilleprinsen-price-monitor' ); ?></h3>
@@ -512,23 +517,28 @@ class DiscoveryAdminPage {
 			return;
 		}
 
-		$templates = sanitize_text_field( wp_unslash( $_POST['search_url_templates'] ?? '' ) );
-		if ( '' === $templates ) {
-			$this->set_notice( __( 'Enter at least one search template.', 'lilleprinsen-price-monitor' ), 'error' );
+		$templates = self::normalize_search_template_inputs(
+			sanitize_text_field( wp_unslash( $_POST['search_url_templates'] ?? '' ) ),
+			esc_url_raw( wp_unslash( $_POST['search_result_url'] ?? '' ) ),
+			sanitize_text_field( wp_unslash( $_POST['search_result_value'] ?? '' ) )
+		);
+		if ( empty( $templates ) ) {
+			$this->set_notice( __( 'Paste a search-results URL with the searched SKU/EAN, or enter at least one template using {sku}, {ean}, {gtin}, or {query}.', 'lilleprinsen-price-monitor' ), 'error' );
 			return;
 		}
 
 		$notes = $this->merge_competitor_notes( (string) ( $competitor['notes'] ?? '' ), array( 'search_url_templates' => $templates ) );
 		$this->save_competitor_profile_updates( $competitor, array( 'notes' => $notes ) );
-		$this->set_notice( __( 'Search templates saved for this competitor.', 'lilleprinsen-price-monitor' ) );
+		$this->set_notice( sprintf( __( 'Search setup saved for this competitor. Templates: %s', 'lilleprinsen-price-monitor' ), implode( ', ', $templates ) ) );
 	}
 
 	private function handle_test_search_template(): void {
 		$competitor_id = absint( $_POST['search_test_competitor_id'] ?? 0 );
 		$competitor    = $competitor_id > 0 ? $this->repository->get_competitor( $competitor_id ) : null;
 		$sku           = sanitize_text_field( wp_unslash( $_POST['test_sku'] ?? '' ) );
+		$gtin          = sanitize_text_field( wp_unslash( $_POST['test_gtin'] ?? '' ) );
 		if ( ! $competitor || '' === $sku ) {
-			$this->set_notice( __( 'Choose a competitor and enter one SKU to test.', 'lilleprinsen-price-monitor' ), 'error' );
+			$this->set_notice( __( 'Choose a competitor and enter one SKU or EAN to test.', 'lilleprinsen-price-monitor' ), 'error' );
 			return;
 		}
 
@@ -538,6 +548,8 @@ class DiscoveryAdminPage {
 			'variation_id' => 0,
 			'sku' => $sku,
 			'normalized_sku' => preg_replace( '/[^A-Z0-9]/', '', strtoupper( $sku ) ),
+			'gtin' => $gtin,
+			'normalized_gtin' => preg_replace( '/[^A-Z0-9]/', '', strtoupper( $gtin ) ),
 		);
 		$result = $this->sku_search->discover_for_product( $competitor, $product );
 		$this->last_search_test = $result;
@@ -659,15 +671,81 @@ class DiscoveryAdminPage {
 		if ( null === $this->last_search_test ) {
 			return;
 		}
-		$urls = (array) ( $this->last_search_test['urls'] ?? array() );
+		$urls          = (array) ( $this->last_search_test['urls'] ?? array() );
+		$searched_urls = (array) ( $this->last_search_test['searched_urls'] ?? array() );
 		?>
 		<h4><?php esc_html_e( 'Search template test result', 'lilleprinsen-price-monitor' ); ?></h4>
 		<div class="notice notice-<?php echo empty( $urls ) ? 'warning' : 'success'; ?> inline"><p><?php echo esc_html( empty( $urls ) ? $this->no_match_reason( $this->last_search_test ) : (string) $this->last_search_test['message'] ); ?></p></div>
+		<?php if ( ! empty( $searched_urls ) ) : ?>
+			<p><strong><?php esc_html_e( 'Search pages tested', 'lilleprinsen-price-monitor' ); ?></strong></p>
+			<ul style="list-style:disc;margin-left:20px;"><?php foreach ( array_slice( $searched_urls, 0, 10 ) as $url ) : ?><li><a href="<?php echo esc_url( (string) $url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( (string) $url ); ?></a></li><?php endforeach; ?></ul>
+		<?php endif; ?>
 		<?php if ( ! empty( $urls ) ) : ?>
+			<p><strong><?php esc_html_e( 'Possible product pages found', 'lilleprinsen-price-monitor' ); ?></strong></p>
 			<ul style="list-style:disc;margin-left:20px;"><?php foreach ( array_slice( $urls, 0, 10 ) as $url ) : ?><li><a href="<?php echo esc_url( (string) $url ); ?>" target="_blank" rel="noopener noreferrer"><?php echo esc_html( (string) $url ); ?></a></li><?php endforeach; ?></ul>
 		<?php endif; ?>
 		<?php if ( ! empty( $this->last_search_test['technical_details'] ) ) : ?><details><summary><?php esc_html_e( 'Why no match may have been found', 'lilleprinsen-price-monitor' ); ?></summary><pre><?php echo esc_html( (string) $this->last_search_test['technical_details'] ); ?></pre></details><?php endif; ?>
 		<?php
+	}
+
+	/**
+	 * Build safe search templates from easy and advanced inputs.
+	 *
+	 * @return array<int,string>
+	 */
+	public static function normalize_search_template_inputs( string $raw_templates, string $search_result_url, string $searched_value ): array {
+		$templates = array();
+		foreach ( preg_split( '/[\r\n,]+/', $raw_templates ) ?: array() as $template ) {
+			$template = trim( sanitize_text_field( (string) $template ) );
+			if ( '' !== $template && self::template_has_search_placeholder( $template ) ) {
+				$templates[] = $template;
+			}
+		}
+
+		$derived = self::template_from_search_result_url( $search_result_url, $searched_value );
+		if ( '' !== $derived ) {
+			array_unshift( $templates, $derived );
+		}
+
+		return array_values( array_unique( array_filter( $templates ) ) );
+	}
+
+	private static function template_from_search_result_url( string $search_result_url, string $searched_value ): string {
+		$url = trim( $search_result_url );
+		if ( '' === $url ) {
+			return '';
+		}
+		if ( self::template_has_search_placeholder( $url ) ) {
+			return esc_url_raw( $url );
+		}
+
+		$searched_value = trim( $searched_value );
+		if ( '' === $searched_value ) {
+			return '';
+		}
+
+		$candidates = array_values(
+			array_unique(
+				array_filter(
+					array(
+						$searched_value,
+						rawurlencode( $searched_value ),
+						urlencode( $searched_value ),
+					)
+				)
+			)
+		);
+		foreach ( $candidates as $candidate ) {
+			if ( false !== strpos( $url, $candidate ) ) {
+				return esc_url_raw( str_replace( $candidate, '{query}', $url ) );
+			}
+		}
+
+		return '';
+	}
+
+	private static function template_has_search_placeholder( string $template ): bool {
+		return false !== strpos( $template, '{sku}' ) || false !== strpos( $template, '{query}' ) || false !== strpos( $template, '{ean}' ) || false !== strpos( $template, '{gtin}' ) || false !== strpos( $template, '%s' );
 	}
 
 	private function render_manual_discovery_panel(): void {
