@@ -667,7 +667,7 @@ class DiscoveryAdminPage {
 		$competitors = array_values( array_filter( $this->repository->get_competitors( 1, 200 ), static fn( $competitor ) => ! empty( $competitor['enabled'] ) ) );
 		$settings    = $this->settings->get_all();
 		?>
-		<div class="notice notice-info inline" data-lpm-manual-discovery-panel style="margin:14px 0;padding:12px 14px;">
+		<div class="notice notice-info inline" data-lpm-manual-discovery-panel data-selected-product-count="<?php echo esc_attr( (string) count( $products ) ); ?>" data-active-competitor-count="<?php echo esc_attr( (string) count( $competitors ) ); ?>" style="margin:14px 0;padding:12px 14px;">
 			<p><strong><?php esc_html_e( 'Find competitor matches now', 'lilleprinsen-price-monitor' ); ?></strong></p>
 			<p><?php esc_html_e( 'This searches only the products you selected. Matches must be approved before monitoring starts.', 'lilleprinsen-price-monitor' ); ?></p>
 			<div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin:10px 0;">
@@ -688,6 +688,7 @@ class DiscoveryAdminPage {
 					</select>
 				</label>
 				<button type="button" class="button button-primary" data-lpm-manual-start <?php disabled( empty( $products ) || empty( $competitors ) ); ?>><?php esc_html_e( 'Find competitor matches now', 'lilleprinsen-price-monitor' ); ?></button>
+				<button type="button" class="button" data-lpm-manual-cancel hidden><?php esc_html_e( 'Cancel run', 'lilleprinsen-price-monitor' ); ?></button>
 			</div>
 			<p class="description"><?php printf( esc_html__( 'Manual runs are bounded to %1$d selected products and %2$d active competitors per run. Request delays and timeouts from competitor profiles still apply.', 'lilleprinsen-price-monitor' ), absint( $settings['discovery_manual_max_products_per_run'] ), absint( $settings['discovery_manual_max_competitors_per_run'] ) ); ?></p>
 			<?php if ( count( $products ) >= 25 || count( $competitors ) >= 5 ) : ?>

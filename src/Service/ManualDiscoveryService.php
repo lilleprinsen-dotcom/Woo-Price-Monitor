@@ -21,6 +21,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 class ManualDiscoveryService {
 	private const OPTION_PREFIX = 'lpm_manual_discovery_run_';
 	private const MAX_RESULTS_PER_RUN = 500;
+	private const RETENTION_SECONDS = DAY_IN_SECONDS;
 
 	private Repository $repository;
 	private DiscoveryRepository $discovery_repository;
@@ -47,6 +48,7 @@ class ManualDiscoveryService {
 	 * @return array<string,mixed>
 	 */
 	public function create_run( int $discovery_product_id = 0, int $competitor_id = 0 ): array {
+		$this->cleanup_stale_runs();
 		$settings    = $this->settings->get_all();
 		$products    = $this->selected_products_for_manual_run( $discovery_product_id, (int) $settings['discovery_manual_max_products_per_run'] );
 		$competitors = $this->competitors_for_manual_run( $competitor_id, (int) $settings['discovery_manual_max_competitors_per_run'] );
@@ -60,6 +62,20 @@ class ManualDiscoveryService {
 	}
 
 	/**
+	 * Create a targeted one product/competitor retest run.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function create_retest_run( int $discovery_product_id, int $competitor_id ): array {
+		if ( $discovery_product_id <= 0 || $competitor_id <= 0 ) {
+			return array( 'success' => false, 'message' => __( 'Retest needs a product and competitor.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		$run = $this->create_run( $discovery_product_id, $competitor_id );
+		return array_merge( array( 'success' => true ), $run );
+	}
+
+	/**
 	 * Process one bounded batch.
 	 *
 	 * @return array<string,mixed>
@@ -69,7 +85,7 @@ class ManualDiscoveryService {
 		if ( empty( $run ) ) {
 			return array( 'success' => false, 'message' => __( 'Manual discovery run was not found.', 'lilleprinsen-price-monitor' ) );
 		}
-		if ( 'completed' === (string) $run['status'] ) {
+		if ( in_array( (string) $run['status'], array( 'completed', 'cancelled' ), true ) ) {
 			return array_merge( array( 'success' => true, 'rows' => array(), 'wait_seconds' => 0 ), $this->public_run_state( $run ) );
 		}
 
@@ -89,7 +105,7 @@ class ManualDiscoveryService {
 				return array_merge( array( 'success' => true, 'rows' => $rows, 'wait_seconds' => $wait ), $this->public_run_state( $run ) );
 			}
 
-			$row = $this->process_pair( $pair );
+			$row = $this->finalize_row( $this->process_pair( $pair ) );
 			$rows[] = $row;
 			$run['results'][] = $row;
 			if ( count( $run['results'] ) > self::MAX_RESULTS_PER_RUN ) {
@@ -113,6 +129,26 @@ class ManualDiscoveryService {
 		$this->save_run( $run );
 
 		return array_merge( array( 'success' => true, 'rows' => $rows, 'wait_seconds' => 0 ), $this->public_run_state( $run ) );
+	}
+
+	/**
+	 * Cancel a run without deleting existing suggestions.
+	 *
+	 * @return array<string,mixed>
+	 */
+	public function cancel_run( string $run_id ): array {
+		$run = $this->get_run( $run_id );
+		if ( empty( $run ) ) {
+			return array( 'success' => false, 'message' => __( 'Manual discovery run was not found.', 'lilleprinsen-price-monitor' ) );
+		}
+
+		if ( 'completed' !== (string) $run['status'] ) {
+			$run['status'] = 'cancelled';
+			$run['updated_at'] = current_time( 'mysql' );
+			$this->save_run( $run );
+		}
+
+		return array_merge( array( 'success' => true, 'message' => __( 'Manual discovery run cancelled.', 'lilleprinsen-price-monitor' ) ), $this->public_run_state( $run ) );
 	}
 
 	/**
@@ -199,6 +235,20 @@ class ManualDiscoveryService {
 	}
 
 	/**
+	 * Whether a UI selection should warn before creating the run.
+	 */
+	public static function needs_preflight_confirmation( int $discovery_product_id, int $competitor_id, int $selected_product_count, int $active_competitor_count ): bool {
+		if ( $discovery_product_id <= 0 && $selected_product_count > 1 ) {
+			return true;
+		}
+		if ( $competitor_id <= 0 && $active_competitor_count > 1 ) {
+			return true;
+		}
+
+		return false;
+	}
+
+	/**
 	 * Build initial manual run state.
 	 *
 	 * @param array<int,array<string,mixed>> $pairs Product/competitor pairs.
@@ -222,6 +272,33 @@ class ManualDiscoveryService {
 	}
 
 	/**
+	 * Delete stale manual run option payloads. Suggestions/links are untouched.
+	 *
+	 * @return int Deleted count.
+	 */
+	public static function cleanup_stale_run_options( array &$options, int $now ): int {
+		$deleted = 0;
+		foreach ( $options as $key => $run ) {
+			if ( ! str_starts_with( (string) $key, self::OPTION_PREFIX ) || ! is_array( $run ) ) {
+				continue;
+			}
+			$updated = strtotime( (string) ( $run['updated_at'] ?? $run['created_at'] ?? '' ) );
+			if ( ! $updated ) {
+				$updated = 0;
+			}
+			$status = (string) ( $run['status'] ?? '' );
+			$stale_running = ! in_array( $status, array( 'completed', 'cancelled' ), true ) && $updated < ( $now - self::RETENTION_SECONDS );
+			$old_terminal = in_array( $status, array( 'completed', 'cancelled' ), true ) && $updated < ( $now - self::RETENTION_SECONDS );
+			if ( $stale_running || $old_terminal ) {
+				unset( $options[ $key ] );
+				++$deleted;
+			}
+		}
+
+		return $deleted;
+	}
+
+	/**
 	 * Build active competitor link data for an approved live result.
 	 *
 	 * @param object              $suggestion Discovery suggestion row.
@@ -238,6 +315,10 @@ class ManualDiscoveryService {
 			'enabled'              => 1,
 			'is_primary'           => 0,
 		);
+	}
+
+	public static function caution_for_confidence( string $confidence_label ): string {
+		return 'Low confidence' === $confidence_label ? 'Low confidence: review model, color, bundle and variant carefully before approval.' : '';
 	}
 
 	/**
@@ -358,6 +439,8 @@ class ManualDiscoveryService {
 			$row['detected_gtin'] = (string) ( $result['gtin'] ?? '' );
 			$row['detected_price'] = $this->format_detected_price( $result );
 			$row['confidence'] = $suggestion ? (string) $suggestion->confidence_label : '';
+			$row['match_type'] = $suggestion ? (string) $suggestion->match_type : '';
+			$row['caution'] = $suggestion ? self::caution_for_confidence( (string) $suggestion->confidence_label ) : '';
 			$row['match_reason'] = $suggestion ? (string) $suggestion->explanation : '';
 			$row['error'] = '';
 			$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
@@ -372,6 +455,8 @@ class ManualDiscoveryService {
 	private function base_result_row( array $pair ): array {
 		return array(
 			'pair_key' => (int) ( $pair['discovery_product_id'] ?? 0 ) . ':' . (int) ( $pair['competitor_id'] ?? 0 ),
+			'discovery_product_id' => (int) ( $pair['discovery_product_id'] ?? 0 ),
+			'competitor_id' => (int) ( $pair['competitor_id'] ?? 0 ),
 			'product_title' => (string) ( $pair['product_title'] ?? '' ),
 			'sku' => (string) ( $pair['sku'] ?? '' ),
 			'gtin' => (string) ( $pair['gtin'] ?? '' ),
@@ -385,11 +470,25 @@ class ManualDiscoveryService {
 			'detected_gtin' => '',
 			'detected_price' => '',
 			'confidence' => '',
+			'match_type' => '',
+			'caution' => '',
 			'match_reason' => '',
 			'error' => '',
 			'details' => '',
 			'suggestion_id' => 0,
 		);
+	}
+
+	/** @param array<string,mixed> $row Row. */
+	public function finalize_row( array $row ): array {
+		if ( 'searching' === (string) ( $row['status'] ?? '' ) || '' === (string) ( $row['status'] ?? '' ) ) {
+			$row['status'] = '' !== (string) ( $row['error'] ?? '' ) ? 'error' : 'no_match';
+			if ( '' === (string) ( $row['error'] ?? '' ) ) {
+				$row['error'] = self::no_match_reason();
+			}
+		}
+
+		return $row;
 	}
 
 	private function wait_seconds_for_competitor( array $run, int $competitor_id ): int {
@@ -434,6 +533,32 @@ class ManualDiscoveryService {
 	/** @param array<string,mixed> $run Run state. */
 	private function save_run( array $run ): void {
 		update_option( self::OPTION_PREFIX . sanitize_key( (string) $run['id'] ), $run, false );
+	}
+
+	private function cleanup_stale_runs(): void {
+		global $wpdb;
+
+		if ( ! $wpdb || ! method_exists( $wpdb, 'get_results' ) ) {
+			return;
+		}
+
+		$like = self::OPTION_PREFIX . '%';
+		$rows = $wpdb->get_results( $wpdb->prepare( "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE %s", $like ), ARRAY_A );
+		if ( ! is_array( $rows ) ) {
+			return;
+		}
+
+		foreach ( $rows as $row ) {
+			$name = (string) ( $row['option_name'] ?? '' );
+			$run  = maybe_unserialize( $row['option_value'] ?? '' );
+			if ( ! is_array( $run ) ) {
+				continue;
+			}
+			$options = array( $name => $run );
+			if ( self::cleanup_stale_run_options( $options, time() ) > 0 ) {
+				delete_option( $name );
+			}
+		}
 	}
 
 	/** @param array<string,mixed> $run Run state. */

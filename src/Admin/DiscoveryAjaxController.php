@@ -30,6 +30,8 @@ class DiscoveryAjaxController {
 		$actions = array(
 			'lpm_manual_discovery_create'  => 'create_run',
 			'lpm_manual_discovery_process' => 'process_run',
+			'lpm_manual_discovery_cancel'  => 'cancel_run',
+			'lpm_manual_discovery_retest'  => 'retest_run',
 			'lpm_manual_discovery_approve' => 'approve_suggestion',
 			'lpm_manual_discovery_reject'  => 'reject_suggestion',
 		);
@@ -37,6 +39,30 @@ class DiscoveryAjaxController {
 		foreach ( $actions as $action => $method ) {
 			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
 		}
+	}
+
+	/** Cancel a running manual discovery run. */
+	public function cancel_run(): void {
+		$this->guard();
+
+		$result = $this->manual_discovery->cancel_run( $this->request_run_id() );
+		if ( empty( $result['success'] ) ) {
+			$this->send_error( (string) ( $result['message'] ?? __( 'Manual discovery run could not be cancelled.', 'lilleprinsen-price-monitor' ) ), 404 );
+		}
+
+		$this->send_success( $result );
+	}
+
+	/** Create a targeted one-product/one-competitor retest run. */
+	public function retest_run(): void {
+		$this->guard();
+
+		$result = $this->manual_discovery->create_retest_run( $this->request_absint( 'discovery_product_id' ), $this->request_absint( 'competitor_id' ) );
+		if ( empty( $result['success'] ) ) {
+			$this->send_error( (string) ( $result['message'] ?? __( 'Retest could not be started.', 'lilleprinsen-price-monitor' ) ), 400 );
+		}
+
+		$this->send_success( array( 'run' => $result ) );
 	}
 
 	/** Create a manual discovery run. */
@@ -51,7 +77,7 @@ class DiscoveryAjaxController {
 	public function process_run(): void {
 		$this->guard();
 
-		$run_id = isset( $_REQUEST['run_id'] ) ? sanitize_key( wp_unslash( $_REQUEST['run_id'] ) ) : '';
+		$run_id = $this->request_run_id();
 		if ( '' === $run_id ) {
 			$this->send_error( __( 'Manual discovery run is missing.', 'lilleprinsen-price-monitor' ), 400 );
 		}
@@ -100,6 +126,10 @@ class DiscoveryAjaxController {
 
 	private function request_absint( string $key ): int {
 		return isset( $_REQUEST[ $key ] ) ? absint( wp_unslash( $_REQUEST[ $key ] ) ) : 0;
+	}
+
+	private function request_run_id(): string {
+		return isset( $_REQUEST['run_id'] ) ? sanitize_key( wp_unslash( $_REQUEST['run_id'] ) ) : '';
 	}
 
 	/** @param array<string,mixed> $data Response data. */
