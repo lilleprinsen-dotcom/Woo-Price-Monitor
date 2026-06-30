@@ -140,7 +140,7 @@ class SkuSearchDiscoveryService {
 					}
 				}
 				$identifier_page_candidates = array();
-				if ( empty( $candidates ) && empty( $voyado['urls'] ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
 					$identifier_page_candidates = $this->product_candidate_urls_from_html( $body, $search_url, $domain, true );
 				}
 
@@ -160,7 +160,7 @@ class SkuSearchDiscoveryService {
 					$errors[] = 'Search results page mentioned SKU/EAN and exposed visible product-card URLs for ' . $search_url;
 				}
 
-				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && empty( $identifier_page_candidates ) ) {
 					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings, $this->raw_product_name( $product ) );
 					if ( ! empty( $algolia['searched_url'] ) ) {
 						$searched_urls[] = (string) $algolia['searched_url'];
@@ -180,11 +180,11 @@ class SkuSearchDiscoveryService {
 				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 					$urls[] = $search_url;
 					$sku_evidence = true;
-				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) ) {
+				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && empty( $identifier_page_candidates ) ) {
 					$errors[] = 'Search results page mentioned SKU/EAN but did not expose a product URL for ' . $search_url;
 				}
 
-				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $identifier_page_candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && empty( $identifier_page_candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
 					$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
 				}
 			}
@@ -1086,8 +1086,8 @@ class SkuSearchDiscoveryService {
 				'market'        => (string) $config['market'],
 				'locale'        => (string) $config['locale'],
 				'touchpoint'    => 'DESKTOP',
-				'sessionKey'    => 'lpm-' . substr( hash( 'sha256', $domain ), 0, 24 ),
-				'customerKey'   => 'lpm-' . substr( hash( 'sha256', $domain . '-customer' ), 0, 24 ),
+				'sessionKey'    => $this->deterministic_uuid( $domain . '-session' ),
+				'customerKey'   => $this->deterministic_uuid( $domain . '-customer' ),
 				'q'             => $query,
 				'limit'         => 8,
 				'skip'          => 0,
@@ -1119,11 +1119,13 @@ class SkuSearchDiscoveryService {
 
 		$code = (int) wp_remote_retrieve_response_code( $response );
 		if ( $code < 200 || $code >= 300 ) {
+			$message = $this->api_error_message( (string) wp_remote_retrieve_body( $response ) );
 			return array(
 				'urls'          => array(),
 				'searched_url'  => $endpoint,
 				'request_count' => 1,
-				'message'       => 'Voyado Elevate product search returned HTTP status ' . $code . '.',
+				'message'       => 'Voyado Elevate product search returned HTTP status ' . $code . ( '' !== $message ? ': ' . $message : '' ) . '.',
+				'hard_failure'  => true,
 			);
 		}
 
@@ -1152,6 +1154,21 @@ class SkuSearchDiscoveryService {
 			'request_count' => 1,
 			'message'       => empty( $urls ) ? 'Voyado Elevate product search returned no relevant same-domain product URLs.' : 'Voyado Elevate product search found relevant product URLs from the public product index.',
 		);
+	}
+
+	private function deterministic_uuid( string $seed ): string {
+		$hex = substr( hash( 'sha256', $seed ), 0, 32 );
+
+		return substr( $hex, 0, 8 ) . '-' . substr( $hex, 8, 4 ) . '-4' . substr( $hex, 13, 3 ) . '-8' . substr( $hex, 17, 3 ) . '-' . substr( $hex, 20, 12 );
+	}
+
+	private function api_error_message( string $body ): string {
+		$decoded = json_decode( $body, true );
+		if ( is_array( $decoded ) && ! empty( $decoded['message'] ) && is_scalar( $decoded['message'] ) ) {
+			return sanitize_text_field( (string) $decoded['message'] );
+		}
+
+		return '';
 	}
 
 	/**

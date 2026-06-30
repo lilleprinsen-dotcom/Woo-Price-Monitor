@@ -207,7 +207,7 @@ lpm_run_tests(
 					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
 				)
 			);
-			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=lpm-dc90363bb57d3dbae4818865&customerKey=lpm-74efd75e686df4e5ab069900&q=20110754&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
+			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=225c745e-5d03-4fa2-820e-ff3fdd648ee4&customerKey=74efd75e-686d-44e5-8b06-99004a5cedd2&q=20110754&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
 			$GLOBALS['lpm_test_http_responses'] = array(
 				'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC' => array(
 					'body' => '<html><body><h1>Søkeresultater for: 20110754</h1><div id="bm-voyado-results"></div><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
@@ -258,6 +258,44 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://www.babycare.no/bag-thule-black' ), $result['urls'], 'Exact SKU Voyado result should be queued before nav/category links.' );
 			lpm_assert_true( in_array( 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page', $result['searched_urls'], true ), 'Search details should show the public Voyado search endpoint without session/customer query values.' );
 			lpm_assert_true( str_contains( $result['technical_details'], 'Voyado Elevate product search found relevant product URLs' ), 'Diagnostics should explain the Voyado fallback.' );
+		},
+		'Voyado Elevate HTTP failures do not fall back to navigation links' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 0,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => 'catalogsearch/result/?q={query}&origin=ORGANIC',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=225c745e-5d03-4fa2-820e-ff3fdd648ee4&customerKey=74efd75e-686d-44e5-8b06-99004a5cedd2&q=20110754&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC' => array(
+					'body' => '<html><body><h1>Søkeresultater for: 20110754</h1><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
+				),
+				$voyado_url => array(
+					'response' => array( 'code' => 400 ),
+					'body'     => wp_json_encode( array( 'message' => 'Missing required parameter: customerKey' ) ),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'www.babycare.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => '20110754',
+					'normalized_sku' => '20110754',
+					'product_name'   => 'Thule Urban Glide 3 bassinet - black on black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( ! $result['success'], 'A hard Voyado API failure should not be treated as a successful discovery.' );
+			lpm_assert_same( array(), $result['urls'], 'Navigation links must not be queued after a hard Voyado API failure.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Missing required parameter: customerKey' ), 'Voyado API error body should be visible in diagnostics.' );
 		},
 		'Product card URL extraction reads button data attributes' => static function () use ( $sku_search ): void {
 			$html = '<section><h1>20110754</h1><article class="product"><img alt="Bag, Thule, Black"><h2>Bag, Thule, Black</h2><span>kr 3 499,00</span><button type="button" data-product-url="/thule-urban-glide-3-bassinet-black-on-black">Se produkt</button></article></section>';
