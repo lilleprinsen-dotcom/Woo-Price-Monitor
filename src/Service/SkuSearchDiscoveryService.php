@@ -133,7 +133,7 @@ class SkuSearchDiscoveryService {
 				}
 
 				if ( empty( $candidates ) ) {
-					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings );
+					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings, $this->raw_product_name( $product ) );
 					if ( ! empty( $algolia['searched_url'] ) ) {
 						$searched_urls[] = (string) $algolia['searched_url'];
 					}
@@ -223,7 +223,7 @@ class SkuSearchDiscoveryService {
 						$urls[] = $candidate;
 					}
 					if ( empty( $name_candidates ) ) {
-						$algolia = $this->algolia_product_urls_from_html( $body, $name_query, $domain, $ports, $settings );
+						$algolia = $this->algolia_product_urls_from_html( $body, $name_query, $domain, $ports, $settings, $this->raw_product_name( $product ) );
 						if ( ! empty( $algolia['searched_url'] ) ) {
 							$searched_urls[] = (string) $algolia['searched_url'];
 						}
@@ -245,8 +245,7 @@ class SkuSearchDiscoveryService {
 			}
 		}
 
-		$urls = array_values( array_unique( array_map( array( $this->url_service, 'normalize' ), $urls ) ) );
-		$urls = array_values( array_filter( $urls ) );
+		$urls = $this->rank_candidate_urls( $urls, $product, $sku, $gtin );
 		if ( empty( $urls ) && empty( $errors ) ) {
 			$errors[] = 'No product URLs found for this selected SKU.';
 		}
@@ -419,6 +418,9 @@ class SkuSearchDiscoveryService {
 				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) ) {
 					continue;
 				}
+				if ( $this->looks_like_listing_or_category_url( $url ) ) {
+					continue;
+				}
 				if ( ! $this->text_mentions_any_sku( $href . ' ' . $text, $needles ) ) {
 					continue;
 				}
@@ -451,6 +453,9 @@ class SkuSearchDiscoveryService {
 				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
 					continue;
 				}
+				if ( $this->looks_like_listing_or_category_url( $url ) ) {
+					continue;
+				}
 				if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
 					continue;
 				}
@@ -470,15 +475,15 @@ class SkuSearchDiscoveryService {
 	 * @return array<int,string>
 	 */
 	public function name_matched_urls_from_html( string $html, string $base_url, string $product_name, string $domain ): array {
-		$urls = array();
+		$candidates = array();
 		if ( '' === trim( $product_name ) ) {
-			return $urls;
+			return array();
 		}
 
-		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER ) ) {
+		if ( preg_match_all( '#<a\s+[^>]*href\s*=\s*(["\'])(.*?)\1[^>]*>(.*?)</a>#is', $html, $matches, PREG_SET_ORDER | PREG_OFFSET_CAPTURE ) ) {
 			foreach ( $matches as $match ) {
-				$href = html_entity_decode( (string) $match[2], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$href = html_entity_decode( (string) $match[2][0], ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+				$text = html_entity_decode( wp_strip_all_tags( (string) $match[3][0] ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 				$url  = $this->url_service->resolve( $href, $base_url );
 				if ( '' === $url || ! $this->url_service->matches_domain( $url, $domain ) || ! $this->is_crawlable_url( $url ) ) {
 					continue;
@@ -486,14 +491,159 @@ class SkuSearchDiscoveryService {
 				if ( ! $this->looks_like_product_candidate_link( $url, $text, true ) ) {
 					continue;
 				}
-				if ( ! $this->text_matches_product_name( $href . ' ' . $text, $product_name ) ) {
+				if ( $this->candidate_name_term_hits( $href . ' ' . $text . ' ' . $url, $product_name ) < 2 ) {
 					continue;
 				}
-				$urls[] = $url;
+				$direct_score = $this->candidate_match_score( $url, $href . ' ' . $text, $product_name );
+				if ( $direct_score <= 0 ) {
+					continue;
+				}
+				$context = $this->anchor_context_text( $html, (int) $match[0][1], strlen( (string) $match[0][0] ) );
+				$score = max( $direct_score, $this->candidate_match_score( $url, $href . ' ' . $text . ' ' . $context, $product_name ) );
+				if ( $score < $this->minimum_name_candidate_score( $product_name ) ) {
+					continue;
+				}
+				$this->add_scored_url( $candidates, $url, $score );
 			}
 		}
 
-		return array_values( array_unique( $urls ) );
+		return $this->rank_scored_urls( $candidates );
+	}
+
+	/**
+	 * Rank and filter candidate product URLs before the expensive product-page
+	 * extraction step. Search pages often contain image links, category links and
+	 * fuzzy hosted-search hits, so title/name evidence should decide the order.
+	 *
+	 * @param array<int,string> $urls Candidate URLs.
+	 * @return array<int,string>
+	 */
+	private function rank_candidate_urls( array $urls, object $product, string $sku, string $gtin ): array {
+		$candidates = array();
+		$product_name = $this->raw_product_name( $product );
+
+		foreach ( $urls as $url ) {
+			$url = $this->url_service->normalize( (string) $url );
+			if ( '' === $url || $this->looks_like_listing_or_category_url( $url ) ) {
+				continue;
+			}
+
+			$score = 10 + $this->candidate_match_score( $url, $url, $product_name );
+			if ( $this->text_mentions_sku( $url, $sku, $this->normalize_identifier( $sku ) ) ) {
+				$score += 300;
+			}
+			if ( $this->text_mentions_sku( $url, $gtin, $this->normalize_identifier( $gtin ) ) ) {
+				$score += 350;
+			}
+			$this->add_scored_url( $candidates, $url, $score );
+		}
+
+		return $this->rank_scored_urls( $candidates );
+	}
+
+	/**
+	 * Nearby card text for an anchor. Many product grids put the title or price in
+	 * sibling elements instead of inside the clicked image/title anchor itself.
+	 */
+	private function anchor_context_text( string $html, int $offset, int $anchor_length ): string {
+		$start = max( 0, $offset - 900 );
+		$length = $anchor_length + 1800;
+		$snippet = substr( $html, $start, $length );
+
+		return html_entity_decode( wp_strip_all_tags( (string) $snippet ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+	}
+
+	private function minimum_name_candidate_score( string $product_name ): int {
+		$term_count = count( $this->significant_name_terms( $product_name ) );
+
+		return $term_count >= 4 ? 42 : 28;
+	}
+
+	private function candidate_match_score( string $url, string $context, string $product_name ): int {
+		if ( '' === trim( $product_name ) || $this->looks_like_listing_or_category_url( $url ) ) {
+			return 0;
+		}
+
+		$score = 0;
+		$url_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( $url, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$context_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $context ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		foreach ( $this->significant_name_terms( $product_name ) as $term ) {
+			if ( false !== strpos( $context_text, $term ) ) {
+				$score += 14;
+			}
+			if ( false !== strpos( $url_text, $term ) ) {
+				$score += 8;
+			}
+		}
+
+		if ( $this->text_matches_product_name( $context . ' ' . $url, $product_name ) ) {
+			$score += 20;
+		}
+		if ( preg_match( '/(?:^|\s)kr\s*\d|(?:^|\s)\d[\d\s.,]*,-|(?:^|\s)\d[\d\s.,]*\s*nok/i', $context ) ) {
+			$score += 12;
+		}
+		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+			$score += 8;
+		}
+
+		$product_words = ' ' . strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', $product_name ) ) . ' ';
+		$candidate_words = ' ' . $context_text . ' ' . $url_text . ' ';
+		if ( str_contains( $product_words, ' double ' ) && preg_match( '/\b(?:single|singel)\b/u', $candidate_words ) && ! str_contains( $candidate_words, ' double ' ) ) {
+			$score -= 70;
+		}
+		if ( preg_match( '/\b(?:single|singel)\b/u', $product_words ) && str_contains( $candidate_words, ' double ' ) ) {
+			$score -= 70;
+		}
+
+		return max( 0, $score );
+	}
+
+	private function candidate_name_term_hits( string $text, string $product_name ): int {
+		$normalized_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$hits = 0;
+		foreach ( $this->significant_name_terms( $product_name ) as $term ) {
+			if ( false !== strpos( $normalized_text, $term ) ) {
+				++$hits;
+			}
+		}
+
+		return $hits;
+	}
+
+	/**
+	 * @param array<string,array{url:string,score:int,order:int}> $candidates Candidate map.
+	 */
+	private function add_scored_url( array &$candidates, string $url, int $score ): void {
+		$url = $this->url_service->normalize( $url );
+		if ( '' === $url || $score <= 0 ) {
+			return;
+		}
+		if ( ! isset( $candidates[ $url ] ) ) {
+			$candidates[ $url ] = array(
+				'url'   => $url,
+				'score' => $score,
+				'order' => count( $candidates ),
+			);
+			return;
+		}
+		$candidates[ $url ]['score'] = max( (int) $candidates[ $url ]['score'], $score );
+	}
+
+	/**
+	 * @param array<string,array{url:string,score:int,order:int}> $candidates Candidate map.
+	 * @return array<int,string>
+	 */
+	private function rank_scored_urls( array $candidates ): array {
+		$ranked = array_values( $candidates );
+		usort(
+			$ranked,
+			static function ( array $a, array $b ): int {
+				$score = (int) $b['score'] <=> (int) $a['score'];
+				return 0 !== $score ? $score : ( (int) $a['order'] <=> (int) $b['order'] );
+			}
+		);
+
+		return array_values( array_column( $ranked, 'url' ) );
 	}
 
 	/**
@@ -670,7 +820,7 @@ class SkuSearchDiscoveryService {
 	 * @param array<string,mixed>    $settings Discovery settings.
 	 * @return array{urls:array<int,string>,searched_url:string,request_count:int,message:string}
 	 */
-	private function algolia_product_urls_from_html( string $html, string $query, string $domain, array $ports, array $settings ): array {
+	private function algolia_product_urls_from_html( string $html, string $query, string $domain, array $ports, array $settings, string $product_name = '' ): array {
 		$config = $this->algolia_config_from_html( $html );
 		if ( empty( $config ) ) {
 			return array(
@@ -740,28 +890,61 @@ class SkuSearchDiscoveryService {
 		}
 
 		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
-		$urls    = array();
+		$candidates = array();
 		foreach ( is_array( $decoded['hits'] ?? null ) ? $decoded['hits'] : array() as $hit ) {
 			if ( ! is_array( $hit ) ) {
 				continue;
 			}
+			$hit_text = $this->algolia_hit_text( $hit );
+			$score = $this->algolia_hit_score( (string) $query, $product_name, $hit_text );
+			if ( $score <= 0 ) {
+				continue;
+			}
 			foreach ( array( 'permalink', 'url', 'post_url' ) as $field ) {
 				$url = $this->url_service->normalize( (string) ( $hit[ $field ] ?? '' ) );
-				if ( $this->is_safe_same_domain_url( $url, $domain, $ports ) && ! $this->looks_like_search_results_url( $url ) ) {
-					$urls[] = $url;
+				if ( $this->is_safe_same_domain_url( $url, $domain, $ports ) && ! $this->looks_like_search_results_url( $url ) && ! $this->looks_like_listing_or_category_url( $url ) ) {
+					$this->add_scored_url( $candidates, $url, $score + $this->candidate_match_score( $url, $hit_text, '' !== $product_name ? $product_name : $query ) );
 					break;
 				}
 			}
 		}
 
-		$urls = array_values( array_unique( $urls ) );
+		$urls = $this->rank_scored_urls( $candidates );
 
 		return array(
 			'urls'          => $urls,
 			'searched_url'  => $endpoint,
 			'request_count' => 1,
-			'message'       => empty( $urls ) ? 'Algolia product search returned no same-domain product URLs.' : 'Algolia product search found possible product URLs from the public product index.',
+			'message'       => empty( $urls ) ? 'Algolia product search returned no relevant same-domain product URLs.' : 'Algolia product search found relevant product URLs from the public product index.',
 		);
+	}
+
+	/**
+	 * @param array<string,mixed> $hit Algolia hit.
+	 */
+	private function algolia_hit_text( array $hit ): string {
+		$parts = array();
+		foreach ( array( 'post_title', 'title', 'sku', 'ean', 'gtin', 'mpn', 'brand', 'permalink', 'url', 'post_url', 'slug' ) as $field ) {
+			if ( ! empty( $hit[ $field ] ) && is_scalar( $hit[ $field ] ) ) {
+				$parts[] = (string) $hit[ $field ];
+			}
+		}
+
+		return implode( ' ', $parts );
+	}
+
+	private function algolia_hit_score( string $query, string $product_name, string $hit_text ): int {
+		$query = trim( $query );
+		$query_normalized = $this->normalize_identifier( $query );
+		$is_identifier_query = '' !== $query_normalized && ! str_contains( $query, ' ' ) && strlen( $query_normalized ) >= 5;
+		if ( $is_identifier_query ) {
+			return $this->text_mentions_sku( $hit_text, $query, $query_normalized ) ? 500 : 0;
+		}
+
+		$name = '' !== trim( $product_name ) ? $product_name : $query;
+		$score = $this->candidate_match_score( '', $hit_text, $name );
+
+		return $score >= $this->minimum_name_candidate_score( $name ) ? $score : 0;
 	}
 
 	/**
@@ -808,6 +991,9 @@ class SkuSearchDiscoveryService {
 	 * Exact search hits often 302 to a clean product slug that does not contain SKU/EAN.
 	 */
 	private function looks_like_redirect_product_candidate( string $url ): bool {
+		if ( $this->looks_like_listing_or_category_url( $url ) ) {
+			return false;
+		}
 		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 			return true;
 		}
@@ -849,6 +1035,18 @@ class SkuSearchDiscoveryService {
 	}
 
 	/**
+	 * Product search should not extract category/listing URLs as product pages.
+	 */
+	private function looks_like_listing_or_category_url( string $url ): bool {
+		$path = strtolower( rawurldecode( (string) wp_parse_url( $url, PHP_URL_PATH ) ) );
+		if ( '' === $path ) {
+			return false;
+		}
+
+		return (bool) preg_match( '#/(?:product-category|category|kategori|collections?|brand|merke|tag|product-tag|blog|news|nyheter)(?:/|$)#i', $path );
+	}
+
+	/**
 	 * Decide if a SKU page/link should be queued as a possible product page.
 	 */
 	private function looks_like_product_or_identifier_page( string $url, string $content ): bool {
@@ -867,6 +1065,9 @@ class SkuSearchDiscoveryService {
 	 * Conservative product-candidate link heuristic.
 	 */
 	private function looks_like_product_candidate_link( string $url, string $text, bool $broad_listing_page ): bool {
+		if ( $this->looks_like_listing_or_category_url( $url ) ) {
+			return false;
+		}
 		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 			return true;
 		}
