@@ -132,6 +132,23 @@ class SkuSearchDiscoveryService {
 					$sku_evidence = true;
 				}
 
+				if ( empty( $candidates ) ) {
+					$algolia = $this->algolia_product_urls_from_html( $body, (string) $query['value'], $domain, $ports, $settings );
+					if ( ! empty( $algolia['searched_url'] ) ) {
+						$searched_urls[] = (string) $algolia['searched_url'];
+					}
+					if ( (int) ( $algolia['request_count'] ?? 0 ) > 0 ) {
+						$requests += (int) $algolia['request_count'];
+					}
+					foreach ( (array) ( $algolia['urls'] ?? array() ) as $candidate ) {
+						$urls[] = (string) $candidate;
+						$sku_evidence = true;
+					}
+					if ( ! empty( $algolia['message'] ) ) {
+						$errors[] = (string) $algolia['message'];
+					}
+				}
+
 				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 					$urls[] = $search_url;
 					$sku_evidence = true;
@@ -208,8 +225,24 @@ class SkuSearchDiscoveryService {
 						continue;
 					}
 
-					foreach ( $this->name_matched_urls_from_html( $body, $search_url, $name_query, $domain ) as $candidate ) {
+					$name_candidates = $this->name_matched_urls_from_html( $body, $search_url, $name_query, $domain );
+					foreach ( $name_candidates as $candidate ) {
 						$urls[] = $candidate;
+					}
+					if ( empty( $name_candidates ) ) {
+						$algolia = $this->algolia_product_urls_from_html( $body, $name_query, $domain, $ports, $settings );
+						if ( ! empty( $algolia['searched_url'] ) ) {
+							$searched_urls[] = (string) $algolia['searched_url'];
+						}
+						if ( (int) ( $algolia['request_count'] ?? 0 ) > 0 ) {
+							$requests += (int) $algolia['request_count'];
+						}
+						foreach ( (array) ( $algolia['urls'] ?? array() ) as $candidate ) {
+							$urls[] = (string) $candidate;
+						}
+						if ( ! empty( $algolia['message'] ) ) {
+							$errors[] = (string) $algolia['message'];
+						}
 					}
 
 					if ( $this->text_matches_product_name( $body, $name_query ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
@@ -635,6 +668,147 @@ class SkuSearchDiscoveryService {
 	 */
 	private function is_safe_same_domain_url( string $url, string $domain, array $ports ): bool {
 		return '' !== $url && $this->url_service->is_safe_url( $url, $ports ) && $this->url_service->matches_domain( $url, $domain );
+	}
+
+	/**
+	 * Query a public Algolia product index exposed by some WooCommerce sites.
+	 *
+	 * @param array<int,int|string>  $ports Allowed ports.
+	 * @param array<string,mixed>    $settings Discovery settings.
+	 * @return array{urls:array<int,string>,searched_url:string,request_count:int,message:string}
+	 */
+	private function algolia_product_urls_from_html( string $html, string $query, string $domain, array $ports, array $settings ): array {
+		$config = $this->algolia_config_from_html( $html );
+		if ( empty( $config ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => '',
+				'request_count' => 0,
+				'message'       => '',
+			);
+		}
+
+		$endpoint = sprintf( 'https://%s-dsn.algolia.net/1/indexes/%s/query', (string) $config['application_id'], rawurlencode( (string) $config['index_name'] ) );
+		if ( ! $this->url_service->is_safe_url( $endpoint, $ports ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => '',
+				'request_count' => 0,
+				'message'       => 'Algolia search endpoint was not safe.',
+			);
+		}
+
+		$response = wp_remote_post(
+			$endpoint,
+			array(
+				'timeout'     => absint( $settings['discovery_request_timeout'] ?? 12 ),
+				'redirection' => 0,
+				'user-agent'  => $this->user_agent(),
+				'headers'     => array(
+					'Accept'                   => 'application/json',
+					'Content-Type'             => 'application/json',
+					'X-Algolia-API-Key'        => (string) $config['search_api_key'],
+					'X-Algolia-Application-Id' => (string) $config['application_id'],
+				),
+				'body'        => wp_json_encode(
+					array(
+						'params' => http_build_query(
+							array(
+								'query'                => $query,
+								'hitsPerPage'          => 5,
+								'attributesToRetrieve' => wp_json_encode( array( 'permalink', 'url', 'post_url', 'slug', 'post_title', 'title', 'sku' ) ),
+							),
+							'',
+							'&',
+							PHP_QUERY_RFC3986
+						),
+					)
+				),
+			)
+		);
+
+		if ( is_wp_error( $response ) ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => $endpoint,
+				'request_count' => 1,
+				'message'       => 'Algolia product search failed: ' . $response->get_error_message(),
+			);
+		}
+
+		$code = (int) wp_remote_retrieve_response_code( $response );
+		if ( $code < 200 || $code >= 300 ) {
+			return array(
+				'urls'          => array(),
+				'searched_url'  => $endpoint,
+				'request_count' => 1,
+				'message'       => 'Algolia product search returned HTTP status ' . $code . '.',
+			);
+		}
+
+		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
+		$urls    = array();
+		foreach ( is_array( $decoded['hits'] ?? null ) ? $decoded['hits'] : array() as $hit ) {
+			if ( ! is_array( $hit ) ) {
+				continue;
+			}
+			foreach ( array( 'permalink', 'url', 'post_url' ) as $field ) {
+				$url = $this->url_service->normalize( (string) ( $hit[ $field ] ?? '' ) );
+				if ( $this->is_safe_same_domain_url( $url, $domain, $ports ) && ! $this->looks_like_search_results_url( $url ) ) {
+					$urls[] = $url;
+					break;
+				}
+			}
+		}
+
+		$urls = array_values( array_unique( $urls ) );
+
+		return array(
+			'urls'          => $urls,
+			'searched_url'  => $endpoint,
+			'request_count' => 1,
+			'message'       => empty( $urls ) ? 'Algolia product search returned no same-domain product URLs.' : 'Algolia product search found possible product URLs from the public product index.',
+		);
+	}
+
+	/**
+	 * Extract public Algolia search settings from wp-search-with-algolia markup.
+	 *
+	 * @return array{application_id:string,search_api_key:string,index_name:string}|array<string,mixed>
+	 */
+	private function algolia_config_from_html( string $html ): array {
+		if ( ! preg_match( '#var\s+algolia\s*=\s*(\{.*?\})\s*;\s*</script>#is', $html, $match ) ) {
+			return array();
+		}
+
+		$config = json_decode( html_entity_decode( (string) $match[1], ENT_QUOTES | ENT_HTML5, 'UTF-8' ), true );
+		if ( ! is_array( $config ) ) {
+			return array();
+		}
+
+		$app_id = strtoupper( trim( (string) ( $config['application_id'] ?? '' ) ) );
+		$key    = trim( (string) ( $config['search_api_key'] ?? '' ) );
+		$index  = '';
+		if ( ! empty( $config['indices']['posts_product']['name'] ) ) {
+			$index = (string) $config['indices']['posts_product']['name'];
+		} elseif ( ! empty( $config['autocomplete']['sources'] ) && is_array( $config['autocomplete']['sources'] ) ) {
+			foreach ( $config['autocomplete']['sources'] as $source ) {
+				if ( is_array( $source ) && 'posts_product' === (string) ( $source['index_id'] ?? '' ) && ! empty( $source['index_name'] ) ) {
+					$index = (string) $source['index_name'];
+					break;
+				}
+			}
+		}
+
+		if ( ! preg_match( '/^[A-Z0-9]{6,}$/', $app_id ) || ! preg_match( '/^[a-zA-Z0-9]{8,}$/', $key ) || ! preg_match( '/^[a-zA-Z0-9_\-]+$/', $index ) ) {
+			return array();
+		}
+
+		return array(
+			'application_id' => $app_id,
+			'search_api_key' => $key,
+			'index_name'     => $index,
+		);
 	}
 
 	/**
