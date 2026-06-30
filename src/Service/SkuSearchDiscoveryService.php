@@ -1177,18 +1177,39 @@ class SkuSearchDiscoveryService {
 	private function voyado_elevate_config_from_html( string $html ): array {
 		$decoded = html_entity_decode( $html, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$decoded = str_replace( array( '\/', '\\/' ), '/', $decoded );
-		if ( ! preg_match( '/"clusterId"\s*:\s*"([a-zA-Z0-9\-]{4,})"/', $decoded, $cluster ) ) {
+		$config_html = $this->voyado_elevate_config_html_fragment( $decoded );
+
+		if ( ! preg_match( '/"clusterId"\s*:\s*"([a-zA-Z0-9\-]{4,})"/', $config_html, $cluster ) && ! preg_match( '/"clusterId"\s*:\s*"([a-zA-Z0-9\-]{4,})"/', $decoded, $cluster ) ) {
 			return array();
 		}
 
-		$market = preg_match( '/"market"\s*:\s*"([A-Z]{2})"/', $decoded, $market_match ) ? (string) $market_match[1] : 'NO';
-		$locale = preg_match( '/"locale"\s*:\s*"([a-z]{2}(?:-|_)[A-Z]{2})"/', $decoded, $locale_match ) ? str_replace( '_', '-', (string) $locale_match[1] ) : 'nb-NO';
+		$market_source = preg_match( '/"market"\s*:\s*"([A-Z]{2})"/', $config_html, $market_match ) ? $config_html : $decoded;
+		$locale_source = preg_match( '/"locale"\s*:\s*"([a-z]{2}(?:-|_)[A-Z]{2})"/', $config_html, $locale_match ) ? $config_html : $decoded;
+
+		$market = preg_match( '/"market"\s*:\s*"([A-Z]{2})"/', $market_source, $market_match ) ? (string) $market_match[1] : 'NO';
+		$locale = preg_match( '/"locale"\s*:\s*"([a-z]{2}(?:-|_)[A-Z]{2})"/', $locale_source, $locale_match ) ? str_replace( '_', '-', (string) $locale_match[1] ) : 'nb-NO';
 
 		return array(
 			'cluster_id' => (string) $cluster[1],
 			'market'     => $market,
 			'locale'     => $locale,
 		);
+	}
+
+	private function voyado_elevate_config_html_fragment( string $decoded_html ): string {
+		foreach ( array( 'Bluemint_VoyadoElevate/js/search/results', 'bmvoyadoSearchResults', 'bm-voyado-results' ) as $needle ) {
+			$position = strpos( $decoded_html, $needle );
+			if ( false === $position ) {
+				continue;
+			}
+
+			$fragment = substr( $decoded_html, $position, 8000 );
+			if ( str_contains( $fragment, '"clusterId"' ) ) {
+				return $fragment;
+			}
+		}
+
+		return $decoded_html;
 	}
 
 	/**
