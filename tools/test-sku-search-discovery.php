@@ -150,6 +150,39 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black' ), $result['urls'], 'Name fallback should queue only relevant product candidates.' );
 			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
+		'Identifier search queues exact-match redirects to product pages' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 0,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => 'catalogsearch/result/?q={query}&origin=ORGANIC',
+					'discovery_product_url_patterns'     => 'produkt,product,p,varer,vare',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/catalogsearch/result/?q=10101001&origin=ORGANIC' => array(
+					'response' => array( 'code' => 302 ),
+					'headers'  => array( 'location' => '/thule-chariot-sport-2-double-black.html' ),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => '10101001',
+					'normalized_sku' => '10101001',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Exact SKU search redirects should be queued for extraction even when the product slug does not contain the SKU.' );
+			lpm_assert_same( array( 'https://competitor.no/thule-chariot-sport-2-double-black.html' ), $result['urls'], 'Safe same-domain product redirect should be returned as a candidate URL.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Search redirected to a possible product page' ), 'Redirect diagnostics should explain why the product URL was queued.' );
+		},
 		'Product-name search fallback tries shorter title variants' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
@@ -199,6 +232,43 @@ lpm_run_tests(
 			lpm_assert_true( $result['success'], 'Name search should try shorter variants when the full product title is too exact.' );
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-black' ), $result['urls'], 'Shorter name search should queue the competitor product with a different color/title wording.' );
 			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double', $result['searched_urls'], true ), 'Search logs should show the shorter name URL that found the candidate.' );
+		},
+		'Name search queues redirects to product pages' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 2,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p,varer,vare',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=NO-HIT' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20black' => array(
+					'response' => array( 'code' => 302 ),
+					'headers'  => array( 'location' => '/thule-chariot-sport-2-double-black.html' ),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => 'NO-HIT',
+					'normalized_sku' => 'NOHIT',
+					'product_name'   => 'Thule Chariot Sport 2 double black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Name-search redirects should be queued when the redirect target looks like a product page.' );
+			lpm_assert_same( array( 'https://competitor.no/thule-chariot-sport-2-double-black.html' ), $result['urls'], 'Name redirect product page should be returned as a candidate URL.' );
+			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double%20black', $result['searched_urls'], true ), 'Search logs should include the name search redirect URL.' );
 		},
 		'EAN search can find candidates when SKU search has no hit' => static function () use ( $sku_search ): void {
 			update_option(

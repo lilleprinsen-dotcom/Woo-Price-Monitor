@@ -97,9 +97,12 @@ class SkuSearchDiscoveryService {
 					$location = wp_remote_retrieve_header( $response, 'location' );
 					$next     = is_array( $location ) ? reset( $location ) : $location;
 					$next_url = $this->url_service->resolve( (string) $next, $search_url );
-					if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) && $this->text_mentions_sku( $next_url, (string) $query['value'], (string) $query['normalized'] ) ) {
+					if ( $this->is_safe_same_domain_url( $next_url, $domain, $ports ) && ( $this->text_mentions_sku( $next_url, (string) $query['value'], (string) $query['normalized'] ) || $this->looks_like_redirect_product_candidate( $next_url ) ) ) {
 						$urls[] = $next_url;
 						$sku_evidence = true;
+						$errors[] = 'Search redirected to a possible product page: ' . $next_url;
+					} elseif ( '' !== $next_url ) {
+						$errors[] = 'Search redirect did not look like a safe product page: ' . $next_url;
 					}
 					continue;
 				}
@@ -183,8 +186,11 @@ class SkuSearchDiscoveryService {
 						$location = wp_remote_retrieve_header( $response, 'location' );
 						$next     = is_array( $location ) ? reset( $location ) : $location;
 						$next_url = $this->url_service->resolve( (string) $next, $search_url );
-						if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) && $this->text_matches_product_name( $next_url, $name_query ) ) {
+						if ( $this->is_safe_same_domain_url( $next_url, $domain, $ports ) && ( $this->text_matches_product_name( $next_url, $name_query ) || $this->looks_like_redirect_product_candidate( $next_url ) ) ) {
 							$urls[] = $next_url;
+							$errors[] = 'Name search redirected to a possible product page: ' . $next_url;
+						} elseif ( '' !== $next_url ) {
+							$errors[] = 'Name search redirect did not look like a safe product page: ' . $next_url;
 						}
 						continue;
 					}
@@ -618,6 +624,39 @@ class SkuSearchDiscoveryService {
 		}
 
 		return true;
+	}
+
+	/**
+	 * Check a redirected URL without trusting competitor input.
+	 *
+	 * @param array<int,int|string> $ports Allowed ports.
+	 */
+	private function is_safe_same_domain_url( string $url, string $domain, array $ports ): bool {
+		return '' !== $url && $this->url_service->is_safe_url( $url, $ports ) && $this->url_service->matches_domain( $url, $domain );
+	}
+
+	/**
+	 * Exact search hits often 302 to a clean product slug that does not contain SKU/EAN.
+	 */
+	private function looks_like_redirect_product_candidate( string $url ): bool {
+		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+			return true;
+		}
+
+		$path = strtolower( (string) wp_parse_url( $url, PHP_URL_PATH ) );
+		if ( '' === $path || '/' === $path || preg_match( '#/(?:catalogsearch|search|sok|category|kategori|brand|merke|collection|collections|blog|news|nyheter)(?:/|$)#i', $path ) ) {
+			return false;
+		}
+		if ( preg_match( '#\.(?:jpg|jpeg|png|gif|webp|svg|pdf|zip|css|js|woff2?|ttf|mp4|mov)(?:\?|$)#i', $path ) ) {
+			return false;
+		}
+
+		$leaf = trim( basename( $path ) );
+		if ( preg_match( '#\.html?$#i', $leaf ) ) {
+			return true;
+		}
+
+		return (bool) preg_match( '#[a-z0-9æøå]+-[a-z0-9æøå-]+#iu', $leaf );
 	}
 
 	/**

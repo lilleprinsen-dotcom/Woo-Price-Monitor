@@ -408,10 +408,11 @@ class ManualDiscoveryService {
 		$search = $this->sku_search->discover_for_product( $competitor, $product );
 		$searched_urls = (array) ( $search['searched_urls'] ?? array() );
 		$row['search_url'] = ! empty( $searched_urls ) ? (string) reset( $searched_urls ) : $this->first_search_url( $competitor, $product );
+		$search_details = $this->search_details_for_row( $search );
 		if ( empty( $search['success'] ) || empty( $search['urls'] ) ) {
 			$row['status'] = 'no_match';
 			$row['error'] = self::no_match_reason( $search );
-			$row['details'] = (string) ( $search['technical_details'] ?? '' );
+			$row['details'] = $search_details;
 			$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
 			$this->log_event( 'warning', 'manual_discovery_no_match', __( 'Manual discovery found no competitor match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'search_url' => (string) $row['search_url'] ), (int) $product->product_id );
 			return $row;
@@ -423,7 +424,7 @@ class ManualDiscoveryService {
 				$row['status'] = 'error';
 				$row['competitor_url'] = (string) $url;
 				$row['error'] = self::no_match_reason( $search, $result );
-				$row['details'] = (string) ( $result['technical_details'] ?? '' );
+				$row['details'] = $this->combine_details( $search_details, (string) ( $result['technical_details'] ?? '' ) );
 				$event = 'JavaScript required' === (string) $row['error'] ? 'manual_discovery_js_required' : 'manual_discovery_price_extraction_failed';
 				$this->log_event( 'warning', $event, __( 'Manual discovery could not extract a usable competitor product page.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'url' => (string) $url ), (int) $product->product_id );
 				continue;
@@ -440,6 +441,7 @@ class ManualDiscoveryService {
 				$row['detected_gtin'] = (string) ( $result['gtin'] ?? '' );
 				$row['detected_price'] = $this->format_detected_price( $result );
 				$row['error'] = self::no_match_reason( $search, $result );
+				$row['details'] = $search_details;
 				$this->log_event( 'warning', 'manual_discovery_no_match', __( 'Manual discovery read a competitor page but did not create a match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'reason' => (string) $row['error'], 'url' => (string) $url ), (int) $product->product_id );
 				continue;
 			}
@@ -456,6 +458,7 @@ class ManualDiscoveryService {
 			$row['match_type'] = $suggestion ? (string) $suggestion->match_type : '';
 			$row['caution'] = $suggestion ? self::caution_for_confidence( (string) $suggestion->confidence_label ) : '';
 			$row['match_reason'] = $suggestion ? (string) $suggestion->explanation : '';
+			$row['details'] = $search_details;
 			$row['error'] = '';
 			$this->discovery_repository->mark_discovery_product_run( (int) $product->id );
 			$this->log_event( 'info', 'manual_discovery_match_found', __( 'Manual discovery found a suggested competitor match.', 'lilleprinsen-price-monitor' ), array( 'discovery_product_id' => (int) $product->id, 'competitor_id' => (int) $pair['competitor_id'], 'suggestion_id' => (int) $row['suggestion_id'], 'confidence' => (string) $row['confidence'], 'url' => (string) $url ), (int) $product->product_id );
@@ -526,6 +529,37 @@ class ManualDiscoveryService {
 		}
 
 		return $this->sku_search->build_search_url( $domain, (string) reset( $templates ), $sku );
+	}
+
+	/** @param array<string,mixed> $search Search result. */
+	private function search_details_for_row( array $search ): string {
+		$lines = array();
+		$searched_urls = array_values( array_filter( array_map( 'strval', (array) ( $search['searched_urls'] ?? array() ) ) ) );
+		if ( ! empty( $searched_urls ) ) {
+			$lines[] = __( 'Search pages tested:', 'lilleprinsen-price-monitor' );
+			foreach ( array_slice( $searched_urls, 0, 12 ) as $url ) {
+				$lines[] = '- ' . $url;
+			}
+		}
+		$searched_names = array_values( array_filter( array_map( 'strval', (array) ( $search['searched_names'] ?? array() ) ) ) );
+		if ( ! empty( $searched_names ) ) {
+			$lines[] = __( 'Name queries prepared:', 'lilleprinsen-price-monitor' );
+			foreach ( array_slice( $searched_names, 0, 6 ) as $name ) {
+				$lines[] = '- ' . $name;
+			}
+		}
+		if ( ! empty( $search['technical_details'] ) ) {
+			$lines[] = __( 'Diagnostics:', 'lilleprinsen-price-monitor' );
+			$lines[] = (string) $search['technical_details'];
+		}
+
+		return implode( "\n", $lines );
+	}
+
+	private function combine_details( string $first, string $second ): string {
+		$parts = array_filter( array( trim( $first ), trim( $second ) ) );
+
+		return implode( "\n", $parts );
 	}
 
 	/** @param array<string,mixed> $result Extract result. */
