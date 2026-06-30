@@ -210,7 +210,7 @@ lpm_run_tests(
 			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=225c745e-5d03-4fa2-820e-ff3fdd648ee4&customerKey=74efd75e-686d-44e5-8b06-99004a5cedd2&q=20110754&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
 			$GLOBALS['lpm_test_http_responses'] = array(
 				'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC' => array(
-					'body' => '<html><body><h1>Søkeresultater for: 20110754</h1><div id="bm-voyado-results"></div><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
+					'body' => '<html><body><script>window.checkoutConfig={"locale":"nb-NO"}</script><h1>Søkeresultater for: 20110754</h1><div id="bm-voyado-results"></div><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
 				),
 				$voyado_url => array(
 					'body' => wp_json_encode(
@@ -273,7 +273,7 @@ lpm_run_tests(
 			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=225c745e-5d03-4fa2-820e-ff3fdd648ee4&customerKey=74efd75e-686d-44e5-8b06-99004a5cedd2&q=20110754&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
 			$GLOBALS['lpm_test_http_responses'] = array(
 				'https://www.babycare.no/catalogsearch/result/?q=20110754&origin=ORGANIC' => array(
-					'body' => '<html><body><h1>Søkeresultater for: 20110754</h1><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
+					'body' => '<html><body><script type="application/json">{"locale":"nb-NO","currency":"NOK"}</script><h1>Søkeresultater for: 20110754</h1><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script><nav><a href="/merker/thule">Thule</a><a href="/barnevogn/triller">Trille</a></nav></body></html>',
 				),
 				$voyado_url => array(
 					'response' => array( 'code' => 400 ),
