@@ -12,6 +12,7 @@ use Lilleprinsen\PriceMonitor\Admin\AdminAjaxController;
 use Lilleprinsen\PriceMonitor\Admin\AdminNoticeStore;
 use Lilleprinsen\PriceMonitor\Admin\AdminPage;
 use Lilleprinsen\PriceMonitor\Admin\CsvImportService;
+use Lilleprinsen\PriceMonitor\Admin\DiscoveryAjaxController;
 use Lilleprinsen\PriceMonitor\Admin\DiscoveryAdminPage;
 use Lilleprinsen\PriceMonitor\Admin\DiscoveryProductAdmin;
 use Lilleprinsen\PriceMonitor\Admin\Notices;
@@ -35,6 +36,7 @@ use Lilleprinsen\PriceMonitor\Service\DiscoverySourceService;
 use Lilleprinsen\PriceMonitor\Service\DiscoveryUrlService;
 use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
 use Lilleprinsen\PriceMonitor\Service\MatchSuggestionService;
+use Lilleprinsen\PriceMonitor\Service\ManualDiscoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\PriceRecoveryService;
 use Lilleprinsen\PriceMonitor\Service\PriceUpdateService;
@@ -103,6 +105,8 @@ final class Plugin {
 		$sku_search           = new SkuSearchDiscoveryService( $url_service, $source_service, $discovery_settings );
 		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
 		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $sku_search, $url_service );
+		$manual_discovery     = new ManualDiscoveryService( $repository, $discovery_repository, $discovery_settings, $sku_search, $extractor, $match_suggestions, $url_service );
+		$discovery_ajax       = new DiscoveryAjaxController( $manual_discovery );
 		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service, $sku_search );
 		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
@@ -120,6 +124,7 @@ final class Plugin {
 		add_action( 'admin_post_lpm_token_action', array( $token_handler, 'handle' ) );
 		add_action( 'admin_post_nopriv_lpm_token_action', array( $token_handler, 'handle' ) );
 		$ajax_controller->register();
+		$discovery_ajax->register();
 		$job_scheduler->register();
 		$discovery_job->register();
 		$discovery_products->register();

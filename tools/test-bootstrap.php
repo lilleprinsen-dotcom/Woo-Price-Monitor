@@ -80,6 +80,18 @@ if ( ! function_exists( 'wp_json_encode' ) ) {
 	}
 }
 
+if ( ! function_exists( 'wp_generate_uuid4' ) ) {
+	function wp_generate_uuid4() {
+		return '00000000-0000-4000-8000-000000000000';
+	}
+}
+
+if ( ! function_exists( 'wc_format_decimal' ) ) {
+	function wc_format_decimal( $number, $dp = false ) {
+		return false === $dp ? (string) $number : number_format( (float) $number, (int) $dp, '.', '' );
+	}
+}
+
 if ( ! function_exists( 'wp_parse_args' ) ) {
 	function wp_parse_args( $args, $defaults = array() ) {
 		return array_merge( (array) $defaults, (array) $args );
