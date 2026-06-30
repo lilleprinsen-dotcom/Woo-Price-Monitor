@@ -27,30 +27,76 @@
 		return value === null || value === undefined ? '' : String(value);
 	}
 
-	function badge(status) {
-		var label = {
+	function appendText(parent, value) {
+		parent.appendChild(document.createTextNode(text(value)));
+	}
+
+	function addLink(parent, href, label) {
+		if (!href) {
+			return;
+		}
+		var link = document.createElement('a');
+		link.target = '_blank';
+		link.rel = 'noopener noreferrer';
+		link.href = href;
+		link.textContent = label;
+		parent.appendChild(link);
+	}
+
+	function makeBadge(status) {
+		var span = document.createElement('span');
+		span.className = 'lpm-manual-status lpm-manual-status-' + status;
+		span.textContent = {
 			queued: 'queued',
 			searching: 'searching',
 			found: 'found',
 			no_match: 'no match',
 			error: 'error',
 			approved: 'active monitored link',
-			rejected: 'rejected'
+			rejected: 'rejected',
+			cancelled: 'cancelled'
 		}[status] || status;
-		return '<span class="lpm-manual-status lpm-manual-status-' + status + '">' + label + '</span>';
+		return span;
 	}
 
-	function renderActions(row) {
-		var html = '';
+	function replaceStatus(tr, status) {
+		var cell = tr.querySelector('[data-lpm-row-status]');
+		if (cell) {
+			cell.replaceChildren(makeBadge(status));
+		}
+	}
+
+	function renderActions(cell, row) {
+		cell.replaceChildren();
 		if (row.competitor_url) {
-			html += '<a class="button" target="_blank" rel="noopener noreferrer" href="' + encodeURI(row.competitor_url) + '">Open URL</a> ';
+			addLink(cell, row.competitor_url, 'Open URL');
+			cell.appendChild(document.createTextNode(' '));
 		}
 		if (row.suggestion_id) {
-			html += '<button type="button" class="button button-primary" data-lpm-manual-approve="' + row.suggestion_id + '">Approve</button> ';
-			html += '<button type="button" class="button" data-lpm-manual-reject="' + row.suggestion_id + '">Reject</button> ';
-			html += '<button type="button" class="button" data-lpm-manual-retest>Retest</button>';
+			var approve = document.createElement('button');
+			approve.type = 'button';
+			approve.className = 'button button-primary';
+			approve.dataset.lpmManualApprove = row.suggestion_id;
+			approve.textContent = 'Approve';
+			cell.appendChild(approve);
+			cell.appendChild(document.createTextNode(' '));
+
+			var reject = document.createElement('button');
+			reject.type = 'button';
+			reject.className = 'button';
+			reject.dataset.lpmManualReject = row.suggestion_id;
+			reject.textContent = 'Reject';
+			cell.appendChild(reject);
+			cell.appendChild(document.createTextNode(' '));
 		}
-		return html;
+		var retest = document.createElement('button');
+		retest.type = 'button';
+		retest.className = 'button';
+		retest.dataset.lpmManualRetest = '1';
+		retest.dataset.discoveryProductId = row.discovery_product_id || '';
+		retest.dataset.competitorId = row.competitor_id || '';
+		retest.textContent = 'Retest';
+		cell.appendChild(retest);
 	}
 
 	function appendRow(panel, row) {
@@ -59,31 +105,76 @@
 			return;
 		}
 		var tr = document.createElement('tr');
-		tr.setAttribute('data-suggestion-id', row.suggestion_id || '');
-		tr.innerHTML = [
-			'<td><strong>' + escapeHtml(row.product_title) + '</strong><br><small>SKU: ' + escapeHtml(row.sku) + '<br>EAN: ' + escapeHtml(row.gtin) + '</small></td>',
-			'<td>' + escapeHtml(row.competitor_name) + '</td>',
-			'<td>' + (row.search_url ? '<a target="_blank" rel="noopener noreferrer" href="' + encodeURI(row.search_url) + '">Search/source</a>' : '') + '</td>',
-			'<td data-lpm-row-status>' + badge(row.status) + '</td>',
-			'<td>' + escapeHtml(row.competitor_title) + (row.competitor_url ? '<br><a target="_blank" rel="noopener noreferrer" href="' + encodeURI(row.competitor_url) + '">Product page</a>' : '') + '</td>',
-			'<td><small>SKU: ' + escapeHtml(row.detected_sku) + '<br>EAN: ' + escapeHtml(row.detected_gtin) + '</small><br>' + escapeHtml(row.detected_price) + '</td>',
-			'<td>' + escapeHtml(row.confidence) + '</td>',
-			'<td>' + escapeHtml(row.match_reason || row.error) + (row.details ? '<details><summary>Details</summary><pre>' + escapeHtml(row.details) + '</pre></details>' : '') + '</td>',
-			'<td data-lpm-row-actions>' + renderActions(row) + '</td>'
-		].join('');
-		tbody.appendChild(tr);
-	}
+		tr.dataset.suggestionId = row.suggestion_id || '';
+		tr.dataset.discoveryProductId = row.discovery_product_id || '';
+		tr.dataset.competitorId = row.competitor_id || '';
 
-	function escapeHtml(value) {
-		return text(value).replace(/[&<>"']/g, function (char) {
-			return {
-				'&': '&amp;',
-				'<': '&lt;',
-				'>': '&gt;',
-				'"': '&quot;',
-				"'": '&#039;'
-			}[char];
-		});
+		var our = tr.insertCell();
+		var strong = document.createElement('strong');
+		strong.textContent = text(row.product_title);
+		our.appendChild(strong);
+		our.appendChild(document.createElement('br'));
+		var ourSmall = document.createElement('small');
+		ourSmall.textContent = 'SKU: ' + text(row.sku) + ' | EAN: ' + text(row.gtin);
+		our.appendChild(ourSmall);
+
+		var competitor = tr.insertCell();
+		appendText(competitor, row.competitor_name);
+
+		var source = tr.insertCell();
+		addLink(source, row.search_url, 'Search/source');
+
+		var status = tr.insertCell();
+		status.dataset.lpmRowStatus = '1';
+		status.appendChild(makeBadge(row.status));
+
+		var competitorProduct = tr.insertCell();
+		appendText(competitorProduct, row.competitor_title);
+		if (row.competitor_url) {
+			competitorProduct.appendChild(document.createElement('br'));
+			addLink(competitorProduct, row.competitor_url, 'Product page');
+		}
+
+		var detected = tr.insertCell();
+		var detectedSmall = document.createElement('small');
+		detectedSmall.textContent = 'SKU: ' + text(row.detected_sku) + ' | EAN: ' + text(row.detected_gtin);
+		detected.appendChild(detectedSmall);
+		detected.appendChild(document.createElement('br'));
+		appendText(detected, row.detected_price);
+
+		var confidence = tr.insertCell();
+		appendText(confidence, row.confidence);
+		if (row.match_type) {
+			confidence.appendChild(document.createElement('br'));
+			var matchType = document.createElement('small');
+			matchType.textContent = row.match_type;
+			confidence.appendChild(matchType);
+		}
+		if (row.caution) {
+			confidence.appendChild(document.createElement('br'));
+			var caution = document.createElement('strong');
+			caution.textContent = row.caution;
+			confidence.appendChild(caution);
+		}
+
+		var reason = tr.insertCell();
+		appendText(reason, row.match_reason || row.error);
+		if (row.details) {
+			var details = document.createElement('details');
+			var summary = document.createElement('summary');
+			summary.textContent = 'Details';
+			var pre = document.createElement('pre');
+			pre.textContent = row.details;
+			details.appendChild(summary);
+			details.appendChild(pre);
+			reason.appendChild(details);
+		}
+
+		var actions = tr.insertCell();
+		actions.dataset.lpmRowActions = '1';
+		renderActions(actions, row);
+
+		tbody.appendChild(tr);
 	}
 
 	function setProgress(panel, run, message) {
@@ -91,6 +182,7 @@
 		var status = panel.querySelector('[data-lpm-manual-status]');
 		var counts = panel.querySelector('[data-lpm-manual-counts]');
 		var bar = panel.querySelector('[data-lpm-manual-progress-bar]');
+		var cancel = panel.querySelector('[data-lpm-manual-cancel]');
 		if (progress) {
 			progress.hidden = false;
 		}
@@ -104,14 +196,30 @@
 			bar.max = Math.max(1, run.total || 1);
 			bar.value = run.processed || 0;
 		}
+		if (cancel) {
+			cancel.hidden = !(run.status === 'running');
+		}
+	}
+
+	function shouldConfirmBeforeCreate(panel, productValue, competitorValue) {
+		var selectedProductCount = parseInt(panel.dataset.selectedProductCount || '0', 10);
+		var activeCompetitorCount = parseInt(panel.dataset.activeCompetitorCount || '0', 10);
+		return (String(productValue || '0') === '0' && selectedProductCount > 1) || (String(competitorValue || '0') === '0' && activeCompetitorCount > 1);
 	}
 
 	function processRun(panel, runId) {
+		if (panel.dataset.cancelRequested === '1') {
+			return;
+		}
 		post('lpm_manual_discovery_process', { run_id: runId, batch_size: 1 }).then(function (data) {
 			(data.rows || []).forEach(function (row) {
 				appendRow(panel, row);
 			});
 			setProgress(panel, data, data.status === 'completed' ? window.LPM_DISCOVERY.i18n.complete : window.LPM_DISCOVERY.i18n.processing);
+			if (data.status === 'cancelled') {
+				setProgress(panel, data, window.LPM_DISCOVERY.i18n.cancelled);
+				return;
+			}
 			if (data.status !== 'completed') {
 				window.setTimeout(function () {
 					processRun(panel, runId);
@@ -122,28 +230,25 @@
 		});
 	}
 
-	function startRun(panel) {
-		var product = panel.querySelector('[data-lpm-manual-product]');
-		var competitor = panel.querySelector('[data-lpm-manual-competitor]');
+	function startRun(panel, productValue, competitorValue, isRetest) {
 		var table = panel.querySelector('[data-lpm-manual-results]');
 		var tbody = table ? table.querySelector('tbody') : null;
-		if (tbody) {
+		if (tbody && !isRetest) {
 			tbody.innerHTML = '';
 		}
 		if (table) {
 			table.hidden = false;
 		}
-		setProgress(panel, { processed: 0, total: 1, found: 0, errors: 0, status: 'queued' }, window.LPM_DISCOVERY.i18n.starting);
+		panel.dataset.cancelRequested = '0';
+		setProgress(panel, { processed: 0, total: 1, found: 0, errors: 0, status: 'queued' }, isRetest ? 'Starting targeted retest...' : window.LPM_DISCOVERY.i18n.starting);
 
-		post('lpm_manual_discovery_create', {
-			discovery_product_id: product ? product.value : 0,
-			competitor_id: competitor ? competitor.value : 0
+		var action = isRetest ? 'lpm_manual_discovery_retest' : 'lpm_manual_discovery_create';
+		post(action, {
+			discovery_product_id: productValue || 0,
+			competitor_id: competitorValue || 0
 		}).then(function (data) {
 			var run = data.run;
-			if (run.large_run && ! window.confirm(window.LPM_DISCOVERY.i18n.confirmLarge)) {
-				setProgress(panel, run, 'Cancelled');
-				return;
-			}
+			panel.dataset.currentRunId = run.run_id || '';
 			setProgress(panel, run, run.large_run ? window.LPM_DISCOVERY.i18n.largeRun : window.LPM_DISCOVERY.i18n.processing);
 			processRun(panel, run.run_id);
 		}).catch(function (error) {
@@ -151,11 +256,43 @@
 		});
 	}
 
+	function startPanelRun(panel) {
+		var product = panel.querySelector('[data-lpm-manual-product]');
+		var competitor = panel.querySelector('[data-lpm-manual-competitor]');
+		var productValue = product ? product.value : 0;
+		var competitorValue = competitor ? competitor.value : 0;
+		if (shouldConfirmBeforeCreate(panel, productValue, competitorValue) && !window.confirm(window.LPM_DISCOVERY.i18n.confirmLarge)) {
+			return;
+		}
+		startRun(panel, productValue, competitorValue, false);
+	}
+
+	function cancelRun(panel) {
+		var runId = panel.dataset.currentRunId || '';
+		if (!runId) {
+			panel.dataset.cancelRequested = '1';
+			setProgress(panel, { processed: 0, total: 1, found: 0, errors: 0, status: 'cancelled' }, window.LPM_DISCOVERY.i18n.cancelled);
+			return;
+		}
+		panel.dataset.cancelRequested = '1';
+		post('lpm_manual_discovery_cancel', { run_id: runId }).then(function (data) {
+			setProgress(panel, data, window.LPM_DISCOVERY.i18n.cancelled);
+		}).catch(function (error) {
+			window.alert(error.message);
+		});
+	}
+
 	function bindPanel(panel) {
 		var start = panel.querySelector('[data-lpm-manual-start]');
+		var cancel = panel.querySelector('[data-lpm-manual-cancel]');
 		if (start) {
 			start.addEventListener('click', function () {
-				startRun(panel);
+				startPanelRun(panel);
+			});
+		}
+		if (cancel) {
+			cancel.addEventListener('click', function () {
+				cancelRun(panel);
 			});
 		}
 		panel.addEventListener('click', function (event) {
@@ -163,31 +300,34 @@
 			var reject = event.target.closest('[data-lpm-manual-reject]');
 			var retest = event.target.closest('[data-lpm-manual-retest]');
 			if (approve) {
-				post('lpm_manual_discovery_approve', { suggestion_id: approve.getAttribute('data-lpm-manual-approve') }).then(function (data) {
+				post('lpm_manual_discovery_approve', { suggestion_id: approve.dataset.lpmManualApprove }).then(function (data) {
 					var tr = approve.closest('tr');
 					if (tr) {
-						tr.querySelector('[data-lpm-row-status]').innerHTML = badge('approved');
-						tr.querySelector('[data-lpm-row-actions]').innerHTML = '<strong>' + escapeHtml(data.message || window.LPM_DISCOVERY.i18n.activeLink) + '</strong>';
+						replaceStatus(tr, 'approved');
+						tr.querySelector('[data-lpm-row-actions]').textContent = data.message || window.LPM_DISCOVERY.i18n.activeLink;
 					}
 				}).catch(function (error) {
 					window.alert(error.message);
 				});
 			}
 			if (reject) {
-				post('lpm_manual_discovery_reject', { suggestion_id: reject.getAttribute('data-lpm-manual-reject') }).then(function (data) {
+				post('lpm_manual_discovery_reject', { suggestion_id: reject.dataset.lpmManualReject }).then(function (data) {
 					var tr = reject.closest('tr');
 					if (tr) {
-						tr.querySelector('[data-lpm-row-status]').innerHTML = badge('rejected');
-						tr.querySelector('[data-lpm-row-actions]').innerHTML = escapeHtml(data.message || 'Rejected');
+						replaceStatus(tr, 'rejected');
+						tr.querySelector('[data-lpm-row-actions]').textContent = data.message || 'Rejected';
 					}
 				}).catch(function (error) {
 					window.alert(error.message);
 				});
 			}
 			if (retest) {
-				var currentPanel = retest.closest('[data-lpm-manual-discovery-panel]');
-				if (currentPanel) {
-					startRun(currentPanel);
+				var productId = retest.dataset.discoveryProductId || (retest.closest('tr') ? retest.closest('tr').dataset.discoveryProductId : '');
+				var competitorId = retest.dataset.competitorId || (retest.closest('tr') ? retest.closest('tr').dataset.competitorId : '');
+				if (productId && competitorId) {
+					startRun(panel, productId, competitorId, true);
+				} else {
+					startPanelRun(panel);
 				}
 			}
 		});

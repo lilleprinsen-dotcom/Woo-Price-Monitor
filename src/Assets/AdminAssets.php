@@ -40,6 +40,7 @@ final class AdminAssets {
 						'complete'       => __( 'Manual discovery complete.', 'lilleprinsen-price-monitor' ),
 						'largeRun'       => __( 'This run has many product/competitor checks. It will process in small batches and may take a few minutes.', 'lilleprinsen-price-monitor' ),
 						'activeLink'     => __( 'Active monitored link', 'lilleprinsen-price-monitor' ),
+						'cancelled'      => __( 'Manual discovery cancelled.', 'lilleprinsen-price-monitor' ),
 						'error'          => __( 'Manual discovery failed. See Details for more information.', 'lilleprinsen-price-monitor' ),
 						'confirmLarge'   => __( 'This will search only selected products, but it may take a few minutes. Continue?', 'lilleprinsen-price-monitor' ),
 					),

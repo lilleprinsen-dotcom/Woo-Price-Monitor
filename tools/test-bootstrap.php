@@ -21,6 +21,10 @@ if ( ! defined( 'HOUR_IN_SECONDS' ) ) {
 	define( 'HOUR_IN_SECONDS', 3600 );
 }
 
+if ( ! defined( 'DAY_IN_SECONDS' ) ) {
+	define( 'DAY_IN_SECONDS', 86400 );
+}
+
 if ( ! function_exists( '__' ) ) {
 	function __( $text, $domain = 'default' ) {
 		unset( $domain );
@@ -110,6 +114,27 @@ if ( ! function_exists( 'update_option' ) ) {
 		$GLOBALS['lpm_test_options'][ $option ] = $value;
 
 		return true;
+	}
+}
+
+if ( ! function_exists( 'delete_option' ) ) {
+	function delete_option( $option ) {
+		unset( $GLOBALS['lpm_test_options'][ $option ] );
+
+		return true;
+	}
+}
+
+if ( ! function_exists( 'maybe_unserialize' ) ) {
+	function maybe_unserialize( $value ) {
+		if ( is_string( $value ) ) {
+			$unserialized = @unserialize( $value );
+			if ( false !== $unserialized || 'b:0;' === $value ) {
+				return $unserialized;
+			}
+		}
+
+		return $value;
 	}
 }
 
