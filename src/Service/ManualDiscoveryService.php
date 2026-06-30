@@ -406,7 +406,8 @@ class ManualDiscoveryService {
 		}
 
 		$search = $this->sku_search->discover_for_product( $competitor, $product );
-		$row['search_url'] = $this->first_search_url( $competitor, $product );
+		$searched_urls = (array) ( $search['searched_urls'] ?? array() );
+		$row['search_url'] = ! empty( $searched_urls ) ? (string) reset( $searched_urls ) : $this->first_search_url( $competitor, $product );
 		if ( empty( $search['success'] ) || empty( $search['urls'] ) ) {
 			$row['status'] = 'no_match';
 			$row['error'] = self::no_match_reason( $search );

@@ -10,6 +10,7 @@ declare(strict_types=1);
 require_once __DIR__ . '/test-bootstrap.php';
 
 use Lilleprinsen\PriceMonitor\Admin\DiscoveryProductAdmin;
+use Lilleprinsen\PriceMonitor\Admin\DiscoveryAdminPage;
 
 $method = new ReflectionMethod( DiscoveryProductAdmin::class, 'monitored_product_id_from_result' );
 
@@ -46,6 +47,24 @@ lpm_run_tests(
 			);
 
 			lpm_assert_same( 0, $id, 'Failed add result must not be treated as a raw integer monitored ID.' );
+		},
+		'Search setup derives template from pasted competitor search URL' => static function (): void {
+			$templates = DiscoveryAdminPage::normalize_search_template_inputs(
+				'',
+				'https://competitor.no/search?q=10201031&sort=popular',
+				'10201031'
+			);
+
+			lpm_assert_same( array( 'https://competitor.no/search?q={query}&sort=popular' ), $templates, 'Pasted search URL should become a reusable query template.' );
+		},
+		'Search setup keeps advanced templates and removes invalid values' => static function (): void {
+			$templates = DiscoveryAdminPage::normalize_search_template_inputs(
+				'?s={sku}, ignored-without-placeholder, finn?q={ean}',
+				'',
+				''
+			);
+
+			lpm_assert_same( array( '?s={sku}', 'finn?q={ean}' ), $templates, 'Only templates with supported placeholders should be saved.' );
 		},
 	)
 );

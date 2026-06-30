@@ -38,9 +38,11 @@ class SkuSearchDiscoveryService {
 	 * @return array{success:bool,urls:array<int,string>,message:string,technical_details:string,request_count:int,sku:string,discovery_product_id:int}
 	 */
 	public function discover_for_product( array $competitor, object $product ): array {
-		$sku = trim( (string) ( $product->sku ?? '' ) );
-		if ( '' === $sku ) {
-			return $this->failure( 'This selected product has no SKU to search for.', 'Missing selected product SKU.', 0, $sku, (int) ( $product->id ?? 0 ) );
+		$sku     = trim( (string) ( $product->sku ?? '' ) );
+		$gtin    = $this->product_gtin_query( $product );
+		$queries = $this->identifier_search_queries( $sku, $gtin );
+		if ( empty( $queries ) ) {
+			return $this->failure( 'This selected product has no SKU or EAN/GTIN to search for.', 'Missing selected product SKU and EAN/GTIN.', 0, $sku, (int) ( $product->id ?? 0 ) );
 		}
 
 		$domain = $this->competitor_domain( $competitor );
@@ -56,75 +58,85 @@ class SkuSearchDiscoveryService {
 		$requests      = 0;
 		$errors        = array();
 		$sku_evidence  = false;
+		$searched_urls = array();
 
 		if ( empty( $templates ) ) {
 			return $this->failure( 'No search template is configured for this competitor.', 'no search page: add a search URL template containing {sku} or {query}.', 0, $sku, (int) ( $product->id ?? 0 ) );
 		}
 
-		foreach ( $templates as $template ) {
-			$search_url = $this->build_search_url( $domain, $template, $sku );
-			if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
-				continue;
-			}
+		foreach ( $queries as $query ) {
+			foreach ( $templates as $template ) {
+				if ( $requests >= $request_limit * count( $queries ) ) {
+					break 2;
+				}
 
-			$response = wp_remote_get(
-				$search_url,
-				array(
-					'timeout'     => absint( $settings['discovery_request_timeout'] ?? 12 ),
-					'redirection' => 0,
-					'user-agent'  => $this->user_agent(),
-					'headers'     => array( 'Accept' => 'text/html,application/xhtml+xml' ),
-				)
-			);
-			++$requests;
+				$search_url = $this->build_search_url( $domain, $template, (string) $query['value'] );
+				if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
+					continue;
+				}
+				$searched_urls[] = $search_url;
 
-			if ( is_wp_error( $response ) ) {
-				$errors[] = $response->get_error_message();
-				continue;
-			}
+				$response = wp_remote_get(
+					$search_url,
+					array(
+						'timeout'     => absint( $settings['discovery_request_timeout'] ?? 12 ),
+						'redirection' => 0,
+						'user-agent'  => $this->user_agent(),
+						'headers'     => array( 'Accept' => 'text/html,application/xhtml+xml' ),
+					)
+				);
+				++$requests;
 
-			$code = (int) wp_remote_retrieve_response_code( $response );
-			if ( $code >= 300 && $code < 400 ) {
-				$location = wp_remote_retrieve_header( $response, 'location' );
-				$next     = is_array( $location ) ? reset( $location ) : $location;
-				$next_url = $this->url_service->resolve( (string) $next, $search_url );
-				if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) ) {
-					$urls[] = $next_url;
+				if ( is_wp_error( $response ) ) {
+					$errors[] = $response->get_error_message();
+					continue;
+				}
+
+				$code = (int) wp_remote_retrieve_response_code( $response );
+				if ( $code >= 300 && $code < 400 ) {
+					$location = wp_remote_retrieve_header( $response, 'location' );
+					$next     = is_array( $location ) ? reset( $location ) : $location;
+					$next_url = $this->url_service->resolve( (string) $next, $search_url );
+					if ( '' !== $next_url && $this->url_service->is_safe_url( $next_url, $ports ) && $this->url_service->matches_domain( $next_url, $domain ) && $this->text_mentions_sku( $next_url, (string) $query['value'], (string) $query['normalized'] ) ) {
+						$urls[] = $next_url;
+						$sku_evidence = true;
+					}
+					continue;
+				}
+
+				if ( $code < 200 || $code >= 400 ) {
+					$errors[] = 'HTTP status ' . $code . ' for ' . $search_url;
+					continue;
+				}
+
+				$body = (string) wp_remote_retrieve_body( $response );
+				if ( '' === trim( $body ) ) {
+					$errors[] = 'No product URLs: empty search page for ' . $search_url;
+					continue;
+				}
+
+				$needles = array(
+					array(
+						'id'         => (int) ( $product->id ?? 0 ),
+						'raw'        => strtolower( (string) $query['value'] ),
+						'normalized' => strtolower( (string) $query['normalized'] ),
+					),
+				);
+				$candidates = $this->sku_matched_urls_from_html( $body, $search_url, $needles, $domain );
+
+				foreach ( $candidates as $candidate ) {
+					$urls[] = $candidate;
 					$sku_evidence = true;
 				}
-				continue;
-			}
 
-			if ( $code < 200 || $code >= 400 ) {
-				$errors[] = 'HTTP status ' . $code . ' for ' . $search_url;
-				continue;
-			}
+				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+					$urls[] = $search_url;
+					$sku_evidence = true;
+				}
 
-			$body = (string) wp_remote_retrieve_body( $response );
-			if ( '' === trim( $body ) ) {
-				$errors[] = 'No product URLs: empty search page for ' . $search_url;
-				continue;
-			}
-
-			$seed = (object) array(
-				'include_patterns'      => '',
-				'exclude_patterns'      => '',
-				'product_url_patterns'  => '',
-			);
-			$candidates = $this->source_service->extract_listing_urls( $body, $search_url );
-			$candidates = $this->source_service->filter_candidate_urls( $candidates, $seed, array( 'domain' => $domain ) );
-
-			foreach ( $candidates as $candidate ) {
-				$urls[] = $candidate;
-			}
-
-			if ( $this->page_mentions_sku( $body, $sku ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
-				$urls[] = $search_url;
-				$sku_evidence = true;
-			}
-
-			if ( ! $this->page_mentions_sku( $body, $sku ) && empty( $candidates ) ) {
-				$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
+				if ( empty( $candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
+					$errors[] = 'No SKU/EAN on page and no product URLs found for ' . $search_url;
+				}
 			}
 		}
 
@@ -140,6 +152,7 @@ class SkuSearchDiscoveryService {
 					if ( '' === $search_url || ! $this->url_service->is_safe_url( $search_url, $ports ) || ! $this->url_service->matches_domain( $search_url, $domain ) ) {
 						continue;
 					}
+					$searched_urls[] = $search_url;
 
 					$response = wp_remote_get(
 						$search_url,
@@ -203,6 +216,8 @@ class SkuSearchDiscoveryService {
 			'technical_details'    => implode( "\n", array_unique( $errors ) ),
 			'request_count'        => $requests,
 			'sku'                  => $sku,
+			'gtin'                 => $gtin,
+			'searched_urls'        => array_values( array_unique( $searched_urls ) ),
 			'searched_name'        => $this->product_name_query( $product ),
 			'discovery_product_id' => (int) ( $product->id ?? 0 ),
 		);
@@ -465,7 +480,7 @@ class SkuSearchDiscoveryService {
 	}
 
 	private function has_search_placeholder( string $template ): bool {
-		return false !== strpos( $template, '{sku}' ) || false !== strpos( $template, '{query}' ) || false !== strpos( $template, '%s' );
+		return false !== strpos( $template, '{sku}' ) || false !== strpos( $template, '{query}' ) || false !== strpos( $template, '{gtin}' ) || false !== strpos( $template, '{ean}' ) || false !== strpos( $template, '%s' );
 	}
 
 	/**
@@ -672,6 +687,40 @@ class SkuSearchDiscoveryService {
 	}
 
 	/**
+	 * Identifier search terms for a selected product, in confidence order.
+	 *
+	 * @return array<int,array{type:string,value:string,normalized:string}>
+	 */
+	private function identifier_search_queries( string $sku, string $gtin ): array {
+		$queries = array();
+		foreach ( array( 'sku' => $sku, 'gtin' => $gtin ) as $type => $value ) {
+			$value      = trim( $value );
+			$normalized = $this->normalize_identifier( $value );
+			if ( '' === $value && '' === $normalized ) {
+				continue;
+			}
+			$key = strtolower( '' !== $normalized ? $normalized : $value );
+			$queries[ $key ] = array(
+				'type'       => $type,
+				'value'      => $value,
+				'normalized' => $normalized,
+			);
+		}
+
+		return array_values( $queries );
+	}
+
+	private function product_gtin_query( object $product ): string {
+		foreach ( array( 'gtin', 'ean', 'normalized_gtin' ) as $key ) {
+			if ( ! empty( $product->{$key} ) ) {
+				return trim( (string) $product->{$key} );
+			}
+		}
+
+		return '';
+	}
+
+	/**
 	 * Build a safe competitor-search query from a selected product name.
 	 */
 	private function product_name_query( object $product ): string {
@@ -763,7 +812,7 @@ class SkuSearchDiscoveryService {
 		}
 
 		$value = rawurlencode( $sku );
-		$url   = str_replace( array( '{sku}', '{query}', '%s' ), $value, $template );
+		$url   = str_replace( array( '{sku}', '{query}', '{gtin}', '{ean}', '%s' ), $value, $template );
 		if ( false === strpos( $url, '://' ) ) {
 			$url = 'https://' . $domain . '/' . ltrim( $url, '/' );
 		}

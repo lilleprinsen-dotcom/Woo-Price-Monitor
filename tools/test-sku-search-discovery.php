@@ -150,6 +150,74 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black' ), $result['urls'], 'Name fallback should queue only relevant product candidates.' );
 			lpm_assert_same( 'Thule Chariot Sport 2 double midnight black', $result['searched_name'], 'The searched name should be stored for logs/metadata.' );
 		},
+		'EAN search can find candidates when SKU search has no hit' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 0,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=10201031' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a>',
+				),
+				'https://competitor.no/?s=197074564740' => array(
+					'body' => '<a href="/produkt/thule-chariot-sport-2-double-midnight-black?ean=197074564740">Thule Chariot Sport 2</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '10201031',
+					'normalized_sku'  => '10201031',
+					'gtin'            => '197074564740',
+					'normalized_gtin' => '197074564740',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'EAN/GTIN search should run after SKU search and find identifier-matching links.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-midnight-black?ean=197074564740' ), $result['urls'], 'Only the EAN-matching product URL should be queued.' );
+			lpm_assert_same( 2, $result['request_count'], 'SKU plus EAN search should stay bounded.' );
+		},
+		'Identifier search does not queue unrelated broad product links' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 0,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?s={sku}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=10201031' => array(
+					'body' => '<a href="/produkt/cybex-priam">Cybex Priam</a><a href="/produkt/talos-s-lux">Talos S Lux</a>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 7,
+					'product_id'     => 101,
+					'sku'            => '10201031',
+					'normalized_sku' => '10201031',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( ! $result['success'], 'Identifier search should not queue unrelated product-looking links.' );
+			lpm_assert_same( array(), $result['urls'], 'Unrelated product links should be ignored until title fallback or a matching identifier is found.' );
+		},
 		'Crawler follows bounded same-domain pages and finds monitored SKU links' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
