@@ -117,7 +117,8 @@ class DiscoveryProductAdmin {
 		}
 
 		$monitored = $this->repository->get_monitored_product_by_product_id( $product_id );
-		$monitored_id = $monitored ? (int) $monitored['id'] : $this->repository->add_monitored_product( $product_id, $ids['sku'] );
+		$created   = $monitored ? array() : $this->repository->add_monitored_product( $product_id, $ids['sku'] );
+		$monitored_id = self::monitored_product_id_from_result( $monitored, $created );
 		if ( $monitored_id <= 0 ) {
 			$this->set_user_notice( __( 'Failed: the product could not be added to monitoring.', 'lilleprinsen-price-monitor' ), 'error' );
 			return;
@@ -140,6 +141,24 @@ class DiscoveryProductAdmin {
 		}
 
 		$this->set_user_notice( $safe_match ? __( 'Safe match: we found this product’s SKU/EAN on the competitor page and added it to monitoring.', 'lilleprinsen-price-monitor' ) : __( 'Unverified match added to monitoring.', 'lilleprinsen-price-monitor' ), $safe_match ? 'success' : 'warning' );
+	}
+
+	/**
+	 * Resolve the monitored product ID from an existing row or add result.
+	 *
+	 * @param array<string,mixed>|null $monitored Existing monitored product row.
+	 * @param array<string,mixed>      $created Result from Repository::add_monitored_product().
+	 */
+	private static function monitored_product_id_from_result( ?array $monitored, array $created ): int {
+		if ( $monitored ) {
+			return absint( $monitored['id'] ?? 0 );
+		}
+
+		if ( empty( $created['success'] ) ) {
+			return 0;
+		}
+
+		return absint( $created['id'] ?? 0 );
 	}
 
 	/** Register product list bulk actions. */
