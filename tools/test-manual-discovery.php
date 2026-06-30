@@ -118,12 +118,16 @@ lpm_run_tests(
 					'https://competitor.test/product/extra-7',
 					'https://competitor.test/product/extra-8',
 					'https://competitor.test/product/extra-9',
+					'https://competitor.test/product/extra-10',
+					'https://competitor.test/product/extra-11',
+					'https://competitor.test/product/extra-12',
+					'https://competitor.test/product/extra-13',
 				)
 			);
 
-			lpm_assert_same( 8, count( $candidates ), 'Manual discovery should remain bounded per product/competitor pair.' );
+			lpm_assert_same( 12, count( $candidates ), 'Manual discovery should remain bounded per product/competitor pair.' );
 			lpm_assert_same( 'https://competitor.test/product/thule-chariot-sport-2-double-black', $candidates[3], 'The fourth visible product candidate should be tested.' );
-			lpm_assert_true( ! in_array( 'https://competitor.test/product/extra-9', $candidates, true ), 'Candidates beyond the bounded cap should not be tested.' );
+			lpm_assert_true( ! in_array( 'https://competitor.test/product/extra-13', $candidates, true ), 'Candidates beyond the bounded cap should not be tested.' );
 		},
 		'Approving from live results builds an active competitor link' => static function (): void {
 			$data = ManualDiscoveryService::competitor_link_data_for_approval(

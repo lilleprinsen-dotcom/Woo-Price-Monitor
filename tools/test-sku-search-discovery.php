@@ -259,6 +259,72 @@ lpm_run_tests(
 			lpm_assert_true( in_array( 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page', $result['searched_urls'], true ), 'Search details should show the public Voyado search endpoint without session/customer query values.' );
 			lpm_assert_true( str_contains( $result['technical_details'], 'Voyado Elevate product search found relevant product URLs' ), 'Diagnostics should explain the Voyado fallback.' );
 		},
+		'Voyado Elevate name search preserves Magento result ranking for verification' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => 'catalogsearch/result/?q={query}&origin=ORGANIC',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$search_url = 'https://www.babycare.no/catalogsearch/result/?q=Thule%20Urban%20Glide%203%20bassinet&origin=ORGANIC';
+			$voyado_url = 'https://w684236BF.elevate-api.cloud/api/storefront/v3/queries/search-page?market=NO&locale=nn-NO&touchpoint=DESKTOP&sessionKey=225c745e-5d03-4fa2-820e-ff3fdd648ee4&customerKey=74efd75e-686d-44e5-8b06-99004a5cedd2&q=Thule+Urban+Glide+3+bassinet&limit=8&skip=0&sort=RELEVANCE&notify=false&presentCustom=ajax_add_to_cart%7Cmagento_product_type%7Cvariant_key%7Cnumber.product_id';
+			$GLOBALS['lpm_test_http_responses'] = array(
+				$search_url => array(
+					'body' => '<html><body><h1>Søkeresultater for: Thule Urban Glide 3 bassinet</h1><div id="bm-voyado-results"></div><script type="text/x-magento-init">{"#bm-voyado-results":{"Magento_Ui/js/core/app":{"components":{"bmvoyadoSearchResults":{"component":"Bluemint_VoyadoElevate/js/search/results","data":{"clusterId":"w684236BF","market":"NO","locale":"nn-NO"}}}}}}</script></body></html>',
+				),
+				$voyado_url => array(
+					'body' => wp_json_encode(
+						array(
+							'primaryList' => array(
+								'productGroups' => array(
+									array(
+										'products' => array(
+											array(
+												'brand' => 'Thule',
+												'title' => 'Bag, Thule, Black',
+												'link'  => '/bag-thule-black',
+											),
+											array(
+												'brand' => 'Thule',
+												'title' => 'Vogn, Thule, Urban Glide 3, Black, Ink. Bag, Black',
+												'link'  => '/vogn-thule-urban-glide-3-black-ink-bag-black',
+											),
+											array(
+												'brand' => 'Thule',
+												'title' => 'Vognpakke, Thule, Urban Glide 3, Mid Blue inkl. Maple + Base, Alfi',
+												'link'  => '/vogn-thule-urban-glide-3-mid-blue-thule-maple-base-alfi-12',
+											),
+										),
+									),
+								),
+							),
+						)
+					),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'www.babycare.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 7,
+					'product_id'      => 101,
+					'sku'             => '20110754',
+					'normalized_sku'  => '20110754',
+					'gtin'            => '872299049660',
+					'normalized_gtin' => '872299049660',
+					'product_name'    => 'Thule Urban Glide 3 bassinet - black on black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Name-based Voyado discovery should return Magento-ranked product candidates for verification.' );
+			lpm_assert_same( 'https://www.babycare.no/bag-thule-black', $result['urls'][0] ?? '', 'The top Magento/Voyado result should be checked before stroller bundles even when the competitor title uses Bag instead of bassinet.' );
+			lpm_assert_true( in_array( $search_url, $result['searched_urls'], true ), 'The shorter product-name query should be tested.' );
+		},
 		'Voyado Elevate HTTP failures do not fall back to navigation links' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
