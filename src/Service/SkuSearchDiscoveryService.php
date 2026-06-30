@@ -132,9 +132,11 @@ class SkuSearchDiscoveryService {
 					$sku_evidence = true;
 				}
 
-				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 					$urls[] = $search_url;
 					$sku_evidence = true;
+				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) ) {
+					$errors[] = 'Search results page mentioned SKU/EAN but did not expose a product URL for ' . $search_url;
 				}
 
 				if ( empty( $candidates ) && ! $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
@@ -210,7 +212,7 @@ class SkuSearchDiscoveryService {
 						$urls[] = $candidate;
 					}
 
-					if ( $this->text_matches_product_name( $body, $name_query ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
+					if ( $this->text_matches_product_name( $body, $name_query ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
 						$urls[] = $search_url;
 					}
 				}
@@ -657,6 +659,26 @@ class SkuSearchDiscoveryService {
 		}
 
 		return (bool) preg_match( '#[a-z0-9æøå]+-[a-z0-9æøå-]+#iu', $leaf );
+	}
+
+	/**
+	 * Avoid treating search/listing URLs as final product pages.
+	 */
+	private function looks_like_search_results_url( string $url ): bool {
+		$path  = strtolower( (string) wp_parse_url( $url, PHP_URL_PATH ) );
+		$query = strtolower( (string) wp_parse_url( $url, PHP_URL_QUERY ) );
+		if ( preg_match( '#/(?:catalogsearch|search|sok|finn)(?:/|$)#i', $path ) ) {
+			return true;
+		}
+
+		parse_str( $query, $params );
+		foreach ( array_keys( $params ) as $key ) {
+			if ( in_array( strtolower( (string) $key ), array( 's', 'q', 'query', 'search', 'keyword', 'keywords' ), true ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
