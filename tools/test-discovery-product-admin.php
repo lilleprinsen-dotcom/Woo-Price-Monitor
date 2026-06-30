@@ -57,6 +57,24 @@ lpm_run_tests(
 
 			lpm_assert_same( array( 'https://competitor.no/search?q={query}&sort=popular' ), $templates, 'Pasted search URL should become a reusable query template.' );
 		},
+		'Search setup derives Babycare template from the searched value' => static function (): void {
+			$templates = DiscoveryAdminPage::normalize_search_template_inputs(
+				'',
+				'https://www.babycare.no/catalogsearch/result/?q=10101001&origin=ORGANIC',
+				'10101001'
+			);
+
+			lpm_assert_same( array( 'https://www.babycare.no/catalogsearch/result/?q={query}&origin=ORGANIC' ), $templates, 'Magento-style pasted URLs should save the exact competitor search template with a reusable placeholder.' );
+		},
+		'Search setup preserves explicit placeholders in absolute URLs' => static function (): void {
+			$templates = DiscoveryAdminPage::normalize_search_template_inputs(
+				'',
+				'https://www.babycare.no/catalogsearch/result/?q={query}&origin=ORGANIC',
+				''
+			);
+
+			lpm_assert_same( array( 'https://www.babycare.no/catalogsearch/result/?q={query}&origin=ORGANIC' ), $templates, 'Explicit {query} placeholders should not be URL-encoded or removed.' );
+		},
 		'Search setup keeps advanced templates and removes invalid values' => static function (): void {
 			$templates = DiscoveryAdminPage::normalize_search_template_inputs(
 				'?s={sku}, ignored-without-placeholder, finn?q={ean}',

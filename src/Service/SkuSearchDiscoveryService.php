@@ -141,11 +141,18 @@ class SkuSearchDiscoveryService {
 		}
 
 		if ( ( empty( $urls ) || ! $sku_evidence ) && ! empty( $settings['discovery_name_search_enabled'] ) ) {
-			$name_query = $this->product_name_query( $product );
-			if ( '' !== $name_query && strtolower( $name_query ) !== strtolower( $sku ) ) {
+			$name_queries = array_values(
+				array_filter(
+					$this->product_name_queries( $product ),
+					static fn( $name_query ) => '' !== $name_query && strtolower( $name_query ) !== strtolower( $sku )
+				)
+			);
+			$name_requests = 0;
+			$max_name_requests = min( 8, max( 1, $request_limit ) );
+			foreach ( $name_queries as $name_query ) {
 				foreach ( $templates as $template ) {
-					if ( $requests >= $request_limit * 2 ) {
-						break;
+					if ( $name_requests >= $max_name_requests ) {
+						break 2;
 					}
 
 					$search_url = $this->build_search_url( $domain, $template, $name_query );
@@ -164,6 +171,7 @@ class SkuSearchDiscoveryService {
 						)
 					);
 					++$requests;
+					++$name_requests;
 
 					if ( is_wp_error( $response ) ) {
 						$errors[] = $response->get_error_message();
@@ -219,6 +227,7 @@ class SkuSearchDiscoveryService {
 			'gtin'                 => $gtin,
 			'searched_urls'        => array_values( array_unique( $searched_urls ) ),
 			'searched_name'        => $this->product_name_query( $product ),
+			'searched_names'       => $this->product_name_queries( $product ),
 			'discovery_product_id' => (int) ( $product->id ?? 0 ),
 		);
 	}
@@ -724,6 +733,69 @@ class SkuSearchDiscoveryService {
 	 * Build a safe competitor-search query from a selected product name.
 	 */
 	private function product_name_query( object $product ): string {
+		$queries = $this->product_name_queries( $product );
+
+		return (string) ( $queries[0] ?? '' );
+	}
+
+	/**
+	 * Build bounded search queries from a selected product name.
+	 *
+	 * Competitors often omit generation/year/color words, so try a few shorter
+	 * variants after the full title while keeping the request count capped.
+	 *
+	 * @return array<int,string>
+	 */
+	private function product_name_queries( object $product ): array {
+		$raw_name = $this->raw_product_name( $product );
+		if ( '' === $raw_name ) {
+			return array();
+		}
+
+		$without_parentheses = preg_replace( '/\([^)]*\)/u', ' ', $raw_name ) ?: $raw_name;
+		$queries = array(
+			$this->format_product_name_query( $raw_name ),
+			$this->format_product_name_query( $without_parentheses ),
+		);
+
+		$base_terms = preg_split( '/\s+/u', $this->format_product_name_query( $without_parentheses ) ) ?: array();
+		$model_terms = array_values(
+			array_filter(
+				$base_terms,
+				static function ( string $term ): bool {
+					$normalized = strtolower( $term );
+					if ( in_array( $normalized, array( 'gen', 'generation', 'version', 'modell', 'model' ), true ) ) {
+						return false;
+					}
+
+					return ! preg_match( '/^(?:19|20)\d{2}$/', $normalized );
+				}
+			)
+		);
+
+		foreach ( array( 6, 5, 4 ) as $length ) {
+			if ( count( $model_terms ) >= $length ) {
+				$queries[] = implode( ' ', array_slice( $model_terms, 0, $length ) );
+			}
+		}
+
+		$deduped = array();
+		foreach ( $queries as $query ) {
+			$query = trim( (string) $query );
+			if ( '' === $query ) {
+				continue;
+			}
+			$key = strtolower( $query );
+			if ( isset( $deduped[ $key ] ) ) {
+				continue;
+			}
+			$deduped[ $key ] = substr( $query, 0, 90 );
+		}
+
+		return array_slice( array_values( $deduped ), 0, 4 );
+	}
+
+	private function raw_product_name( object $product ): string {
 		$name = '';
 		foreach ( array( 'product_name', 'title', 'name' ) as $key ) {
 			if ( ! empty( $product->{$key} ) ) {
@@ -742,6 +814,10 @@ class SkuSearchDiscoveryService {
 			}
 		}
 
+		return $name;
+	}
+
+	private function format_product_name_query( string $name ): string {
 		$name = html_entity_decode( wp_strip_all_tags( $name ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
 		$name = preg_replace( '/[^\p{L}\p{N}]+/u', ' ', $name ) ?: '';
 		$name = trim( preg_replace( '/\s+/u', ' ', $name ) ?: '' );

@@ -519,7 +519,7 @@ class DiscoveryAdminPage {
 
 		$templates = self::normalize_search_template_inputs(
 			sanitize_text_field( wp_unslash( $_POST['search_url_templates'] ?? '' ) ),
-			esc_url_raw( wp_unslash( $_POST['search_result_url'] ?? '' ) ),
+			sanitize_text_field( wp_unslash( $_POST['search_result_url'] ?? '' ) ),
 			sanitize_text_field( wp_unslash( $_POST['search_result_value'] ?? '' ) )
 		);
 		if ( empty( $templates ) ) {
@@ -530,6 +530,21 @@ class DiscoveryAdminPage {
 		$notes = $this->merge_competitor_notes( (string) ( $competitor['notes'] ?? '' ), array( 'search_url_templates' => $templates ) );
 		$this->save_competitor_profile_updates( $competitor, array( 'notes' => $notes ) );
 		$this->set_notice( sprintf( __( 'Search setup saved for this competitor. Templates: %s', 'lilleprinsen-price-monitor' ), implode( ', ', $templates ) ) );
+
+		$searched_value = sanitize_text_field( wp_unslash( $_POST['search_result_value'] ?? '' ) );
+		if ( '' !== trim( $searched_value ) ) {
+			$competitor['notes'] = $notes;
+			$product = (object) array(
+				'id'              => 0,
+				'product_id'      => 0,
+				'variation_id'    => 0,
+				'sku'             => $searched_value,
+				'normalized_sku'  => preg_replace( '/[^A-Z0-9]/', '', strtoupper( $searched_value ) ),
+				'gtin'            => $searched_value,
+				'normalized_gtin' => preg_replace( '/[^A-Z0-9]/', '', strtoupper( $searched_value ) ),
+			);
+			$this->last_search_test = $this->sku_search->discover_for_product( $competitor, $product );
+		}
 	}
 
 	private function handle_test_search_template(): void {
@@ -696,7 +711,7 @@ class DiscoveryAdminPage {
 	public static function normalize_search_template_inputs( string $raw_templates, string $search_result_url, string $searched_value ): array {
 		$templates = array();
 		foreach ( preg_split( '/[\r\n,]+/', $raw_templates ) ?: array() as $template ) {
-			$template = trim( sanitize_text_field( (string) $template ) );
+			$template = self::sanitize_search_template( (string) $template );
 			if ( '' !== $template && self::template_has_search_placeholder( $template ) ) {
 				$templates[] = $template;
 			}
@@ -716,7 +731,7 @@ class DiscoveryAdminPage {
 			return '';
 		}
 		if ( self::template_has_search_placeholder( $url ) ) {
-			return esc_url_raw( $url );
+			return self::sanitize_search_template( $url );
 		}
 
 		$searched_value = trim( $searched_value );
@@ -737,11 +752,40 @@ class DiscoveryAdminPage {
 		);
 		foreach ( $candidates as $candidate ) {
 			if ( false !== strpos( $url, $candidate ) ) {
-				return esc_url_raw( str_replace( $candidate, '{query}', $url ) );
+				return self::sanitize_search_template( str_replace( $candidate, '{query}', $url ) );
 			}
 		}
 
 		return '';
+	}
+
+	private static function sanitize_search_template( string $template ): string {
+		$template = html_entity_decode( trim( sanitize_text_field( $template ) ), ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$template = str_ireplace(
+			array( '%7Bsku%7D', '%7Bquery%7D', '%7Bean%7D', '%7Bgtin%7D' ),
+			array( '{sku}', '{query}', '{ean}', '{gtin}' ),
+			$template
+		);
+		if ( '' === $template || ! self::template_has_search_placeholder( $template ) || preg_match( '/\s/', $template ) ) {
+			return '';
+		}
+		if ( preg_match( '#^[a-z][a-z0-9+\-.]*:#i', $template ) && ! preg_match( '#^https?://#i', $template ) ) {
+			return '';
+		}
+		if ( preg_match( '#^https?://#i', $template ) ) {
+			$placeholders = array(
+				'{sku}'   => 'LPMPLACEHOLDERSKU',
+				'{query}' => 'LPMPLACEHOLDERQUERY',
+				'{ean}'   => 'LPMPLACEHOLDEREAN',
+				'{gtin}'  => 'LPMPLACEHOLDERGTIN',
+				'%s'      => 'LPMPLACEHOLDERSPRINTF',
+			);
+			$protected = str_replace( array_keys( $placeholders ), array_values( $placeholders ), $template );
+			$protected = esc_url_raw( $protected );
+			$template  = str_replace( array_values( $placeholders ), array_keys( $placeholders ), $protected );
+		}
+
+		return $template;
 	}
 
 	private static function template_has_search_placeholder( string $template ): bool {
