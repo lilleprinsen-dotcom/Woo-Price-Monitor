@@ -251,10 +251,23 @@ class DiscoveryAdminPage {
 		<?php $this->render_step_guidance( 1 ); ?>
 		<p><?php esc_html_e( 'Only these products are used when finding competitor matches. This keeps discovery fast even on large stores.', 'lilleprinsen-price-monitor' ); ?></p>
 		<?php $this->render_manual_discovery_panel(); ?>
+		<div class="postbox" style="margin:16px 0;">
+			<div class="inside">
+				<h3><?php esc_html_e( 'Quick product search', 'lilleprinsen-price-monitor' ); ?></h3>
+				<p><?php esc_html_e( 'Search by product name, SKU, or product ID, then add the product to competitor discovery. Results are limited to 20 so the full catalog is never loaded.', 'lilleprinsen-price-monitor' ); ?></p>
+				<form method="get" class="lpm-discovery-product-search" data-lpm-discovery-product-search-form>
+					<label class="screen-reader-text" for="lpm_discovery_product_search"><?php esc_html_e( 'Search WooCommerce products', 'lilleprinsen-price-monitor' ); ?></label>
+					<input id="lpm_discovery_product_search" type="search" class="regular-text" autocomplete="off" placeholder="<?php esc_attr_e( 'Type product name, SKU, or ID', 'lilleprinsen-price-monitor' ); ?>" data-lpm-discovery-product-search-input />
+					<button type="submit" class="button button-primary"><?php esc_html_e( 'Search products', 'lilleprinsen-price-monitor' ); ?></button>
+				</form>
+				<p class="description" data-lpm-discovery-product-search-status><?php esc_html_e( 'Search starts after 3 characters, or immediately for a numeric product ID.', 'lilleprinsen-price-monitor' ); ?></p>
+				<div data-lpm-discovery-product-search-results></div>
+			</div>
+		</div>
 		<form method="post" style="margin:16px 0;">
 			<?php wp_nonce_field( 'lpm_discovery_action', 'lpm_discovery_nonce' ); ?>
 			<input type="hidden" name="lpm_discovery_action" value="add_products_by_sku" />
-			<label for="lpm_sku_list"><strong><?php esc_html_e( 'Add products by SKU, product ID, or variation ID', 'lilleprinsen-price-monitor' ); ?></strong></label>
+			<label for="lpm_sku_list"><strong><?php esc_html_e( 'Bulk add by SKU, product ID, or variation ID', 'lilleprinsen-price-monitor' ); ?></strong></label>
 			<textarea id="lpm_sku_list" name="sku_list" class="large-text" rows="3" placeholder="SKU-1&#10;12345&#10;VAR-SKU"></textarea>
 			<p><button class="button button-primary"><?php esc_html_e( 'Add products', 'lilleprinsen-price-monitor' ); ?></button></p>
 		</form>
@@ -265,7 +278,7 @@ class DiscoveryAdminPage {
 		</form>
 		<form method="get" style="margin:12px 0;"><input type="hidden" name="page" value="lpm-competitor-prices" /><input type="hidden" name="view" value="products" /><input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search selected products', 'lilleprinsen-price-monitor' ); ?>" /> <button class="button"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button></form>
 		<?php if ( 0 === $total ) : ?>
-			<div class="notice notice-warning inline"><p><?php esc_html_e( 'No products are selected yet. Add a few SKUs below before running discovery; the assistant will never scan the full WooCommerce catalog.', 'lilleprinsen-price-monitor' ); ?> <a class="button button-primary" href="#lpm_sku_list"><?php esc_html_e( 'Add products', 'lilleprinsen-price-monitor' ); ?></a></p></div>
+			<div class="notice notice-warning inline"><p><?php esc_html_e( 'No products are selected yet. Search for products above or paste SKUs below before running discovery; the assistant will never scan the full WooCommerce catalog.', 'lilleprinsen-price-monitor' ); ?> <a class="button button-primary" href="#lpm_discovery_product_search"><?php esc_html_e( 'Search products', 'lilleprinsen-price-monitor' ); ?></a></p></div>
 		<?php endif; ?>
 		<table class="widefat striped"><thead><tr><th><?php esc_html_e( 'Product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'SKU', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN/GTIN', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'EAN source', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Brand', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Pending suggestions', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Last discovery run', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th></tr></thead><tbody>
 		<?php foreach ( $products as $product ) : $edit_id = (int) ( $product->variation_id ?: $product->product_id ); ?>

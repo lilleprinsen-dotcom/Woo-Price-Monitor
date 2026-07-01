@@ -30,6 +30,17 @@
 		return value === null || value === undefined ? '' : String(value);
 	}
 
+	function debounce(fn, delay) {
+		var timer = 0;
+		return function () {
+			var args = arguments;
+			window.clearTimeout(timer);
+			timer = window.setTimeout(function () {
+				fn.apply(null, args);
+			}, delay);
+		};
+	}
+
 	function appendText(parent, value) {
 		parent.appendChild(document.createTextNode(text(value)));
 	}
@@ -60,6 +71,163 @@
 			cancelled: 'cancelled'
 		}[status] || status;
 		return span;
+	}
+
+	function initDiscoveryProductSearch() {
+		var form = document.querySelector('[data-lpm-discovery-product-search-form]');
+		var input = document.querySelector('[data-lpm-discovery-product-search-input]');
+		var results = document.querySelector('[data-lpm-discovery-product-search-results]');
+		var status = document.querySelector('[data-lpm-discovery-product-search-status]');
+
+		if (!form || !input || !results) {
+			return;
+		}
+
+		function setStatus(message) {
+			if (status) {
+				status.textContent = message;
+			}
+		}
+
+		function runSearch() {
+			var query = input.value.trim();
+			if (!query) {
+				results.replaceChildren();
+				setStatus(window.LPM_DISCOVERY.i18n.productSearchHint || 'Search starts after 3 characters, or immediately for a numeric product ID.');
+				return;
+			}
+			if (!/^\d+$/.test(query) && query.length < 3) {
+				results.replaceChildren();
+				setStatus(window.LPM_DISCOVERY.i18n.productSearchShort || 'Type at least 3 characters, or enter a numeric product ID.');
+				return;
+			}
+
+			setStatus(window.LPM_DISCOVERY.i18n.searchingProducts || 'Searching products...');
+			post('lpm_discovery_search_products', { query: query })
+				.then(function (data) {
+					renderDiscoveryProductResults(results, data.products || []);
+					setStatus(data.message || ((data.products || []).length + ' products found.'));
+				})
+				.catch(function (error) {
+					results.replaceChildren();
+					setStatus(error.message);
+				});
+		}
+
+		input.addEventListener('input', debounce(runSearch, 220));
+		form.addEventListener('submit', function (event) {
+			event.preventDefault();
+			runSearch();
+		});
+	}
+
+	function renderDiscoveryProductResults(target, products) {
+		target.replaceChildren();
+		if (!products.length) {
+			var empty = document.createElement('p');
+			empty.className = 'description';
+			empty.textContent = window.LPM_DISCOVERY.i18n.noProducts || 'No products found.';
+			target.appendChild(empty);
+			return;
+		}
+
+		var table = document.createElement('table');
+		table.className = 'widefat striped';
+		var thead = table.createTHead();
+		var headRow = thead.insertRow();
+		['Product', 'SKU', 'Price', 'Stock', 'Action'].forEach(function (label) {
+			var th = document.createElement('th');
+			th.scope = 'col';
+			th.textContent = label;
+			headRow.appendChild(th);
+		});
+
+		var tbody = table.createTBody();
+		products.forEach(function (product) {
+			var tr = tbody.insertRow();
+			var productCell = tr.insertCell();
+			var name = document.createElement('strong');
+			name.textContent = product.name || ('Product #' + text(product.id));
+			productCell.appendChild(name);
+			productCell.appendChild(document.createElement('br'));
+			var id = document.createElement('small');
+			id.textContent = 'ID ' + text(product.id);
+			productCell.appendChild(id);
+			appendText(tr.insertCell(), product.sku || '');
+
+			var price = tr.insertCell();
+			price.innerHTML = product.price_html || '';
+			if (!price.textContent.trim()) {
+				price.textContent = '—';
+			}
+
+			appendText(tr.insertCell(), product.stock_status || 'unknown');
+
+			var action = tr.insertCell();
+			var button = document.createElement('button');
+			button.type = 'button';
+			button.className = 'button button-primary';
+			button.dataset.lpmDiscoveryAddProduct = product.id || '';
+			button.textContent = window.LPM_DISCOVERY.i18n.addToDiscovery || 'Add to discovery';
+			action.appendChild(button);
+		});
+
+		target.appendChild(table);
+	}
+
+	function addDiscoveryProduct(button) {
+		var productId = button.dataset.lpmDiscoveryAddProduct || '';
+		if (!productId) {
+			return;
+		}
+
+		button.disabled = true;
+		post('lpm_discovery_add_product', { product_id: productId })
+			.then(function (data) {
+				button.textContent = window.LPM_DISCOVERY.i18n.addedToDiscovery || 'Added';
+				button.classList.remove('button-primary');
+				addProductToManualDiscoveryControls(data);
+				var status = document.querySelector('[data-lpm-discovery-product-search-status]');
+				if (status) {
+					status.textContent = data.message || 'Product added to competitor discovery.';
+				}
+			})
+			.catch(function (error) {
+				button.disabled = false;
+				var status = document.querySelector('[data-lpm-discovery-product-search-status]');
+				if (status) {
+					status.textContent = error.message;
+				}
+			});
+	}
+
+	function addProductToManualDiscoveryControls(data) {
+		var panel = document.querySelector('[data-lpm-manual-discovery-panel]');
+		var select = panel ? panel.querySelector('[data-lpm-manual-product]') : null;
+		var selectedId = data && data.discovery_product_id ? String(data.discovery_product_id) : '';
+		if (!panel || !select || !selectedId) {
+			return;
+		}
+
+		var exists = Array.prototype.some.call(select.options, function (option) {
+			return option.value === selectedId;
+		});
+		if (!exists) {
+			var option = document.createElement('option');
+			option.value = selectedId;
+			option.textContent = data.product_label || ('Product #' + text(data.product_id));
+			select.appendChild(option);
+		}
+		select.value = selectedId;
+
+		var selectedCount = parseInt(panel.dataset.selectedProductCount || '0', 10);
+		panel.dataset.selectedProductCount = String(Math.max(exists ? selectedCount : selectedCount + 1, select.options.length - 1));
+
+		var start = panel.querySelector('[data-lpm-manual-start]');
+		var competitorCount = parseInt(panel.dataset.activeCompetitorCount || '0', 10);
+		if (start && competitorCount > 0) {
+			start.disabled = false;
+		}
 	}
 
 	function replaceStatus(tr, status) {
@@ -372,8 +540,14 @@
 		document.documentElement.dataset.lpmDiscoveryUiBound = '1';
 		Array.prototype.forEach.call(document.querySelectorAll('[data-lpm-manual-discovery-panel]'), bindPanel);
 		document.addEventListener('click', function (event) {
+			var addDiscoveryProductButton = event.target.closest('[data-lpm-discovery-add-product]');
 			var productStart = event.target.closest('[data-lpm-start-product]');
 			var competitorStart = event.target.closest('[data-lpm-start-competitor]');
+			if (addDiscoveryProductButton) {
+				event.preventDefault();
+				addDiscoveryProduct(addDiscoveryProductButton);
+				return;
+			}
 			if (productStart) {
 				event.preventDefault();
 				startShortcut(productStart.dataset.lpmStartProduct || '0', '0');
@@ -383,6 +557,7 @@
 				startShortcut('0', competitorStart.dataset.lpmStartCompetitor || '0');
 			}
 		});
+		initDiscoveryProductSearch();
 	}
 
 	if (document.readyState === 'loading') {

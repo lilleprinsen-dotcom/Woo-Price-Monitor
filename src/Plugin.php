@@ -106,7 +106,7 @@ final class Plugin {
 		$match_suggestions    = new MatchSuggestionService( $discovery_repository );
 		$discovery_job        = new CompetitorDiscoveryJob( $repository, $discovery_repository, $discovery_settings, $extractor, $match_suggestions, $source_service, $sku_search, $url_service );
 		$manual_discovery     = new ManualDiscoveryService( $repository, $discovery_repository, $discovery_settings, $sku_search, $extractor, $match_suggestions, $url_service );
-		$discovery_ajax       = new DiscoveryAjaxController( $manual_discovery );
+		$discovery_ajax       = new DiscoveryAjaxController( $manual_discovery, $product_search, $discovery_repository, $product_identifiers );
 		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service, $sku_search );
 		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
