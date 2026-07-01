@@ -55,6 +55,7 @@ class SkuSearchDiscoveryService {
 		$templates     = array_slice( $this->search_templates( $competitor ), 0, $request_limit );
 		$ports         = array_map( 'absint', $this->settings->get_list( 'discovery_allow_ports' ) );
 		$urls          = array();
+		$source_scores = array();
 		$requests      = 0;
 		$errors        = array();
 		$sku_evidence  = false;
@@ -98,7 +99,7 @@ class SkuSearchDiscoveryService {
 					$next     = is_array( $location ) ? reset( $location ) : $location;
 					$next_url = $this->url_service->resolve( (string) $next, $search_url );
 					if ( $this->is_safe_same_domain_url( $next_url, $domain, $ports ) && ( $this->text_mentions_sku( $next_url, (string) $query['value'], (string) $query['normalized'] ) || $this->looks_like_redirect_product_candidate( $next_url ) ) ) {
-						$urls[] = $next_url;
+						$this->add_candidate_url_with_source_score( $urls, $source_scores, $next_url, 540 );
 						$sku_evidence = true;
 						$errors[] = 'Search redirected to a possible product page: ' . $next_url;
 					} elseif ( '' !== $next_url ) {
@@ -145,15 +146,13 @@ class SkuSearchDiscoveryService {
 				}
 
 				foreach ( $candidates as $candidate ) {
-					$urls[] = $candidate;
+					$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 520 );
 					$sku_evidence = true;
 				}
-				foreach ( (array) ( $voyado['urls'] ?? array() ) as $candidate ) {
-					$urls[] = (string) $candidate;
-					$sku_evidence = true;
-				}
+				$this->add_candidate_urls_with_source_score( $urls, $source_scores, (array) ( $voyado['urls'] ?? array() ), 500 );
+				$sku_evidence = $sku_evidence || ! empty( $voyado['urls'] );
 				foreach ( $identifier_page_candidates as $candidate ) {
-					$urls[] = $candidate;
+					$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 470 );
 					$sku_evidence = true;
 				}
 				if ( ! empty( $identifier_page_candidates ) ) {
@@ -168,17 +167,15 @@ class SkuSearchDiscoveryService {
 					if ( (int) ( $algolia['request_count'] ?? 0 ) > 0 ) {
 						$requests += (int) $algolia['request_count'];
 					}
-					foreach ( (array) ( $algolia['urls'] ?? array() ) as $candidate ) {
-						$urls[] = (string) $candidate;
-						$sku_evidence = true;
-					}
+					$this->add_candidate_urls_with_source_score( $urls, $source_scores, (array) ( $algolia['urls'] ?? array() ), 450 );
+					$sku_evidence = $sku_evidence || ! empty( $algolia['urls'] );
 					if ( ! empty( $algolia['message'] ) ) {
 						$errors[] = (string) $algolia['message'];
 					}
 				}
 
 				if ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
-					$urls[] = $search_url;
+					$this->add_candidate_url_with_source_score( $urls, $source_scores, $search_url, 540 );
 					$sku_evidence = true;
 				} elseif ( $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) && empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && empty( $identifier_page_candidates ) ) {
 					$errors[] = 'Search results page mentioned SKU/EAN but did not expose a product URL for ' . $search_url;
@@ -227,7 +224,7 @@ class SkuSearchDiscoveryService {
 						$next     = is_array( $location ) ? reset( $location ) : $location;
 						$next_url = $this->url_service->resolve( (string) $next, $search_url );
 						if ( $this->is_safe_same_domain_url( $next_url, $domain, $ports ) && ( $this->text_matches_product_name( $next_url, $name_query ) || $this->looks_like_redirect_product_candidate( $next_url ) ) ) {
-							$urls[] = $next_url;
+							$this->add_candidate_url_with_source_score( $urls, $source_scores, $next_url, 360 );
 							$errors[] = 'Name search redirected to a possible product page: ' . $next_url;
 						} elseif ( '' !== $next_url ) {
 							$errors[] = 'Name search redirect did not look like a safe product page: ' . $next_url;
@@ -248,7 +245,7 @@ class SkuSearchDiscoveryService {
 
 					$name_candidates = $this->name_matched_urls_from_html( $body, $search_url, $name_query, $domain );
 					foreach ( $name_candidates as $candidate ) {
-						$urls[] = $candidate;
+						$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 340 );
 					}
 					if ( empty( $name_candidates ) ) {
 						$voyado = $this->voyado_elevate_product_urls_from_html( $body, $name_query, $domain, $ports, $settings, $this->raw_product_name( $product ) );
@@ -258,9 +255,7 @@ class SkuSearchDiscoveryService {
 						if ( (int) ( $voyado['request_count'] ?? 0 ) > 0 ) {
 							$requests += (int) $voyado['request_count'];
 						}
-						foreach ( (array) ( $voyado['urls'] ?? array() ) as $candidate ) {
-							$urls[] = (string) $candidate;
-						}
+						$this->add_candidate_urls_with_source_score( $urls, $source_scores, (array) ( $voyado['urls'] ?? array() ), 420 );
 						if ( ! empty( $voyado['message'] ) ) {
 							$errors[] = (string) $voyado['message'];
 						}
@@ -273,22 +268,20 @@ class SkuSearchDiscoveryService {
 						if ( (int) ( $algolia['request_count'] ?? 0 ) > 0 ) {
 							$requests += (int) $algolia['request_count'];
 						}
-						foreach ( (array) ( $algolia['urls'] ?? array() ) as $candidate ) {
-							$urls[] = (string) $candidate;
-						}
+						$this->add_candidate_urls_with_source_score( $urls, $source_scores, (array) ( $algolia['urls'] ?? array() ), 380 );
 						if ( ! empty( $algolia['message'] ) ) {
 							$errors[] = (string) $algolia['message'];
 						}
 					}
 
 					if ( $this->text_matches_product_name( $body, $name_query ) && ! $this->looks_like_search_results_url( $search_url ) && $this->url_service->looks_like_product_url( $search_url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
-						$urls[] = $search_url;
+						$this->add_candidate_url_with_source_score( $urls, $source_scores, $search_url, 360 );
 					}
 				}
 			}
 		}
 
-		$urls = $this->rank_candidate_urls( $urls, $product, $sku, $gtin );
+		$urls = $this->rank_candidate_urls( $urls, $product, $sku, $gtin, $source_scores );
 		if ( empty( $urls ) && empty( $errors ) ) {
 			$errors[] = 'No product URLs found for this selected SKU.';
 		}
@@ -651,7 +644,7 @@ class SkuSearchDiscoveryService {
 	 * @param array<int,string> $urls Candidate URLs.
 	 * @return array<int,string>
 	 */
-	private function rank_candidate_urls( array $urls, object $product, string $sku, string $gtin ): array {
+	private function rank_candidate_urls( array $urls, object $product, string $sku, string $gtin, array $source_scores = array() ): array {
 		$candidates = array();
 		$product_name = $this->raw_product_name( $product );
 
@@ -668,10 +661,38 @@ class SkuSearchDiscoveryService {
 			if ( $this->text_mentions_sku( $url, $gtin, $this->normalize_identifier( $gtin ) ) ) {
 				$score += 350;
 			}
+			if ( isset( $source_scores[ $url ] ) ) {
+				$score += (int) $source_scores[ $url ];
+			}
 			$this->add_scored_url( $candidates, $url, $score );
 		}
 
 		return $this->rank_scored_urls( $candidates );
+	}
+
+	/**
+	 * @param array<int,string>         $urls Candidate URL list.
+	 * @param array<string,int>         $source_scores URL source priority map.
+	 * @param array<int,mixed>          $candidates Ranked candidate URLs from a search source.
+	 */
+	private function add_candidate_urls_with_source_score( array &$urls, array &$source_scores, array $candidates, int $base_score ): void {
+		foreach ( array_values( $candidates ) as $index => $candidate ) {
+			$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, max( 1, $base_score - ( $index * 80 ) ) );
+		}
+	}
+
+	/**
+	 * @param array<int,string> $urls Candidate URL list.
+	 * @param array<string,int> $source_scores URL source priority map.
+	 */
+	private function add_candidate_url_with_source_score( array &$urls, array &$source_scores, string $url, int $score ): void {
+		$url = $this->url_service->normalize( $url );
+		if ( '' === $url ) {
+			return;
+		}
+
+		$urls[] = $url;
+		$source_scores[ $url ] = max( (int) ( $source_scores[ $url ] ?? 0 ), $score );
 	}
 
 	/**
@@ -1130,23 +1151,30 @@ class SkuSearchDiscoveryService {
 		}
 
 		$decoded = json_decode( (string) wp_remote_retrieve_body( $response ), true );
-		$candidates = array();
+		$urls = array();
+		$seen = array();
+		$position = 0;
+		$is_identifier_query = $this->is_identifier_search_query( $query );
 		foreach ( $this->voyado_elevate_products_from_response( is_array( $decoded ) ? $decoded : array() ) as $product ) {
 			$hit_text = $this->voyado_elevate_hit_text( $product );
 			$score = $this->algolia_hit_score( $query, $product_name, $hit_text );
-			if ( $score <= 0 ) {
+			$rank_bonus = max( 0, 1000 - ( $position * 100 ) );
+			++$position;
+			if ( $score <= 0 && ( $is_identifier_query || $rank_bonus < 600 ) ) {
 				continue;
 			}
 			foreach ( array( 'link', 'url' ) as $field ) {
 				$url = $this->url_service->resolve( (string) ( $product[ $field ] ?? '' ), 'https://' . $domain . '/' );
 				if ( $this->is_safe_same_domain_url( $url, $domain, $ports ) && ! $this->looks_like_search_results_url( $url ) && ! $this->looks_like_listing_or_category_url( $url ) ) {
-					$this->add_scored_url( $candidates, $url, $score + $this->candidate_match_score( $url, $hit_text, '' !== $product_name ? $product_name : $query ) );
+					$url = $this->url_service->normalize( $url );
+					if ( '' !== $url && ! isset( $seen[ $url ] ) ) {
+						$urls[] = $url;
+						$seen[ $url ] = true;
+					}
 					break;
 				}
 			}
 		}
-
-		$urls = $this->rank_scored_urls( $candidates );
 
 		return array(
 			'urls'          => $urls,
@@ -1281,8 +1309,7 @@ class SkuSearchDiscoveryService {
 	private function algolia_hit_score( string $query, string $product_name, string $hit_text ): int {
 		$query = trim( $query );
 		$query_normalized = $this->normalize_identifier( $query );
-		$is_identifier_query = '' !== $query_normalized && ! str_contains( $query, ' ' ) && strlen( $query_normalized ) >= 5;
-		if ( $is_identifier_query ) {
+		if ( $this->is_identifier_search_query( $query ) ) {
 			return $this->text_mentions_sku( $hit_text, $query, $query_normalized ) ? 500 : 0;
 		}
 
@@ -1290,6 +1317,13 @@ class SkuSearchDiscoveryService {
 		$score = $this->candidate_match_score( '', $hit_text, $name );
 
 		return $score >= $this->minimum_name_candidate_score( $name ) ? $score : 0;
+	}
+
+	private function is_identifier_search_query( string $query ): bool {
+		$query = trim( $query );
+		$query_normalized = $this->normalize_identifier( $query );
+
+		return '' !== $query_normalized && ! str_contains( $query, ' ' ) && strlen( $query_normalized ) >= 5;
 	}
 
 	/**

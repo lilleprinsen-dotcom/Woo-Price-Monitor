@@ -22,7 +22,7 @@ class ManualDiscoveryService {
 	private const OPTION_PREFIX = 'lpm_manual_discovery_run_';
 	private const MAX_RESULTS_PER_RUN = 500;
 	private const MAX_PAIRS_PER_RUN = 500;
-	private const MAX_CANDIDATE_URLS_PER_PAIR = 8;
+	private const MAX_CANDIDATE_URLS_PER_PAIR = 12;
 	private const RETENTION_SECONDS = DAY_IN_SECONDS;
 
 	private Repository $repository;
