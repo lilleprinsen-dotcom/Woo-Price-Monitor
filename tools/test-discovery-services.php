@@ -196,6 +196,15 @@ lpm_run_tests(
 			lpm_assert_contains( 'Vocabulary match', $result['explanation'], 'Explanation should show synonym evidence.' );
 			lpm_assert_contains( 'No exact SKU/EAN/MPN+brand', $result['explanation'], 'Synonyms alone must not create high confidence.' );
 		},
+		'Match scoring can infer brand from competitor title' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 12, 'product_id' => 120, 'variation_id' => 0, 'sku' => '20110754', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '20110754', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Bag, Thule, Black', 'brand' => '', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][120] = 'Thule Urban Glide 3 bassinet - black on black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_same( 'Medium confidence', $result['confidence_label'], 'A competitor title containing the product brand should count as brand evidence.' );
+			lpm_assert_contains( 'Brand matches: Thule', $result['explanation'], 'The explanation should show that brand evidence came from the competitor title.' );
+		},
 		'Match scoring warns and caps bundle package candidates' => static function () use ( $matcher ): void {
 			$product = (object) array( 'id' => 5, 'product_id' => 50, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
 			$discovered = (object) array( 'title' => 'Vognpakke, Thule, Urban Glide 3, Black, ink. Bag Black', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
