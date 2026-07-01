@@ -719,8 +719,8 @@ class SkuSearchDiscoveryService {
 		}
 
 		$score = 0;
-		$url_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( $url, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
-		$context_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $context ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$url_text = $this->canonical_search_text( $url );
+		$context_text = $this->canonical_search_text( $context );
 		foreach ( $this->significant_name_terms( $product_name ) as $term ) {
 			if ( false !== strpos( $context_text, $term ) ) {
 				$score += 14;
@@ -740,8 +740,14 @@ class SkuSearchDiscoveryService {
 			$score += 8;
 		}
 
-		$product_words = ' ' . strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', $product_name ) ) . ' ';
+		$product_words = ' ' . $this->canonical_search_text( $product_name ) . ' ';
 		$candidate_words = ' ' . $context_text . ' ' . $url_text . ' ';
+		if ( str_contains( $candidate_words, ' bundle ' ) && ! str_contains( $product_words, ' bundle ' ) ) {
+			$score -= 45;
+		}
+		if ( str_contains( $product_words, ' bassinet ' ) && str_contains( $candidate_words, ' stroller ' ) && ! str_contains( $product_words, ' stroller ' ) ) {
+			$score -= 35;
+		}
 		if ( str_contains( $product_words, ' double ' ) && preg_match( '/\b(?:single|singel)\b/u', $candidate_words ) && ! str_contains( $candidate_words, ' double ' ) ) {
 			$score -= 70;
 		}
@@ -753,7 +759,7 @@ class SkuSearchDiscoveryService {
 	}
 
 	private function candidate_name_term_hits( string $text, string $product_name ): int {
-		$normalized_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$normalized_text = $this->canonical_search_text( $text );
 		$hits = 0;
 		foreach ( $this->significant_name_terms( $product_name ) as $term ) {
 			if ( false !== strpos( $normalized_text, $term ) ) {
@@ -1586,6 +1592,7 @@ class SkuSearchDiscoveryService {
 				$queries[] = implode( ' ', array_slice( $model_terms, 0, $length ) );
 			}
 		}
+		$queries = array_merge( $queries, $this->synonym_product_name_queries( $without_parentheses ) );
 
 		$deduped = array();
 		foreach ( $queries as $query ) {
@@ -1600,7 +1607,36 @@ class SkuSearchDiscoveryService {
 			$deduped[ $key ] = substr( $query, 0, 90 );
 		}
 
-		return array_slice( array_values( $deduped ), 0, 4 );
+		return array_slice( array_values( $deduped ), 0, 8 );
+	}
+
+	/**
+	 * Build a few competitor-friendly name queries from common retail synonyms.
+	 *
+	 * @return array<int,string>
+	 */
+	private function synonym_product_name_queries( string $name ): array {
+		$formatted = $this->format_product_name_query( $name );
+		if ( '' === $formatted ) {
+			return array();
+		}
+
+		$queries = array();
+		foreach ( $this->retail_term_groups() as $canonical => $terms ) {
+			$canonical_text = $this->canonical_search_text( $formatted );
+			if ( ! preg_match( '/\b' . preg_quote( $canonical, '/' ) . '\b/u', $canonical_text ) ) {
+				continue;
+			}
+			foreach ( $terms as $term ) {
+				if ( $term === $canonical ) {
+					continue;
+				}
+				$query = preg_replace( '/\b' . preg_quote( $canonical, '/' ) . '\b/iu', $term, $canonical_text ) ?: '';
+				$queries[] = $this->format_product_name_query( $query );
+			}
+		}
+
+		return array_values( array_filter( array_unique( $queries ) ) );
 	}
 
 	private function raw_product_name( object $product ): string {
@@ -1647,7 +1683,7 @@ class SkuSearchDiscoveryService {
 			return false;
 		}
 
-		$normalized_text = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) ) );
+		$normalized_text = $this->canonical_search_text( $text );
 		$hits = 0;
 		foreach ( $terms as $term ) {
 			if ( false !== strpos( $normalized_text, $term ) ) {
@@ -1668,7 +1704,7 @@ class SkuSearchDiscoveryService {
 	 * @return array<int,string>
 	 */
 	private function significant_name_terms( string $product_name ): array {
-		$normalized = strtolower( (string) preg_replace( '/[^a-z0-9æøå]+/iu', ' ', $product_name ) );
+		$normalized = $this->canonical_search_text( $product_name );
 		$raw_terms  = preg_split( '/\s+/u', trim( $normalized ) ) ?: array();
 		$stop_words = array( 'and', 'the', 'for', 'with', 'og', 'med', 'til', 'på', 'i', 'av', 'gen' );
 		$terms      = array();
@@ -1685,6 +1721,40 @@ class SkuSearchDiscoveryService {
 		}
 
 		return array_values( array_unique( array_slice( $terms, 0, 8 ) ) );
+	}
+
+	private function canonical_search_text( string $text ): string {
+		$text = strtolower( html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+		$text = str_replace( array( '&ndash;', '&mdash;', '–', '—' ), ' ', $text );
+		$text = preg_replace( '/[^a-z0-9æøå]+/iu', ' ', (string) $text );
+		$text = str_replace( array( 'æ', 'ø', 'å' ), array( 'ae', 'o', 'a' ), (string) $text );
+		$text = preg_replace( '/\bblack\s+on\s+black\b/u', ' black ', (string) $text );
+		$text = preg_replace( '/\bmidnight\s+black\b/u', ' black ', (string) $text );
+		$text = preg_replace( '/\bmid\s+blue\b/u', ' blue ', (string) $text );
+
+		foreach ( $this->retail_term_groups() as $canonical => $terms ) {
+			foreach ( $terms as $term ) {
+				$text = preg_replace( '/\b' . preg_quote( $term, '/' ) . '\b/u', ' ' . $canonical . ' ', (string) $text );
+			}
+		}
+
+		return trim( preg_replace( '/\s+/', ' ', (string) $text ) );
+	}
+
+	/**
+	 * @return array<string,array<int,string>>
+	 */
+	private function retail_term_groups(): array {
+		return array(
+			'bassinet' => array( 'bassinet', 'bag', 'liggedel' ),
+			'stroller' => array( 'stroller', 'vogn', 'barnevogn', 'trille', 'triller' ),
+			'double'   => array( 'double', 'dobbel', 'soskenvogn', 'søskenvogn' ),
+			'single'   => array( 'single', 'singel', 'enkel' ),
+			'black'    => array( 'black', 'sort' ),
+			'blue'     => array( 'blue', 'bla', 'blå' ),
+			'bundle'   => array( 'bundle', 'package', 'pakke', 'vognpakke', 'inkl', 'ink', 'incl', 'included', 'inkludert', 'with' ),
+			'kit'      => array( 'kit', 'sett' ),
+		);
 	}
 
 	/** Build one absolute search URL. */

@@ -113,6 +113,13 @@ lpm_run_tests(
 
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-midnight-black' ), $urls, 'Name search should queue matching product links and skip unrelated/category links.' );
 		},
+		'Name search extraction uses retail vocabulary for competitor wording' => static function () use ( $sku_search ): void {
+			$html = '<article class="product"><a href="/bag-thule-black"><img alt="Bag, Thule, Black"></a><h2>Bag, Thule, Black</h2><span>kr 3 499,00</span></article>'
+				. '<article class="product"><a href="/vogn-thule-urban-glide-3-black-ink-bag-black"><h2>Vogn, Thule, Urban Glide 3, Black, Ink. Bag, Black</h2><span>kr 13 298,00</span></a></article>';
+			$urls = $sku_search->name_matched_urls_from_html( $html, 'https://www.babycare.no/catalogsearch/result/?q=Thule%20Urban%20Glide%203%20bassinet&origin=ORGANIC', 'Thule Urban Glide 3 bassinet - black on black', 'babycare.no' );
+
+			lpm_assert_same( 'https://www.babycare.no/bag-thule-black', $urls[0] ?? '', 'Competitor wording such as Bag should match our Bassinet name and stay ahead of bundle/main-stroller candidates.' );
+		},
 		'Name search ranks product-card context ahead of weak nearby candidates' => static function () use ( $sku_search ): void {
 			$html = '<article class="product"><a href="/product/thule-multisportsvogn-chariot-sport-single-midnight-black/"><img alt=""></a><h2>Thule, Multisportsvogn, Chariot Sport Single - Midnight Black</h2><span>kr 13 999,-</span></article>'
 				. '<article class="product"><a href="/product/easygrow-cover-me-stormtrekk-navy-melange-2/"><img alt=""></a><h2>Easygrow, Cover Me Stormtrekk - Navy Melange</h2><span>kr 499,-</span></article>'
@@ -451,6 +458,53 @@ lpm_run_tests(
 			lpm_assert_true( $result['success'], 'Name search should try shorter variants when the full product title is too exact.' );
 			lpm_assert_same( array( 'https://competitor.no/produkt/thule-chariot-sport-2-double-black' ), $result['urls'], 'Shorter name search should queue the competitor product with a different color/title wording.' );
 			lpm_assert_true( in_array( 'https://competitor.no/?s=Thule%20Chariot%20Sport%202%20double', $result['searched_urls'], true ), 'Search logs should show the shorter name URL that found the candidate.' );
+		},
+		'Product-name search prepares competitor vocabulary query variants' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 2,
+					'discovery_sku_search_url_templates' => '?s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://competitor.no/?s=20110754' => array(
+					'body' => '<a href="/produkt/other">Other</a>',
+				),
+				'https://competitor.no/?s=872299049660' => array(
+					'body' => '<a href="/produkt/other">Other</a>',
+				),
+				'https://competitor.no/?s=Thule%20Urban%20Glide%203%20bassinet%20black%20on%20black' => array(
+					'body' => '<a href="/produkt/other">Other</a>',
+				),
+				'https://competitor.no/?s=Thule%20Urban%20Glide%203%20bassinet%20black' => array(
+					'body' => '<a href="/produkt/other">Other</a>',
+				),
+				'https://competitor.no/?s=thule%20urban%20glide%203%20bag%20black' => array(
+					'body' => '<article><a href="/produkt/bag-thule-black"><h2>Bag, Thule, Black</h2><span>kr 3 499,00</span></a></article>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'competitor.no', 'enabled' => 1 ),
+				(object) array(
+					'id'              => 11,
+					'product_id'      => 201,
+					'sku'             => '20110754',
+					'normalized_sku'  => '20110754',
+					'gtin'            => '872299049660',
+					'normalized_gtin' => '872299049660',
+					'product_name'    => 'Thule Urban Glide 3 bassinet - black on black',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Vocabulary name variants should be searched when exact title wording finds nothing.' );
+			lpm_assert_true( in_array( 'thule urban glide 3 bag black', $result['searched_names'], true ), 'Prepared name queries should include the competitor-friendly Bag synonym.' );
+			lpm_assert_same( array( 'https://competitor.no/produkt/bag-thule-black' ), $result['urls'], 'The synonym search result should be queued for extraction and matching.' );
 		},
 		'Search results pages that mention identifiers do not block name fallback' => static function () use ( $sku_search ): void {
 			update_option(

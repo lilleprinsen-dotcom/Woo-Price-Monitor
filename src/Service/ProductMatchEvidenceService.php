@@ -48,7 +48,7 @@ class ProductMatchEvidenceService {
 			);
 		}
 
-		$brand_matches = $this->same_brand( $product_brand, $competitor_brand );
+		$brand_matches = $this->brand_matches( $product_brand, $competitor_brand, $competitor_title );
 		if ( '' !== (string) ( $product->normalized_mpn ?? '' ) && (string) $product->normalized_mpn === (string) ( $discovered->normalized_mpn ?? '' ) && $brand_matches ) {
 			return $this->result(
 				'exact_mpn_brand',
@@ -173,11 +173,12 @@ class ProductMatchEvidenceService {
 		return (string) ( $product->sku ?? '' );
 	}
 
-	private function same_brand( string $one, string $two ): bool {
-		$one = $this->normalize_text( $one );
-		$two = $this->normalize_text( $two );
+	private function brand_matches( string $product_brand, string $competitor_brand, string $competitor_title ): bool {
+		$one = $this->normalize_text( $product_brand );
+		$two = $this->normalize_text( $competitor_brand );
+		$title = ' ' . $this->normalize_text( $competitor_title ) . ' ';
 
-		return '' !== $one && $one === $two;
+		return '' !== $one && ( $one === $two || str_contains( $title, ' ' . $one . ' ' ) );
 	}
 
 	/**
