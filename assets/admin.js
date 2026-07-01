@@ -4,6 +4,7 @@
 	var config = window.LPM_ADMIN || {};
 	var drawerData = null;
 	var drawerTab = 'summary';
+	var drawerChartCompetitor = 'all';
 	var selectedSuggestionId = 0;
 	var selectedSuggestionStatus = '';
 
@@ -304,6 +305,17 @@
 				runLinkAction(suggestion, 'lpm_create_suggestion', 'competitor_link_id');
 			}
 		});
+
+		document.addEventListener('change', function (event) {
+			var filter = event.target.closest('[data-lpm-price-chart-filter]');
+
+			if (!filter || !drawerData) {
+				return;
+			}
+
+			drawerChartCompetitor = filter.value || 'all';
+			renderDrawer();
+		});
 	}
 
 	function openDrawer(monitoredProductId) {
@@ -326,6 +338,7 @@
 			.then(function (data) {
 				drawerData = data;
 				drawerTab = 'summary';
+				drawerChartCompetitor = 'all';
 				renderDrawer();
 			})
 			.catch(function (error) {
@@ -379,20 +392,58 @@
 		var product = drawerData.product || {};
 		var monitored = drawerData.monitored_product || {};
 		var session = drawerData.active_session;
+		var market = getMarketSummary();
 
 		return [
 			'<div class="lpm-drawer-summary">',
 			'<div class="lpm-product-cell">' + (product.thumbnail || '<span class="lpm-thumb-placeholder"></span>') + '<span><strong>' + escapeHtml(product.name || ('Product #' + monitored.product_id)) + '</strong><small>ID ' + escapeHtml(monitored.product_id) + ' · SKU ' + escapeHtml(monitored.sku || product.sku || '—') + '</small></span></div>',
 			'<div class="lpm-drawer-metrics">',
 			metric('Current price', product.price || '—'),
+			metric('Market low', market.lowestPrice ? (market.lowestPrice + ' ' + market.currency) : '—'),
+			metric('Below us', market.belowCount),
 			metric('Stock', product.stock_status || 'unknown'),
-			metric('Competitors', (drawerData.competitor_links || []).length),
+			metric('Active links', market.activeCount),
 			metric('Suggestions', (drawerData.suggestions || []).length),
 			'</div>',
+			market.equalCount ? '<div class="lpm-inline-ok">Market note: ' + escapeHtml(market.equalCount) + ' competitor link(s) are currently at the same price. No price-change alert is needed for equal prices.</div>' : '',
 			session ? '<div class="lpm-inline-notice">Active price match session: matched ' + escapeHtml(session.matched_price) + ' at ' + escapeHtml(session.matched_at) + '</div>' : '',
+			renderPriceChart(drawerData.chart_observations || []),
 			product.edit_url ? '<p><a class="button" href="' + escapeHtml(product.edit_url) + '">Open WooCommerce product</a></p>' : '',
 			'</div>'
 		].join('');
+	}
+
+	function getMarketSummary() {
+		var product = drawerData.product || {};
+		var current = parseFloat(product.price);
+		var active = (drawerData.competitor_links || []).filter(function (link) {
+			return link.enabled !== 0 && link.match_type !== 'not_comparable';
+		});
+		var prices = active.map(function (link) {
+			return {
+				price: parseFloat(link.last_price),
+				currency: link.last_currency || ''
+			};
+		}).filter(function (entry) {
+			return Number.isFinite(entry.price) && entry.price > 0;
+		});
+		var lowest = prices.reduce(function (best, entry) {
+			return !best || entry.price < best.price ? entry : best;
+		}, null);
+		var belowCount = Number.isFinite(current) ? prices.filter(function (entry) {
+			return entry.price < current;
+		}).length : 0;
+		var equalCount = Number.isFinite(current) ? prices.filter(function (entry) {
+			return Math.abs(entry.price - current) < 0.0001;
+		}).length : 0;
+
+		return {
+			activeCount: active.length,
+			belowCount: belowCount,
+			equalCount: equalCount,
+			lowestPrice: lowest ? lowest.price : null,
+			currency: lowest ? lowest.currency : ''
+		};
 	}
 
 	function metric(label, value) {
@@ -538,7 +589,104 @@
 	}
 
 	function renderDrawerHistory() {
-		return renderObservations(drawerData.observations || []);
+		return renderPriceChart(drawerData.chart_observations || []) + renderObservations(drawerData.observations || []);
+	}
+
+	function renderPriceChart(observations) {
+		var successful = (observations || []).filter(function (row) {
+			var price = parseFloat(row.observed_price);
+			return row.success && Number.isFinite(price) && price > 0 && (drawerChartCompetitor === 'all' || String(row.competitor_link_id) === String(drawerChartCompetitor));
+		}).sort(function (a, b) {
+			return new Date(a.checked_at || a.created_at).getTime() - new Date(b.checked_at || b.created_at).getTime();
+		});
+
+		if (!observations.length) {
+			return '<section class="lpm-price-chart"><div class="lpm-chart-header"><h3>Competitor price graph</h3></div><p class="lpm-empty">No logged competitor prices yet.</p></section>';
+		}
+
+		var competitors = getChartCompetitors(observations);
+		var width = 680;
+		var height = 260;
+		var pad = 34;
+		var prices = successful.map(function (row) {
+			return parseFloat(row.observed_price);
+		});
+		var min = prices.length ? Math.min.apply(null, prices) : 0;
+		var max = prices.length ? Math.max.apply(null, prices) : 0;
+		var range = max > min ? max - min : 1;
+		var groups = groupChartRows(successful);
+		var lines = Object.keys(groups).map(function (id, index) {
+			var rows = groups[id];
+			var points = rows.map(function (row, rowIndex) {
+				var x = pad + ((successful.length <= 1 ? rowIndex : successful.indexOf(row)) / Math.max(1, successful.length - 1)) * (width - pad * 2);
+				var y = height - pad - ((parseFloat(row.observed_price) - min) / range) * (height - pad * 2);
+				return [x.toFixed(1), y.toFixed(1)].join(',');
+			}).join(' ');
+			var color = chartColor(index);
+
+			return '<polyline fill="none" stroke="' + color + '" stroke-width="3" points="' + escapeHtml(points) + '"></polyline>' + rows.map(function (row, rowIndex) {
+				var parts = points.split(' ')[rowIndex].split(',');
+				return '<circle cx="' + escapeHtml(parts[0]) + '" cy="' + escapeHtml(parts[1]) + '" r="3.5" fill="' + color + '"><title>' + escapeHtml((row.competitor_name || ('Link #' + row.competitor_link_id)) + ' · ' + row.observed_price + ' ' + (row.currency || '') + ' · ' + (row.checked_at || row.created_at)) + '</title></circle>';
+			}).join('');
+		}).join('');
+		var latest = successful.length ? successful[successful.length - 1] : null;
+
+		return [
+			'<section class="lpm-price-chart">',
+			'<div class="lpm-chart-header"><div><h3>Competitor price graph</h3><p>Logged competitor prices over time. Filter to inspect one competitor.</p></div>',
+			'<label>Competitor <select data-lpm-price-chart-filter><option value="all">All competitors</option>' + competitors.map(function (competitor) {
+				return '<option value="' + escapeHtml(competitor.id) + '"' + (String(competitor.id) === String(drawerChartCompetitor) ? ' selected' : '') + '>' + escapeHtml(competitor.name) + '</option>';
+			}).join('') + '</select></label></div>',
+			successful.length ? '<svg class="lpm-chart-svg" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Competitor price history"><line x1="' + pad + '" y1="' + (height - pad) + '" x2="' + (width - pad) + '" y2="' + (height - pad) + '"></line><line x1="' + pad + '" y1="' + pad + '" x2="' + pad + '" y2="' + (height - pad) + '"></line>' + lines + '</svg>' : '<p class="lpm-empty">No successful prices for this filter.</p>',
+			'<div class="lpm-chart-meta"><span>Low: ' + escapeHtml(min || '—') + '</span><span>High: ' + escapeHtml(max || '—') + '</span><span>Latest: ' + escapeHtml(latest ? ((latest.observed_price || '—') + ' ' + (latest.currency || '') + ' at ' + (latest.checked_at || latest.created_at)) : '—') + '</span></div>',
+			renderChartLegend(groups),
+			'</section>'
+		].join('');
+	}
+
+	function getChartCompetitors(observations) {
+		var seen = {};
+
+		return observations.reduce(function (list, row) {
+			var id = String(row.competitor_link_id || '');
+
+			if (!id || seen[id]) {
+				return list;
+			}
+
+			seen[id] = true;
+			list.push({
+				id: id,
+				name: row.competitor_name || ('Link #' + id)
+			});
+			return list;
+		}, []);
+	}
+
+	function groupChartRows(rows) {
+		return rows.reduce(function (groups, row) {
+			var id = String(row.competitor_link_id || 'unknown');
+			groups[id] = groups[id] || [];
+			groups[id].push(row);
+			return groups;
+		}, {});
+	}
+
+	function renderChartLegend(groups) {
+		var ids = Object.keys(groups);
+
+		if (!ids.length) {
+			return '';
+		}
+
+		return '<div class="lpm-chart-legend">' + ids.map(function (id, index) {
+			var row = groups[id][0] || {};
+			return '<span><i style="background:' + chartColor(index) + '"></i>' + escapeHtml(row.competitor_name || ('Link #' + id)) + '</span>';
+		}).join('') + '</div>';
+	}
+
+	function chartColor(index) {
+		return ['#2271b1', '#008a20', '#b32d2e', '#8a4b00', '#6f42c1', '#007c89'][index % 6];
 	}
 
 	function renderObservations(observations) {

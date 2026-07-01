@@ -209,6 +209,15 @@ final class SuggestionService {
 			);
 		}
 
+		if ( abs( $competitor_price - $current_price ) < 0.0001 ) {
+			return array(
+				'suggestion_type' => 'manual_review',
+				'suggested_price' => $current_price,
+				'status'          => 'skipped',
+				'reason'          => __( 'Competitor price matches the current WooCommerce price, so no price suggestion is needed.', 'lilleprinsen-price-monitor' ),
+			);
+		}
+
 		if ( $active_session ) {
 			$competitor_links = $this->repository->get_competitor_links_for_monitored_product( (int) $monitored_product['id'] );
 
@@ -223,9 +232,9 @@ final class SuggestionService {
 
 		return array(
 			'suggestion_type' => 'manual_review',
-			'suggested_price' => $competitor_price,
-			'status'          => 'manual_review',
-			'reason'          => __( 'Competitor price is higher than the current WooCommerce price and there is no active price match session.', 'lilleprinsen-price-monitor' ),
+			'suggested_price' => $current_price,
+			'status'          => 'skipped',
+			'reason'          => __( 'Competitor price is higher than the current WooCommerce price. No price-up suggestion is created unless there is an active market recovery session.', 'lilleprinsen-price-monitor' ),
 		);
 	}
 
