@@ -136,6 +136,7 @@ final class AdminAjaxController {
 				'competitor_links'  => $this->format_competitor_links( $links ),
 				'profiles'          => $this->format_competitor_profiles( $this->repository->get_competitors( 1, 100 ) ),
 				'observations'      => $this->format_observations( $this->repository->get_price_observations( array( 'product_id' => $product_id ), 1, 10 ) ),
+				'chart_observations' => $this->format_observations( $this->repository->get_price_observations( array( 'product_id' => $product_id, 'status' => 'success' ), 1, 120 ) ),
 				'suggestions'       => $this->format_suggestions( $this->repository->get_price_suggestions( array( 'view' => 'all', 'product_id' => $product_id ), 1, 10 ) ),
 				'logs'              => $this->format_logs( $this->repository->get_logs( array( 'product_id' => $product_id ), 1, 10 ) ),
 				'active_session'    => $this->sanitize_row( $this->repository->get_active_price_match_session_for_product( $product_id ) ),

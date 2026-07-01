@@ -710,6 +710,86 @@
 	padding: 10px 12px;
 }
 
+.lpm-inline-ok {
+	background: #f0f6fc;
+	border: 1px solid #b6d9f2;
+	border-radius: 8px;
+	color: #0a4b78;
+	font-weight: 700;
+	margin: 12px 0;
+	padding: 10px 12px;
+}
+
+.lpm-price-chart {
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	margin: 16px 0;
+	padding: 14px;
+}
+
+.lpm-chart-header {
+	align-items: flex-start;
+	display: flex;
+	gap: 14px;
+	justify-content: space-between;
+	margin-bottom: 10px;
+}
+
+.lpm-chart-header h3 {
+	margin: 0 0 4px;
+}
+
+.lpm-chart-header p {
+	color: #646970;
+	margin: 0;
+}
+
+.lpm-chart-header label {
+	color: #50575e;
+	display: grid;
+	font-size: 12px;
+	font-weight: 800;
+	gap: 4px;
+	text-transform: uppercase;
+}
+
+.lpm-chart-svg {
+	background: linear-gradient(#fff, #f8fafc);
+	border: 1px solid #eef0f2;
+	border-radius: 6px;
+	display: block;
+	height: auto;
+	max-height: 280px;
+	width: 100%;
+}
+
+.lpm-chart-svg line {
+	stroke: #c3c4c7;
+	stroke-width: 1.5;
+}
+
+.lpm-chart-meta,
+.lpm-chart-legend {
+	color: #50575e;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px 14px;
+	margin-top: 10px;
+}
+
+.lpm-chart-legend span {
+	align-items: center;
+	display: inline-flex;
+	gap: 6px;
+}
+
+.lpm-chart-legend i {
+	border-radius: 999px;
+	display: inline-block;
+	height: 10px;
+	width: 10px;
+}
+
 .lpm-toast-region {
 	bottom: 24px;
 	display: grid;
