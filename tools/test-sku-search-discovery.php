@@ -131,6 +131,16 @@ lpm_run_tests(
 			lpm_assert_true( ! in_array( 'https://denlillebarnebutikken.no/product-category/barnevogn/thule-barnevogner/', $urls, true ), 'Product category URLs must not be queued as product pages.' );
 			lpm_assert_true( ! in_array( 'https://denlillebarnebutikken.no/product/easygrow-cover-me-stormtrekk-navy-melange-2/', $urls, true ), 'Unrelated product cards should not be queued from nearby page text.' );
 		},
+		'Name search accepts Jollyroom product cards under category-looking paths' => static function () use ( $sku_search ): void {
+			$html = '<nav><a href="/varemerker/reima">Reima</a><a href="/bilstoler">Bilstoler</a></nav>'
+				. '<article class="product-item js-product-item" data-name="BeSafe Beyond 2 360 Bilstol, Black Soft Breeze" data-currency="NOK">'
+				. '<a href="/bilstoler/bilstoler/vendbare/besafe-beyond-2-360-bilstol-black-soft-breeze"><img alt="11045369-BlackSoBrStd-3394_1.jpg" title="BeSafe Beyond 2 360 Bilstol, Black Soft Breeze"></a>'
+				. '<div class="product-info"><a href="/bilstoler/bilstoler/vendbare/besafe-beyond-2-360-bilstol-black-soft-breeze"><h3>BeSafe Beyond 2 360 Bilstol, Black Soft Breeze</h3></a></div>'
+				. '<span data-cy="standard-product-price" content="6399">6 399 kr</span></article>';
+			$urls = $sku_search->name_matched_urls_from_html( $html, 'https://www.jollyroom.no/search?text=Besafe%20Beyond%202%20360%20Black%20SoftBreeze', 'Besafe Beyond 2 360 Black SoftBreeze', 'jollyroom.no' );
+
+			lpm_assert_same( array( 'https://www.jollyroom.no/bilstoler/bilstoler/vendbare/besafe-beyond-2-360-bilstol-black-soft-breeze' ), $urls, 'Jollyroom product cards should queue the category-looking product URL instead of navigation links.' );
+		},
 		'Product-name search fallback finds candidates when SKU search finds nothing' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
