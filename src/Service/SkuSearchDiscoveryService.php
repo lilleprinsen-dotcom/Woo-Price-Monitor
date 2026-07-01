@@ -473,10 +473,13 @@ class SkuSearchDiscoveryService {
 		$urls = array();
 		foreach ( $this->candidate_links_from_html( $html, $base_url, $domain ) as $candidate ) {
 			$url = (string) $candidate['url'];
-			if ( $this->looks_like_listing_or_category_url( $url ) || ! $this->is_crawlable_url( $url ) ) {
+			$text = trim( (string) $candidate['text'] . ' ' . (string) $candidate['context'] );
+			if ( ! $this->is_crawlable_url( $url ) ) {
 				continue;
 			}
-			$text = trim( (string) $candidate['text'] . ' ' . (string) $candidate['context'] );
+			if ( $this->looks_like_listing_or_category_url( $url ) && ! $this->has_product_card_context( $text ) ) {
+				continue;
+			}
 			if ( ! $this->looks_like_product_candidate_link( $url, $text, $broad_listing_page ) ) {
 				continue;
 			}
@@ -502,7 +505,8 @@ class SkuSearchDiscoveryService {
 
 		foreach ( $this->candidate_links_from_html( $html, $base_url, $domain ) as $candidate ) {
 			$url = (string) $candidate['url'];
-			if ( ! $this->is_crawlable_url( $url ) || ! $this->looks_like_product_candidate_link( $url, (string) $candidate['text'] . ' ' . (string) $candidate['context'], true ) ) {
+			$text = (string) $candidate['text'] . ' ' . (string) $candidate['context'];
+			if ( ! $this->is_crawlable_url( $url ) || ! $this->looks_like_product_candidate_link( $url, $text, true ) ) {
 				continue;
 			}
 			if ( $this->candidate_name_term_hits( (string) $candidate['raw'] . ' ' . (string) $candidate['text'] . ' ' . $url, $product_name ) < 2 ) {
@@ -714,7 +718,7 @@ class SkuSearchDiscoveryService {
 	}
 
 	private function candidate_match_score( string $url, string $context, string $product_name ): int {
-		if ( '' === trim( $product_name ) || $this->looks_like_listing_or_category_url( $url ) ) {
+		if ( '' === trim( $product_name ) || ( $this->looks_like_listing_or_category_url( $url ) && ! $this->has_product_card_context( $context ) ) ) {
 			return 0;
 		}
 
@@ -1450,7 +1454,8 @@ class SkuSearchDiscoveryService {
 	 * Conservative product-candidate link heuristic.
 	 */
 	private function looks_like_product_candidate_link( string $url, string $text, bool $broad_listing_page ): bool {
-		if ( $this->looks_like_listing_or_category_url( $url ) ) {
+		$has_product_card_context = $this->has_product_card_context( $text );
+		if ( $this->looks_like_listing_or_category_url( $url ) && ! $has_product_card_context ) {
 			return false;
 		}
 		if ( $this->url_service->looks_like_product_url( $url, array(), $this->settings->get_list( 'discovery_exclude_url_patterns' ), $this->settings->get_list( 'discovery_product_url_patterns' ) ) ) {
@@ -1469,7 +1474,18 @@ class SkuSearchDiscoveryService {
 			return false;
 		}
 
-		return substr_count( trim( $path, '/' ), '/' ) >= 1 || preg_match( '#[a-z0-9]+-[a-z0-9]+#i', $path );
+		return $has_product_card_context || substr_count( trim( $path, '/' ), '/' ) >= 1 || preg_match( '#[a-z0-9]+-[a-z0-9]+#i', $path );
+	}
+
+	private function has_product_card_context( string $text ): bool {
+		$normalized = strtolower( html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
+
+		return str_contains( $normalized, 'product-item' )
+			|| str_contains( $normalized, 'js-product-item' )
+			|| str_contains( $normalized, 'data-name=' )
+			|| str_contains( $normalized, 'data-product-impression' )
+			|| str_contains( $normalized, 'standard-product-price' )
+			|| preg_match( '/(?:^|\s)\d[\d\s.,]*\s*kr\b/u', $normalized );
 	}
 
 	/**
