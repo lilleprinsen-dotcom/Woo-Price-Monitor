@@ -46,6 +46,12 @@ final class AdminAssets {
 						'cancelled'      => __( 'Manual discovery cancelled.', 'lilleprinsen-price-monitor' ),
 						'error'          => __( 'Manual discovery failed. See Details for more information.', 'lilleprinsen-price-monitor' ),
 						'confirmLarge'   => __( 'This will search only selected products, but it may take a few minutes. Continue?', 'lilleprinsen-price-monitor' ),
+						'searchingProducts' => __( 'Searching products...', 'lilleprinsen-price-monitor' ),
+						'productSearchHint' => __( 'Search starts after 3 characters, or immediately for a numeric product ID.', 'lilleprinsen-price-monitor' ),
+						'productSearchShort' => __( 'Type at least 3 characters, or enter a numeric product ID.', 'lilleprinsen-price-monitor' ),
+						'noProducts'     => __( 'No products found.', 'lilleprinsen-price-monitor' ),
+						'addToDiscovery' => __( 'Add to discovery', 'lilleprinsen-price-monitor' ),
+						'addedToDiscovery' => __( 'Added', 'lilleprinsen-price-monitor' ),
 					),
 				)
 			);

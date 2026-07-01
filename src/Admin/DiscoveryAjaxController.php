@@ -7,8 +7,10 @@
 
 namespace Lilleprinsen\PriceMonitor\Admin;
 
+use Lilleprinsen\PriceMonitor\Database\DiscoveryRepository;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\ManualDiscoveryService;
+use Lilleprinsen\PriceMonitor\Service\ProductIdentifierService;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -19,10 +21,16 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class DiscoveryAjaxController {
 	private ManualDiscoveryService $manual_discovery;
+	private ProductSearchService $product_search;
+	private DiscoveryRepository $discovery_repository;
+	private ProductIdentifierService $identifiers;
 
 	/** Constructor. */
-	public function __construct( ManualDiscoveryService $manual_discovery ) {
-		$this->manual_discovery = $manual_discovery;
+	public function __construct( ManualDiscoveryService $manual_discovery, ProductSearchService $product_search, DiscoveryRepository $discovery_repository, ProductIdentifierService $identifiers ) {
+		$this->manual_discovery     = $manual_discovery;
+		$this->product_search       = $product_search;
+		$this->discovery_repository = $discovery_repository;
+		$this->identifiers          = $identifiers;
 	}
 
 	/** Register AJAX hooks. */
@@ -34,11 +42,69 @@ class DiscoveryAjaxController {
 			'lpm_manual_discovery_retest'  => 'retest_run',
 			'lpm_manual_discovery_approve' => 'approve_suggestion',
 			'lpm_manual_discovery_reject'  => 'reject_suggestion',
+			'lpm_discovery_search_products' => 'search_products',
+			'lpm_discovery_add_product'    => 'add_product',
 		);
 
 		foreach ( $actions as $action => $method ) {
 			add_action( 'wp_ajax_' . $action, array( $this, $method ) );
 		}
+	}
+
+	/** Search WooCommerce products for quick discovery selection. */
+	public function search_products(): void {
+		$this->guard();
+
+		$query = isset( $_REQUEST['query'] ) ? sanitize_text_field( wp_unslash( $_REQUEST['query'] ) ) : '';
+		if ( '' === trim( $query ) ) {
+			$this->send_success( array( 'products' => array() ) );
+		}
+
+		if ( ! is_numeric( $query ) && strlen( trim( $query ) ) < 3 ) {
+			$this->send_success(
+				array(
+					'products' => array(),
+					'message'  => __( 'Type at least 3 characters, or enter a numeric product ID.', 'lilleprinsen-price-monitor' ),
+				)
+			);
+		}
+
+		$this->send_success(
+			array(
+				'products' => $this->product_search->search( $query, 20 ),
+				'message'  => __( 'Choose a product below to add it to competitor discovery.', 'lilleprinsen-price-monitor' ),
+			)
+		);
+	}
+
+	/** Add one searched WooCommerce product to selected competitor discovery products. */
+	public function add_product(): void {
+		$this->guard();
+
+		$product_id = $this->request_absint( 'product_id' );
+		$product    = $product_id > 0 && function_exists( 'wc_get_product' ) ? wc_get_product( $product_id ) : null;
+		if ( ! $product || ! is_object( $product ) ) {
+			$this->send_error( __( 'Product not found.', 'lilleprinsen-price-monitor' ), 404 );
+		}
+
+		$variation_id = method_exists( $product, 'is_type' ) && $product->is_type( 'variation' ) ? (int) $product->get_id() : 0;
+		$parent_id    = $variation_id > 0 && method_exists( $product, 'get_parent_id' ) ? (int) $product->get_parent_id() : ( method_exists( $product, 'get_id' ) ? (int) $product->get_id() : $product_id );
+		$existing     = $this->discovery_repository->get_discovery_product_by_product_id( $parent_id, $variation_id );
+		$selected_id  = $this->discovery_repository->upsert_discovery_product( $parent_id, $variation_id, $this->identifiers->get_for_product( $product ) );
+
+		if ( $selected_id <= 0 ) {
+			$this->send_error( __( 'Product could not be added to competitor discovery.', 'lilleprinsen-price-monitor' ), 500 );
+		}
+
+		$this->send_success(
+			array(
+				'message'              => $existing && (int) $existing->enabled === 1 ? __( 'Product was already selected for competitor discovery.', 'lilleprinsen-price-monitor' ) : __( 'Product added to competitor discovery.', 'lilleprinsen-price-monitor' ),
+				'discovery_product_id' => $selected_id,
+				'product_id'           => $parent_id,
+				'variation_id'         => $variation_id,
+				'product_label'        => $this->product_label( $product ),
+			)
+		);
 	}
 
 	/** Cancel a running manual discovery run. */
@@ -130,6 +196,13 @@ class DiscoveryAjaxController {
 
 	private function request_run_id(): string {
 		return isset( $_REQUEST['run_id'] ) ? sanitize_key( wp_unslash( $_REQUEST['run_id'] ) ) : '';
+	}
+
+	private function product_label( object $product ): string {
+		$name = method_exists( $product, 'get_name' ) ? (string) $product->get_name() : __( 'Selected product', 'lilleprinsen-price-monitor' );
+		$sku  = method_exists( $product, 'get_sku' ) ? (string) $product->get_sku() : '';
+
+		return '' !== $sku ? sprintf( '%1$s - %2$s', $name, $sku ) : $name;
 	}
 
 	/** @param array<string,mixed> $data Response data. */
