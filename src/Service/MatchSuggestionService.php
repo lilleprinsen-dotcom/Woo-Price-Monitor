@@ -18,12 +18,14 @@ if ( ! defined( 'ABSPATH' ) ) {
  */
 class MatchSuggestionService {
     private DiscoveryRepository $repository;
+    private ProductMatchEvidenceService $evidence_service;
 
     /**
      * Constructor.
      */
-    public function __construct( DiscoveryRepository $repository ) {
+    public function __construct( DiscoveryRepository $repository, ?ProductMatchEvidenceService $evidence_service = null ) {
         $this->repository = $repository;
+        $this->evidence_service = $evidence_service ?: new ProductMatchEvidenceService();
     }
 
     /**
@@ -74,55 +76,7 @@ class MatchSuggestionService {
      * @return array<string,mixed>
      */
     public function score_match( object $product, object $discovered ): array {
-        if ( '' !== (string) $product->normalized_gtin && (string) $product->normalized_gtin === (string) $discovered->normalized_gtin ) {
-            return array(
-                'match_type'       => 'exact_gtin',
-                'confidence_score' => 98,
-                'confidence_label' => 'High confidence',
-                'explanation'      => sprintf( 'Matched because EAN/GTIN %s was found on the competitor product page.', $product->gtin ),
-            );
-        }
-
-        if ( '' !== (string) $product->normalized_sku && (string) $product->normalized_sku === (string) $discovered->normalized_sku ) {
-            return array(
-                'match_type'       => 'exact_sku',
-                'confidence_score' => 95,
-                'confidence_label' => 'High confidence',
-                'explanation'      => sprintf( 'Matched because SKU %s was found on the competitor product page.', $product->sku ),
-            );
-        }
-
-        if ( '' !== (string) $product->normalized_mpn && (string) $product->normalized_mpn === (string) $discovered->normalized_mpn && $this->same_brand( (string) $product->brand, (string) $discovered->brand ) ) {
-            return array(
-                'match_type'       => 'exact_mpn_brand',
-                'confidence_score' => 92,
-                'confidence_label' => 'High confidence',
-                'explanation'      => sprintf( 'Matched because MPN %s and the brand both match.', $product->mpn ),
-            );
-        }
-
-        $brand_matches = $this->same_brand( (string) $product->brand, (string) $discovered->brand );
-        $title_score   = $this->title_similarity( $product, $discovered );
-
-        if ( $brand_matches && $title_score >= 78 ) {
-            return array(
-                'match_type'       => 'brand_title',
-                'confidence_score' => min( 89, $title_score ),
-                'confidence_label' => 'Medium confidence',
-                'explanation'      => 'Possible match because the brand matches and the product names are very similar, but no exact SKU/EAN was found.',
-            );
-        }
-
-        if ( $title_score >= 86 ) {
-            return array(
-                'match_type'       => 'title_only',
-                'confidence_score' => min( 59, $title_score ),
-                'confidence_label' => 'Low confidence',
-                'explanation'      => 'Possible match because the product names are similar, but no strong identifier was found.',
-            );
-        }
-
-        return array();
+        return $this->evidence_service->score_match( $product, $discovered );
     }
 
     /**
@@ -144,45 +98,4 @@ class MatchSuggestionService {
         return hash( 'sha256', implode( '|', $parts ) );
     }
 
-    /**
-     * Compare normalized brands.
-     */
-    private function same_brand( string $one, string $two ): bool {
-        $one = $this->normalize_text( $one );
-        $two = $this->normalize_text( $two );
-
-        return '' !== $one && $one === $two;
-    }
-
-    /**
-     * Compare product title/name.
-     */
-    private function title_similarity( object $product, object $discovered ): int {
-        $product_name = '';
-        if ( function_exists( 'get_the_title' ) ) {
-            $product_name = get_the_title( (int) $product->product_id );
-        }
-
-        $one = $this->normalize_text( $product_name );
-        $two = $this->normalize_text( (string) $discovered->title );
-
-        if ( '' === $one || '' === $two ) {
-            return 0;
-        }
-
-        similar_text( $one, $two, $percent );
-
-        return (int) round( $percent );
-    }
-
-    /**
-     * Normalize text for soft comparison.
-     */
-    private function normalize_text( string $value ): string {
-        $value = strtolower( html_entity_decode( wp_strip_all_tags( $value ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
-        $value = preg_replace( '/[^a-z0-9æøå]+/u', ' ', $value );
-        $value = preg_replace( '/\s+/', ' ', (string) $value );
-
-        return trim( (string) $value );
-    }
 }

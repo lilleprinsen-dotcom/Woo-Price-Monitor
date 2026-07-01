@@ -330,6 +330,15 @@ class ManualDiscoveryService {
 		return 'Low confidence' === $confidence_label ? 'Low confidence: review model, color, bundle and variant carefully before approval.' : '';
 	}
 
+	public static function caution_for_suggestion( string $confidence_label, string $explanation ): string {
+		$cautions = array_filter( array( self::caution_for_confidence( $confidence_label ) ) );
+		if ( preg_match( '/Warnings:\s*(.+?)(?:\s+No exact|\s*$)/i', $explanation, $match ) ) {
+			$cautions[] = trim( (string) $match[1] );
+		}
+
+		return implode( ' ', array_unique( $cautions ) );
+	}
+
 	/**
 	 * Return a stable no-match reason.
 	 *
@@ -457,7 +466,7 @@ class ManualDiscoveryService {
 			$row['detected_price'] = $this->format_detected_price( $result );
 			$row['confidence'] = $suggestion ? (string) $suggestion->confidence_label : '';
 			$row['match_type'] = $suggestion ? (string) $suggestion->match_type : '';
-			$row['caution'] = $suggestion ? self::caution_for_confidence( (string) $suggestion->confidence_label ) : '';
+			$row['caution'] = $suggestion ? self::caution_for_suggestion( (string) $suggestion->confidence_label, (string) $suggestion->explanation ) : '';
 			$row['match_reason'] = $suggestion ? (string) $suggestion->explanation : '';
 			$row['details'] = $search_details;
 			$row['error'] = '';
