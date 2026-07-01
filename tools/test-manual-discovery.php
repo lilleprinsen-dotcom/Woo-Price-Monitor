@@ -106,6 +106,12 @@ lpm_run_tests(
 			lpm_assert_same( 'no price found', ManualDiscoveryService::no_match_reason( array(), array( 'monitored_price' => null ) ), 'Pages without detected price should be explicit.' );
 			lpm_assert_same( 'HTTP blocked/error', ManualDiscoveryService::no_match_reason( array( 'technical_details' => 'HTTP status 403' ) ), 'Blocked HTTP responses should be explicit.' );
 		},
+		'Manual discovery caution includes evidence warnings' => static function (): void {
+			$caution = ManualDiscoveryService::caution_for_suggestion( 'Low confidence', 'Evidence: Brand matches. Warnings: Competitor title appears to be a bundle/package. No exact SKU/EAN/MPN+brand was found.' );
+
+			lpm_assert_true( str_contains( $caution, 'Low confidence' ), 'Low confidence caution should remain visible.' );
+			lpm_assert_true( str_contains( $caution, 'bundle/package' ), 'Evidence warnings should be visible in live result caution text.' );
+		},
 		'Manual discovery checks later search result candidates while staying bounded' => static function (): void {
 			$candidates = ManualDiscoveryService::candidate_urls_for_processing(
 				array(

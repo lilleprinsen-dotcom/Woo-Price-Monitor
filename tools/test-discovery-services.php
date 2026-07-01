@@ -183,8 +183,53 @@ lpm_run_tests(
 				function get_the_title( $post_id ) { return $GLOBALS['lpm_test_titles'][ (int) $post_id ] ?? ''; }
 			}
 			$result = $matcher->score_match( $product, $discovered );
-			lpm_assert_same( 'brand_title', $result['match_type'], 'Similar same-brand title should be considered.' );
+			lpm_assert_same( 'brand_title_evidence', $result['match_type'], 'Similar same-brand title should be considered.' );
 			lpm_assert_same( 'Medium confidence', $result['confidence_label'], 'Same brand and strong title should be medium confidence.' );
+		},
+		'Match scoring uses bassinet bag liggedel vocabulary without high confidence' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 4, 'product_id' => 40, 'variation_id' => 0, 'sku' => '20110754', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '20110754', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Bag, Thule, Black', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][40] = 'Thule Urban Glide 3 bassinet - black on black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_same( 'Medium confidence', $result['confidence_label'], 'Accessory vocabulary plus brand and color should be medium but not high.' );
+			lpm_assert_contains( 'Vocabulary match', $result['explanation'], 'Explanation should show synonym evidence.' );
+			lpm_assert_contains( 'No exact SKU/EAN/MPN+brand', $result['explanation'], 'Synonyms alone must not create high confidence.' );
+		},
+		'Match scoring warns and caps bundle package candidates' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 5, 'product_id' => 50, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Vognpakke, Thule, Urban Glide 3, Black, ink. Bag Black', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][50] = 'Thule Urban Glide 3 bassinet - black on black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_same( 'Low confidence', $result['confidence_label'], 'Bundle/package risk should prevent medium confidence.' );
+			lpm_assert_contains( 'bundle/package', $result['explanation'], 'Explanation should warn about bundle/package candidates.' );
+		},
+		'Match scoring warns on color mismatch' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 6, 'product_id' => 60, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Thule Urban Glide 3 bassinet mid blue', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][60] = 'Thule Urban Glide 3 bassinet black on black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_same( 'Low confidence', $result['confidence_label'], 'Color mismatch should cap the suggestion at low confidence.' );
+			lpm_assert_contains( 'Color/variant mismatch', $result['explanation'], 'Explanation should warn about color mismatch.' );
+		},
+		'Match scoring warns on single double mismatch' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 7, 'product_id' => 70, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Thule Chariot Sport 2 single black', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][70] = 'Thule Chariot Sport 2 double black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_same( 'Low confidence', $result['confidence_label'], 'Single/double mismatch should cap confidence.' );
+			lpm_assert_contains( 'Single/double variant mismatch', $result['explanation'], 'Explanation should warn about single/double mismatch.' );
+		},
+		'Match scoring keeps high confidence limited to exact identifiers' => static function () use ( $matcher ): void {
+			$product = (object) array( 'id' => 8, 'product_id' => 80, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'title' => 'Thule Chariot Sport 2 double black', 'brand' => 'Thule', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$GLOBALS['lpm_test_titles'][80] = 'Thule Chariot Sport 2 double black';
+			$result = $matcher->score_match( $product, $discovered );
+
+			lpm_assert_true( 'High confidence' !== $result['confidence_label'], 'Perfect title and brand without exact identifier must not become high confidence.' );
 		},
 		'Match scoring keeps title-only suggestions low confidence' => static function () use ( $matcher ): void {
 			$product = (object) array( 'id' => 3, 'product_id' => 30, 'variation_id' => 0, 'sku' => '', 'gtin' => '', 'mpn' => '', 'brand' => '', 'normalized_sku' => '', 'normalized_gtin' => '', 'normalized_mpn' => '' );
@@ -194,6 +239,23 @@ lpm_run_tests(
 			lpm_assert_same( 'title_only', $result['match_type'], 'Title-only match should be allowed only as a weak suggestion.' );
 			lpm_assert_same( 'Low confidence', $result['confidence_label'], 'Title-only match must stay low confidence.' );
 			lpm_assert_true( $result['confidence_score'] <= 59, 'Title-only score must not reach medium confidence.' );
+		},
+		'Rejected suggestion fingerprints remain stable until competitor content changes' => static function () use ( $matcher ): void {
+			$reflection = new ReflectionClass( $matcher );
+			$method = $reflection->getMethod( 'fingerprint' );
+			if ( PHP_VERSION_ID < 80100 ) {
+				$method->setAccessible( true );
+			}
+			$product = (object) array( 'product_id' => 90, 'variation_id' => 0, 'normalized_sku' => 'SKU90', 'normalized_gtin' => '', 'normalized_mpn' => '' );
+			$discovered = (object) array( 'competitor_id' => 4, 'url_hash' => 'url-hash', 'content_hash' => 'same-content' );
+
+			$first = $method->invoke( $matcher, $product, $discovered, 'title_only' );
+			$second = $method->invoke( $matcher, $product, $discovered, 'title_only' );
+			$discovered->content_hash = 'changed-content';
+			$changed = $method->invoke( $matcher, $product, $discovered, 'title_only' );
+
+			lpm_assert_same( $first, $second, 'Same candidate content should keep the same fingerprint, so rejected suggestions do not immediately reappear.' );
+			lpm_assert_true( $first !== $changed, 'Changed candidate content should get a new fingerprint for review.' );
 		},
 		'Scheduled competitor checks are not wired to price updates' => static function (): void {
 			$reflection = new ReflectionClass( Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob::class );
