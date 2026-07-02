@@ -455,6 +455,44 @@ lpm_run_tests(
 			lpm_assert_same( array( 'https://competitor.no/thule-chariot-sport-2-double-black.html' ), $result['urls'], 'Safe same-domain product redirect should be returned as a candidate URL.' );
 			lpm_assert_true( str_contains( $result['technical_details'], 'Search redirected to a possible product page' ), 'Redirect diagnostics should explain why the product URL was queued.' );
 		},
+		'Search redirects do not treat query pages as products' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => '?post_type=product&s={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p,products',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://www.ohdearbaby.no/?post_type=product&s=11045369-BlackSoftB-Std' => array(
+					'response' => array( 'code' => 302 ),
+					'headers'  => array( 'location' => '/?s=11045369-BlackSoftB-Std' ),
+				),
+				'https://www.ohdearbaby.no/?post_type=product&s=Besafe%20Beyond%202%20360%20Black%20SoftBreeze' => array(
+					'response' => array( 'code' => 302 ),
+					'headers'  => array( 'location' => '/products/besafe-beyond-2-360-bilstol-black-soft-breeze/' ),
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'www.ohdearbaby.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 23,
+					'product_id'     => 123,
+					'sku'            => '11045369-BlackSoftB-Std',
+					'normalized_sku' => '11045369blacksoftbstd',
+					'product_name'   => 'Besafe Beyond 2 360 Black SoftBreeze',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Real OhDearBaby product redirects should still be accepted.' );
+			lpm_assert_same( array( 'https://www.ohdearbaby.no/products/besafe-beyond-2-360-bilstol-black-soft-breeze/' ), $result['urls'], 'Search query URLs must not be queued as product pages.' );
+			lpm_assert_true( str_contains( $result['technical_details'], 'Search redirect did not look like a safe product page' ), 'Search-page redirect rejection should be visible in diagnostics.' );
+		},
 		'Product-name search fallback tries shorter title variants' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
