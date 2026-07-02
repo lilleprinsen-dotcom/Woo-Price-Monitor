@@ -142,7 +142,7 @@ class SkuSearchDiscoveryService {
 				}
 				$identifier_page_candidates = array();
 				if ( empty( $candidates ) && empty( $voyado['urls'] ) && empty( $voyado['hard_failure'] ) && $this->text_mentions_sku( $body, (string) $query['value'], (string) $query['normalized'] ) ) {
-					$identifier_page_candidates = $this->product_candidate_urls_from_html( $body, $search_url, $domain, true );
+					$identifier_page_candidates = $this->visible_product_card_urls_from_html( $body, $search_url, $domain );
 				}
 
 				foreach ( $candidates as $candidate ) {
@@ -152,7 +152,7 @@ class SkuSearchDiscoveryService {
 				$this->add_candidate_urls_with_source_score( $urls, $source_scores, (array) ( $voyado['urls'] ?? array() ), 500 );
 				$sku_evidence = $sku_evidence || ! empty( $voyado['urls'] );
 				foreach ( $identifier_page_candidates as $candidate ) {
-					$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 470 );
+					$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 410 );
 					$sku_evidence = true;
 				}
 				if ( ! empty( $identifier_page_candidates ) ) {
@@ -245,7 +245,7 @@ class SkuSearchDiscoveryService {
 
 					$name_candidates = $this->name_matched_urls_from_html( $body, $search_url, $name_query, $domain );
 					foreach ( $name_candidates as $candidate ) {
-						$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 340 );
+						$this->add_candidate_url_with_source_score( $urls, $source_scores, (string) $candidate, 560 );
 					}
 					if ( empty( $name_candidates ) ) {
 						$voyado = $this->voyado_elevate_product_urls_from_html( $body, $name_query, $domain, $ports, $settings, $this->raw_product_name( $product ) );
@@ -484,6 +484,43 @@ class SkuSearchDiscoveryService {
 				continue;
 			}
 			$urls[] = $url;
+		}
+
+		return array_values( array_unique( $urls ) );
+	}
+
+	/**
+	 * Extract URLs from actual visible product cards only.
+	 *
+	 * Search result pages can mention a SKU in the heading while also containing
+	 * navigation and brand links. This strict extractor prevents those page links
+	 * from being treated as product cards.
+	 *
+	 * @return array<int,string>
+	 */
+	private function visible_product_card_urls_from_html( string $html, string $base_url, string $domain ): array {
+		$urls = array();
+		if ( ! preg_match_all( '#<(?:article|li|div)\b([^>]*(?:product-item|js-product-item|product-card|data-product-impression)[^>]*)>(.*?)</(?:article|li|div)>#is', $html, $cards, PREG_SET_ORDER ) ) {
+			return array();
+		}
+
+		foreach ( $cards as $card ) {
+			$card_html = (string) $card[0];
+			if ( ! $this->has_product_card_context( $card_html ) ) {
+				continue;
+			}
+
+			foreach ( $this->candidate_links_from_html( $card_html, $base_url, $domain ) as $candidate ) {
+				$url = (string) $candidate['url'];
+				$text = trim( (string) $candidate['text'] . ' ' . (string) $candidate['context'] . ' ' . (string) $candidate['raw'] );
+				if ( ! $this->is_crawlable_url( $url ) ) {
+					continue;
+				}
+				if ( ! $this->looks_like_product_candidate_link( $url, $text, true ) ) {
+					continue;
+				}
+				$urls[] = $url;
+			}
 		}
 
 		return array_values( array_unique( $urls ) );
@@ -1478,13 +1515,14 @@ class SkuSearchDiscoveryService {
 	}
 
 	private function has_product_card_context( string $text ): bool {
+		$raw        = strtolower( html_entity_decode( $text, ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 		$normalized = strtolower( html_entity_decode( wp_strip_all_tags( $text ), ENT_QUOTES | ENT_HTML5, 'UTF-8' ) );
 
-		return str_contains( $normalized, 'product-item' )
-			|| str_contains( $normalized, 'js-product-item' )
-			|| str_contains( $normalized, 'data-name=' )
-			|| str_contains( $normalized, 'data-product-impression' )
-			|| str_contains( $normalized, 'standard-product-price' )
+		return str_contains( $raw, 'product-item' )
+			|| str_contains( $raw, 'js-product-item' )
+			|| str_contains( $raw, 'data-name=' )
+			|| str_contains( $raw, 'data-product-impression' )
+			|| str_contains( $raw, 'standard-product-price' )
 			|| preg_match( '/(?:^|\s)\d[\d\s.,]*\s*kr\b/u', $normalized );
 	}
 
