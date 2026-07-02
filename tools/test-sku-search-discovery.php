@@ -141,6 +141,42 @@ lpm_run_tests(
 
 			lpm_assert_same( array( 'https://www.jollyroom.no/bilstoler/bilstoler/vendbare/besafe-beyond-2-360-bilstol-black-soft-breeze' ), $urls, 'Jollyroom product cards should queue the category-looking product URL instead of navigation links.' );
 		},
+		'Name search product cards outrank weak Jollyroom identifier navigation' => static function () use ( $sku_search ): void {
+			update_option(
+				Settings::OPTION_NAME,
+				array(
+					'discovery_name_search_enabled'      => 1,
+					'discovery_search_urls_per_sku'      => 1,
+					'discovery_sku_search_url_templates' => 'search?text={query}',
+					'discovery_product_url_patterns'     => 'produkt,product,p',
+					'discovery_exclude_url_patterns'     => 'cart,checkout,account,login,filter,wp-admin,add-to-cart',
+				)
+			);
+			$GLOBALS['lpm_test_http_responses'] = array(
+				'https://www.jollyroom.no/search?text=11036236-BlackSoBr-Std' => array(
+					'body' => '<html><head><title>Søkeresultat for 11036236-BlackSoBr-Std</title></head><body><h1>Søkeresultat for 11036236-BlackSoBr-Std</h1><nav><a href="/varemerker">Varemerker</a><a href="/varemerker/viking">Viking</a></nav></body></html>',
+				),
+				'https://www.jollyroom.no/search?text=Besafe%20Go%20Beyond%20Black%20SoftBreeze' => array(
+					'body' => '<html><body><nav><a href="/varemerker/viking">Viking</a></nav><article class="product-item js-product-item" data-name="BeSafe Go Beyond 2 Babybilstol, Black Soft Breeze" data-product-impression="{&quot;product&quot;:{&quot;name&quot;:&quot;BeSafe Go Beyond 2 Babybilstol, Black Soft Breeze&quot;,&quot;price&quot;:&quot;3900.00&quot;}}" data-currency="NOK"><div class="product-image"><a href="/bilstoler/babybilstoler/babybilstoler/besafe-go-beyond-2-babybilstol-black-soft-breeze"><img title="BeSafe Go Beyond 2 Babybilstol, Black Soft Breeze"></a></div><div class="product-info"><a href="/bilstoler/babybilstoler/babybilstoler/besafe-go-beyond-2-babybilstol-black-soft-breeze"><h3>BeSafe Go Beyond 2 Babybilstol, Black Soft Breeze</h3></a><span data-cy="standard-product-price" content="3900">3 900 kr</span></div></article></body></html>',
+				),
+			);
+
+			$result = $sku_search->discover_for_product(
+				array( 'domain' => 'www.jollyroom.no', 'enabled' => 1 ),
+				(object) array(
+					'id'             => 17,
+					'product_id'     => 117,
+					'sku'            => '11036236-BlackSoBr-Std',
+					'normalized_sku' => '11036236blacksobrstd',
+					'product_name'   => 'Besafe Go Beyond - Black SoftBreeze',
+				)
+			);
+			unset( $GLOBALS['lpm_test_http_responses'] );
+
+			lpm_assert_true( $result['success'], 'Jollyroom name search should still run after a weak SKU search page.' );
+			lpm_assert_same( 'https://www.jollyroom.no/bilstoler/babybilstoler/babybilstoler/besafe-go-beyond-2-babybilstol-black-soft-breeze', $result['urls'][0] ?? '', 'The real Jollyroom product card should outrank brand/navigation links.' );
+			lpm_assert_true( ! in_array( 'https://www.jollyroom.no/varemerker/viking', $result['urls'], true ), 'Brand navigation links must not be queued from SKU search page context.' );
+		},
 		'Product-name search fallback finds candidates when SKU search finds nothing' => static function () use ( $sku_search ): void {
 			update_option(
 				Settings::OPTION_NAME,
