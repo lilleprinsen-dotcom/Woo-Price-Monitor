@@ -1,0 +1,16 @@
+{
+  "name": "@lilleprinsen/woo-price-monitor-browser-worker",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Optional Playwright browser worker for Woo Price Monitor JS-heavy competitor pages.",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "check": "node --check src/server.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "playwright": "1.61.1"
+  },
+  "devDependencies": {}
+}

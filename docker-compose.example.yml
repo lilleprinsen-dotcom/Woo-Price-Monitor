@@ -1,0 +1,11 @@
+services:
+  browser-worker:
+    build:
+      context: ./browser-worker
+    ports:
+      - "8787:8787"
+    environment:
+      PORT: "8787"
+      LPM_WORKER_SECRET: "replace-with-a-long-random-secret"
+      LPM_ALLOWED_MAX_BODY_BYTES: "65536"
+      LPM_SIGNATURE_TOLERANCE_SECONDS: "300"

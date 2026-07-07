@@ -1,0 +1,11 @@
+{
+  "name": "woo-price-monitor-monorepo",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "worker:check": "cd browser-worker && npm run check",
+    "worker:test": "cd browser-worker && npm test",
+    "plugin:test": "cd wordpress-plugin && ./tools/run-local-tests.sh",
+    "qa": "npm run worker:check && npm run plugin:test"
+  }
+}
