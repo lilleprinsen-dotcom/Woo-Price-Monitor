@@ -19,11 +19,13 @@ final class LpmSearchProduct {
 	private int $id;
 	private string $name;
 	private string $sku;
+	private array $meta;
 
-	public function __construct( int $id, string $name, string $sku = '' ) {
+	public function __construct( int $id, string $name, string $sku = '', array $meta = array() ) {
 		$this->id   = $id;
 		$this->name = $name;
 		$this->sku  = $sku;
+		$this->meta = $meta;
 	}
 
 	public function get_id(): int {
@@ -36,6 +38,12 @@ final class LpmSearchProduct {
 
 	public function get_sku(): string {
 		return $this->sku;
+	}
+
+	public function get_meta( $key, $single = true ) {
+		unset( $single );
+
+		return $this->meta[ (string) $key ] ?? '';
 	}
 
 	public function get_price_html(): string {
@@ -57,6 +65,7 @@ $GLOBALS['lpm_search_products'] = array(
 	3 => new LpmSearchProduct( 3, 'Neonate Neck Strap - BC', 'SPNSBC' ),
 	4 => new LpmSearchProduct( 4, 'BeSafe Stretch2 - Black Soft Breeze', '11048209-BlackSoBr-Std' ),
 	5 => new LpmSearchProduct( 5, 'BeSafe Go Beyond - Black SoftBreeze', '11036236-BlackSoBr-Std' ),
+	6 => new LpmSearchProduct( 6, 'BeSafe Beyond 2 360 - Black SoftBreeze', '11045369-BlackSoftB-Std', array( 'izettle_barcode' => '7072754012345' ) ),
 );
 $GLOBALS['lpm_meta_query_calls'] = 0;
 
@@ -121,5 +130,8 @@ lpm_search_assert_true( 0 === (int) $GLOBALS['lpm_meta_query_calls'], 'normal pr
 $sku_results = $service->search( '11048209-BlackSoBr-Std', 20 );
 lpm_search_assert_true( ! empty( $sku_results ) && 4 === (int) $sku_results[0]['id'], 'exact SKU match still works before title ranking' );
 lpm_search_assert_true( (int) $GLOBALS['lpm_meta_query_calls'] > 0, 'identifier-shaped searches can still use identifier meta lookup' );
+
+$zettle_results = $service->search( '7072754012345', 20 );
+lpm_search_assert_true( 1 === count( $zettle_results ) && 6 === (int) $zettle_results[0]['id'], 'Zettle barcode metadata can find the correct product only' );
 
 echo "ProductSearchService passed.\n";

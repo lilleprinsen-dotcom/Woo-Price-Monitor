@@ -4596,7 +4596,7 @@ final class AdminPage {
 			}
 		}
 
-		foreach ( array( '_global_unique_id', '_alg_ean', '_wpm_gtin_code', 'ean', 'gtin', 'barcode' ) as $key ) {
+		foreach ( array( '_global_unique_id', '_alg_ean', '_wpm_gtin_code', 'ean', 'gtin', 'barcode', 'izettle_barcode', 'zettle_barcode' ) as $key ) {
 			if ( method_exists( $product, 'get_meta' ) ) {
 				$value = trim( (string) $product->get_meta( $key, true ) );
 				if ( '' !== $value ) {

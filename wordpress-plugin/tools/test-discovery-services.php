@@ -82,6 +82,7 @@ lpm_run_tests(
 			$GLOBALS['lpm_test_products'] = array(
 				10 => new WC_Product( 10, 'simple', 0, 'PARENT-SKU', '7040000000001', array( '_ean' => '1111111111111' ) ),
 				11 => new WC_Product( 11, 'variation', 10, 'VAR-SKU', '', array( '_ean' => '2222222222222' ) ),
+				12 => new WC_Product( 12, 'simple', 0, 'ZETTLE-SKU', '', array( 'izettle_barcode' => '7072754012345' ) ),
 			);
 			update_option( Settings::OPTION_NAME, array( 'discovery_gtin_source' => 'custom_meta', 'discovery_gtin_meta_key' => '_ean' ) );
 			$result = $identifiers->get_for_product_id( 11 );
@@ -92,6 +93,8 @@ lpm_run_tests(
 			update_option( Settings::OPTION_NAME, array( 'discovery_gtin_source' => 'global_unique_id' ) );
 			$result = $identifiers->get_for_product_id( 11 );
 			lpm_assert_same( '7040000000001', $result['gtin'], 'Built-in source should fallback to parent when variation is empty.' );
+			$result = $identifiers->get_for_product_id( 12 );
+			lpm_assert_same( '7072754012345', $result['gtin'], 'Zettle barcode metadata should be used as a default EAN fallback.' );
 		},
 		'JSON-LD Product extraction handles identifiers, price and availability' => static function () use ( $extractor ): void {
 			$html = '<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Stroller Model X","sku":"10201031","gtin13":"7040351234567","mpn":"MPN-88","brand":{"name":"Nordic Baby"},"image":"https://competitor.no/images/10201031.jpg","offers":{"@type":"Offer","price":"1 299,00","priceCurrency":"NOK","availability":"https://schema.org/InStock"}}</script></head><body></body></html>';

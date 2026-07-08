@@ -121,6 +121,10 @@ if ( false === strpos( $admin_source, 'lpm_auto_start_all_discovery' ) || false 
 	fwrite( STDERR, "Bulk product adds should one-time auto-start live discovery when active competitors exist.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $admin_source, 'izettle_barcode' ) || false === strpos( $admin_source, 'zettle_barcode' ) ) {
+	fwrite( STDERR, "Unified product EAN display should include Zettle barcode metadata fallbacks.\n" );
+	exit( 1 );
+}
 if ( false !== strpos( (string) $discovery_admin_without_route, 'lpm-competitor-prices' ) ) {
 	fwrite( STDERR, "Discovery UI should link to the unified Price Monitor tabs, keeping only the hidden legacy route slug.\n" );
 	exit( 1 );

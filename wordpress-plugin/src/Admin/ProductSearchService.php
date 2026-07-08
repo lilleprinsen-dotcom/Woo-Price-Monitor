@@ -76,7 +76,7 @@ final class ProductSearchService {
 			return;
 		}
 
-		$meta_keys = array( '_global_unique_id', '_alg_ean', '_wpm_gtin_code', 'ean', 'gtin', 'barcode' );
+		$meta_keys = array( '_global_unique_id', '_alg_ean', '_wpm_gtin_code', 'ean', 'gtin', 'barcode', 'izettle_barcode', 'zettle_barcode' );
 		$queries   = array( 'relation' => 'OR' );
 		foreach ( $meta_keys as $key ) {
 			$queries[] = array(
@@ -254,8 +254,8 @@ final class ProductSearchService {
 		}
 
 		$token_count      = count( $query_tokens );
-		$minimum_matches  = $token_count >= 4 ? 3 : min( 2, $token_count );
-		$brand_like_match = $prefix_match && $matches >= 2;
+		$minimum_matches  = $token_count >= 4 ? 3 : min( 3, $token_count );
+		$brand_like_match = $token_count <= 2 && $prefix_match && $matches >= 2;
 		if ( $matches < $minimum_matches && ! $brand_like_match ) {
 			return 0;
 		}
@@ -268,10 +268,10 @@ final class ProductSearchService {
 	 */
 	private function search_tokens( string $value ): array {
 		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
-		$value = preg_replace( '/([a-z])([A-Z])/', '$1 $2', $value );
-		$value = is_string( $value ) ? strtolower( $value ) : '';
-		$value = strtr(
-			$value,
+		$value = is_string( $value ) ? $value : '';
+		$original_value = $value;
+		$compact_value  = strtr(
+			strtolower( $original_value ),
 			array(
 				'æ' => 'ae',
 				'ø' => 'o',
@@ -282,8 +282,24 @@ final class ProductSearchService {
 				'ü' => 'u',
 			)
 		);
-		$value = preg_replace( '/[^a-z0-9]+/', ' ', $value );
-		$raw   = preg_split( '/\s+/', trim( is_string( $value ) ? $value : '' ) );
+		$split_value = preg_replace( '/([a-z])([A-Z])/', '$1 $2', $original_value );
+		$split_value = preg_replace( '/([a-zA-Z])([0-9])/', '$1 $2', is_string( $split_value ) ? $split_value : '' );
+		$split_value = preg_replace( '/([0-9])([a-zA-Z])/', '$1 $2', is_string( $split_value ) ? $split_value : '' );
+		$split_value = strtr(
+			strtolower( is_string( $split_value ) ? $split_value : '' ),
+			array(
+				'æ' => 'ae',
+				'ø' => 'o',
+				'å' => 'a',
+				'é' => 'e',
+				'è' => 'e',
+				'ö' => 'o',
+				'ü' => 'u',
+			)
+		);
+		$compact     = preg_replace( '/[^a-z0-9]+/', ' ', $compact_value );
+		$split       = preg_replace( '/[^a-z0-9]+/', ' ', $split_value );
+		$raw         = preg_split( '/\s+/', trim( ( is_string( $compact ) ? $compact : '' ) . ' ' . ( is_string( $split ) ? $split : '' ) ) );
 		$tokens = array();
 		foreach ( is_array( $raw ) ? $raw : array() as $token ) {
 			$token = trim( (string) $token );
@@ -304,7 +320,7 @@ final class ProductSearchService {
 			if ( $needle === $candidate ) {
 				return true;
 			}
-			if ( strlen( $needle ) >= 5 && ( str_starts_with( $candidate, $needle ) || str_starts_with( $needle, $candidate ) ) ) {
+			if ( strlen( $needle ) >= 5 && strlen( $candidate ) >= 5 && ( str_starts_with( $candidate, $needle ) || str_starts_with( $needle, $candidate ) ) ) {
 				return true;
 			}
 		}
