@@ -23,6 +23,7 @@ TESTS=(
 	"$ROOT_DIR/tools/test-notification-messages.php"
 	"$ROOT_DIR/tools/test-external-browser-worker.php"
 	"$ROOT_DIR/tools/test-price-match-display.php"
+	"$ROOT_DIR/tools/test-product-search-service.php"
 	"$ROOT_DIR/tools/test-admin-ux-routing.php"
 	"$ROOT_DIR/tools/test-schema-safety.php"
 	"$ROOT_DIR/tools/test-discovery-product-admin.php"
