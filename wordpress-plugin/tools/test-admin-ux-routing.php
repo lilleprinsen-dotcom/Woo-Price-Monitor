@@ -71,6 +71,7 @@ $discovery_script = file_get_contents( LPM_TEST_ROOT . '/assets/discovery-admin.
 $discovery_admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/DiscoveryAdminPage.php' );
 $ajax_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminAjaxController.php' );
 $admin_script = file_get_contents( LPM_TEST_ROOT . '/assets/admin.js' );
+$discovery_admin_without_route = preg_replace( "/add_submenu_page\\( null,.*?lpm-competitor-prices.*?\\);/s", '', $discovery_admin_source );
 
 assert_not_contains( 'render_placeholder_panel', $admin_source, 'Placeholder panels should not remain in the unified admin page.' );
 assert_not_contains( "render_embedded( 'products' )", $admin_source, 'Products tab should not embed the legacy discovery products page.' );
@@ -110,6 +111,10 @@ if ( false === strpos( $ajax_source, 'active_competitor_count' ) || false === st
 }
 if ( false === strpos( $admin_source, 'lpm_auto_start_competitor_id' ) || false === strpos( $admin_source, 'data-lpm-auto-start-competitor' ) || false === strpos( $discovery_script, 'clearAutoStartFlag' ) ) {
 	fwrite( STDERR, "New competitor creation should one-time auto-start discovery for selected products.\n" );
+	exit( 1 );
+}
+if ( false !== strpos( (string) $discovery_admin_without_route, 'lpm-competitor-prices' ) ) {
+	fwrite( STDERR, "Discovery UI should link to the unified Price Monitor tabs, keeping only the hidden legacy route slug.\n" );
 	exit( 1 );
 }
 
