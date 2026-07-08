@@ -1152,6 +1152,85 @@
 	padding: 16px;
 }
 
+.lpm-modal-open {
+	overflow: hidden;
+}
+
+.lpm-discovery-modal[hidden] {
+	display: none;
+}
+
+.lpm-discovery-modal {
+	align-items: stretch;
+	bottom: 0;
+	display: flex;
+	justify-content: center;
+	left: 0;
+	padding: 28px;
+	position: fixed;
+	right: 0;
+	top: 0;
+	z-index: 100000;
+}
+
+.lpm-discovery-modal-backdrop {
+	background: rgba(29, 35, 39, 0.58);
+	bottom: 0;
+	left: 0;
+	position: fixed;
+	right: 0;
+	top: 0;
+}
+
+.lpm-discovery-modal-dialog {
+	background: #f6f7f7;
+	border-radius: 8px;
+	box-shadow: 0 24px 80px rgba(29, 35, 39, 0.28);
+	display: flex;
+	flex-direction: column;
+	max-height: calc(100vh - 56px);
+	max-width: 1280px;
+	overflow: hidden;
+	position: relative;
+	width: min(1280px, 100%);
+}
+
+.lpm-discovery-modal-header {
+	align-items: flex-start;
+	background: #fff;
+	border-bottom: 1px solid #dcdcde;
+	display: flex;
+	gap: 16px;
+	justify-content: space-between;
+	padding: 18px 22px;
+}
+
+.lpm-discovery-modal-header h2,
+.lpm-discovery-modal-header p {
+	margin: 0;
+}
+
+.lpm-discovery-modal-header h2 {
+	margin-bottom: 4px;
+}
+
+.lpm-discovery-modal-header p {
+	color: #50575e;
+}
+
+.lpm-discovery-modal-body {
+	overflow: auto;
+	padding: 6px 18px 18px;
+}
+
+.lpm-discovery-modal .lpm-discovery-run-card {
+	margin: 12px 0 0;
+}
+
+.lpm-discovery-modal .lpm-discovery-results {
+	min-width: 1120px;
+}
+
 .lpm-production-summary {
 	align-items: center;
 	display: flex;

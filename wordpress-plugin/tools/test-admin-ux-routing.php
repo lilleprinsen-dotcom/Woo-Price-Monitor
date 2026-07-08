@@ -67,6 +67,7 @@ if ( false === strpos( $summary_output, '8 juli 2026 03:00' ) ) {
 
 $admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminPage.php' );
 $shell_source = file_get_contents( LPM_TEST_ROOT . '/templates/admin/app-shell.php' );
+$discovery_script = file_get_contents( LPM_TEST_ROOT . '/assets/discovery-admin.js' );
 
 assert_not_contains( 'render_placeholder_panel', $admin_source, 'Placeholder panels should not remain in the unified admin page.' );
 assert_not_contains( "render_embedded( 'products' )", $admin_source, 'Products tab should not embed the legacy discovery products page.' );
@@ -75,5 +76,22 @@ assert_not_contains( "render_embedded( 'suggestions' )", $admin_source, 'Suggest
 assert_not_contains( 'Products selected for competitor matching', $admin_source, 'Products tab should not render a duplicate discovery product section.' );
 assert_not_contains( 'Suggested competitor product matches', $admin_source, 'Suggestions tab should not render a separate match suggestion section.' );
 assert_not_contains( 'data-lpm-tab-panel="groups"', $shell_source, 'Removed Groups tab panel should not remain in the app shell.' );
+
+if ( false === strpos( $shell_source, 'render_manual_discovery_modal' ) ) {
+	fwrite( STDERR, "Unified app shell should render the manual discovery modal once.\n" );
+	exit( 1 );
+}
+if ( false === strpos( $admin_source, 'data-lpm-start-product' ) || false === strpos( $admin_source, 'data-lpm-start-competitor' ) ) {
+	fwrite( STDERR, "Products and Competitors rows should launch targeted manual discovery.\n" );
+	exit( 1 );
+}
+if ( false === strpos( $admin_source, 'competitors matched' ) || false === strpos( $admin_source, 'products matched' ) ) {
+	fwrite( STDERR, "Products and Competitors should show discovery coverage counts.\n" );
+	exit( 1 );
+}
+if ( false === strpos( $discovery_script, 'openDiscoveryModal' ) || false === strpos( $discovery_script, 'closeDiscoveryModal' ) ) {
+	fwrite( STDERR, "Manual discovery shortcuts should open and close the live results modal.\n" );
+	exit( 1 );
+}
 
 echo "Admin UX routing tests passed.\n";

@@ -270,6 +270,30 @@ final class AdminPage {
 		$this->dashboard_tab->render( $counts, $settings, $table_status, $woocommerce_active, $competitor_strategy );
 	}
 
+	public function render_manual_discovery_modal(): void {
+		if ( ! $this->discovery_admin_page ) {
+			return;
+		}
+		?>
+		<div class="lpm-discovery-modal" data-lpm-discovery-modal hidden>
+			<div class="lpm-discovery-modal-backdrop" data-lpm-close-discovery-modal></div>
+			<div class="lpm-discovery-modal-dialog" role="dialog" aria-modal="true" aria-labelledby="lpm-discovery-modal-title">
+				<div class="lpm-discovery-modal-header">
+					<div>
+						<p class="lpm-drawer-kicker"><?php esc_html_e( 'Find matches', 'lilleprinsen-price-monitor' ); ?></p>
+						<h2 id="lpm-discovery-modal-title"><?php esc_html_e( 'Searching competitor products', 'lilleprinsen-price-monitor' ); ?></h2>
+						<p><?php esc_html_e( 'You can close this window and continue working. Found matches are saved in Suggestions until you approve or reject them.', 'lilleprinsen-price-monitor' ); ?></p>
+					</div>
+					<button type="button" class="button-link lpm-drawer-close" data-lpm-close-discovery-modal aria-label="<?php esc_attr_e( 'Close discovery results', 'lilleprinsen-price-monitor' ); ?>">×</button>
+				</div>
+				<div class="lpm-discovery-modal-body">
+					<?php $this->discovery_admin_page->render_manual_discovery_panel(); ?>
+				</div>
+			</div>
+		</div>
+		<?php
+	}
+
 	public function render_products(): void {
 		$search_query   = $this->get_search_query();
 		$search_results = '' !== $search_query ? $this->product_search_service->search( $search_query, 20 ) : array();
@@ -280,6 +304,9 @@ final class AdminPage {
 		$link_counts    = $this->repository->count_competitor_links_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
 		$pending_counts = $this->repository->count_pending_price_suggestions_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
 		$group_names    = $this->repository->get_group_names_for_monitored_products( wp_list_pluck( $rows, 'id' ) );
+		$discovery_rows = $this->get_discovery_rows_for_monitored_rows( $rows );
+		$match_counts   = $this->discovery_repository->get_pending_suggestion_counts_by_discovery_product_ids( wp_list_pluck( $discovery_rows, 'id' ) );
+		$active_competitor_count = $this->repository->count_active_competitors();
 		$editing_rules  = $this->get_editing_monitored_product_rules();
 		?>
 		<div class="lpm-products-layout">
@@ -334,7 +361,7 @@ final class AdminPage {
 				<summary><?php esc_html_e( 'Bulk edit monitored products', 'lilleprinsen-price-monitor' ); ?></summary>
 				<?php $this->render_monitored_bulk_controls(); ?>
 			</details>
-			<?php $this->render_monitored_products_table( $rows, $link_counts, $pending_counts, $group_names ); ?>
+			<?php $this->render_monitored_products_table( $rows, $link_counts, $pending_counts, $group_names, $discovery_rows, $match_counts, $active_competitor_count ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_products_page', array( 'tab' => 'products' ) ); ?>
 		</section>
 		<?php
@@ -2380,7 +2407,7 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_monitored_products_table( array $rows, array $link_counts, array $pending_counts = array(), array $group_names = array() ): void {
+	private function render_monitored_products_table( array $rows, array $link_counts, array $pending_counts = array(), array $group_names = array(), array $discovery_rows = array(), array $match_counts = array(), int $active_competitor_count = 0 ): void {
 		if ( empty( $rows ) ) {
 			$this->render_empty_state( __( 'No products are monitored yet.', 'lilleprinsen-price-monitor' ) );
 			return;
@@ -2404,6 +2431,8 @@ final class AdminPage {
 			<tbody>
 				<?php foreach ( $rows as $row ) : ?>
 					<?php $product = $this->get_product( (int) $row['product_id'] ); ?>
+					<?php $discovery_row = $discovery_rows[ (int) $row['id'] ] ?? null; ?>
+					<?php $discovery_id = $discovery_row ? (int) $discovery_row->id : 0; ?>
 					<tr data-lpm-monitored-row="<?php echo esc_attr( (string) $row['id'] ); ?>" tabindex="0">
 						<td><input form="lpm-products-bulk-form" type="checkbox" name="monitored_product_ids[]" value="<?php echo esc_attr( (string) $row['id'] ); ?>" /></td>
 						<td>
@@ -2432,12 +2461,29 @@ final class AdminPage {
 								<?php printf( esc_html__( 'Frequency: %d h', 'lilleprinsen-price-monitor' ), (int) $row['check_frequency_hours'] ); ?>
 							</details>
 						</td>
-						<td><?php echo esc_html( number_format_i18n( (int) ( $link_counts[ (int) $row['id'] ] ?? 0 ) ) ); ?></td>
-						<td><?php echo esc_html( number_format_i18n( (int) ( $pending_counts[ (int) $row['id'] ] ?? 0 ) ) ); ?></td>
+						<td>
+							<?php
+							printf(
+								esc_html__( '%1$s / %2$s competitors matched', 'lilleprinsen-price-monitor' ),
+								esc_html( number_format_i18n( (int) ( $link_counts[ (int) $row['id'] ] ?? 0 ) ) ),
+								esc_html( number_format_i18n( $active_competitor_count ) )
+							);
+							?>
+							<br><small><?php echo esc_html( $discovery_row && ! empty( $discovery_row->last_discovery_at ) ? sprintf( __( 'Last discovery: %s', 'lilleprinsen-price-monitor' ), $this->format_datetime( $discovery_row->last_discovery_at ) ) : __( 'Discovery not run yet', 'lilleprinsen-price-monitor' ) ); ?></small>
+						</td>
+						<td>
+							<?php
+							printf(
+								esc_html__( 'Price: %1$s · Matches: %2$s', 'lilleprinsen-price-monitor' ),
+								esc_html( number_format_i18n( (int) ( $pending_counts[ (int) $row['id'] ] ?? 0 ) ) ),
+								esc_html( number_format_i18n( $discovery_id > 0 ? (int) ( $match_counts[ $discovery_id ] ?? 0 ) : 0 ) )
+							);
+							?>
+						</td>
 						<td><?php echo esc_html( $this->format_datetime( $row['last_checked_at'] ?? null ) ); ?></td>
 						<td>
 							<div class="lpm-actions">
-								<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'monitored_product_id' => (int) $row['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Find matches', 'lilleprinsen-price-monitor' ); ?></a>
+								<button type="button" class="button button-small button-primary" data-lpm-start-product="<?php echo esc_attr( (string) $discovery_id ); ?>" <?php disabled( $discovery_id <= 0 ); ?>><?php esc_html_e( 'Find matches', 'lilleprinsen-price-monitor' ); ?></button>
 								<button type="button" class="button button-small" data-lpm-open-product="<?php echo esc_attr( (string) $row['id'] ); ?>"><?php esc_html_e( 'View matches', 'lilleprinsen-price-monitor' ); ?></button>
 								<details class="lpm-row-actions">
 									<summary><?php esc_html_e( 'More', 'lilleprinsen-price-monitor' ); ?></summary>
@@ -2824,6 +2870,7 @@ final class AdminPage {
 		$per_page          = (int) $this->settings->get( 'rows_per_page', 25 );
 		$profiles          = $this->repository->get_competitors( $page, $per_page );
 		$total             = $this->repository->count_competitors();
+		$selected_product_count = $this->discovery_repository->count_selected_products();
 		$editing_profile   = $this->get_editing_competitor_profile();
 		$linked_profile_id = $this->get_positive_query_arg( 'linked_competitor_id', 0 );
 		$test_result       = $this->get_competitor_profile_test_result();
@@ -2836,7 +2883,7 @@ final class AdminPage {
 				</div>
 				<span class="lpm-pill lpm-pill-muted"><?php echo esc_html( number_format_i18n( $total ) ); ?></span>
 			</div>
-			<?php $this->render_competitor_profiles_table( $profiles ); ?>
+			<?php $this->render_competitor_profiles_table( $profiles, $selected_product_count ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_competitor_profiles_page', array( 'tab' => 'competitors' ) ); ?>
 		</section>
 
@@ -3157,7 +3204,7 @@ final class AdminPage {
 		<?php
 	}
 
-	private function render_competitor_profiles_table( array $profiles ): void {
+	private function render_competitor_profiles_table( array $profiles, int $selected_product_count = 0 ): void {
 		if ( empty( $profiles ) ) {
 			$this->render_empty_state( __( 'No competitor profiles have been added yet.', 'lilleprinsen-price-monitor' ) );
 			return;
@@ -3168,7 +3215,7 @@ final class AdminPage {
 				<tr>
 					<th scope="col"><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th>
-					<th scope="col"><?php esc_html_e( 'Products matched', 'lilleprinsen-price-monitor' ); ?></th>
+					<th scope="col"><?php esc_html_e( 'Product coverage', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Pending matches', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Last successful check', 'lilleprinsen-price-monitor' ); ?></th>
 					<th scope="col"><?php esc_html_e( 'Last issue', 'lilleprinsen-price-monitor' ); ?></th>
@@ -3201,7 +3248,16 @@ final class AdminPage {
 								<?php printf( esc_html__( 'Extraction: %s', 'lilleprinsen-price-monitor' ), esc_html( (string) ( $profile['price_extraction_mode'] ?? 'auto' ) ) ); ?>
 							</details>
 						</td>
-						<td><?php echo esc_html( number_format_i18n( (int) ( $profile['link_count'] ?? 0 ) ) ); ?></td>
+						<td>
+							<?php
+							printf(
+								esc_html__( '%1$s / %2$s products matched', 'lilleprinsen-price-monitor' ),
+								esc_html( number_format_i18n( (int) ( $profile['link_count'] ?? 0 ) ) ),
+								esc_html( number_format_i18n( $selected_product_count ) )
+							);
+							?>
+							<br><small><?php echo esc_html( $selected_product_count > (int) ( $profile['link_count'] ?? 0 ) ? __( 'Run discovery to check remaining selected products.', 'lilleprinsen-price-monitor' ) : __( 'All selected products have active links for this competitor.', 'lilleprinsen-price-monitor' ) ); ?></small>
+						</td>
 						<td><?php echo esc_html( number_format_i18n( $pending_matches ) ); ?></td>
 						<td>
 							<strong><?php echo esc_html( $success_rate ); ?></strong><br>
@@ -3210,11 +3266,10 @@ final class AdminPage {
 						<td><?php echo esc_html( $this->format_nullable_value( $profile['last_error'] ?? null ) ); ?></td>
 						<td>
 							<div class="lpm-actions">
-								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'competitor_profile_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Test', 'lilleprinsen-price-monitor' ); ?></a>
-								<a class="button button-small button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'competitor_profile_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Edit', 'lilleprinsen-price-monitor' ); ?></a>
+								<button type="button" class="button button-small button-primary" data-lpm-start-competitor="<?php echo esc_attr( (string) $profile['id'] ); ?>" <?php disabled( $selected_product_count <= 0 || empty( $profile['enabled'] ) ); ?>><?php esc_html_e( 'Find matches', 'lilleprinsen-price-monitor' ); ?></button>
+								<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'competitor_profile_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Test/Edit', 'lilleprinsen-price-monitor' ); ?></a>
 								<details class="lpm-row-actions">
 									<summary><?php esc_html_e( 'More', 'lilleprinsen-price-monitor' ); ?></summary>
-									<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'competitor_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Find matches', 'lilleprinsen-price-monitor' ); ?></a>
 									<a class="button button-small" href="<?php echo esc_url( add_query_arg( array( 'page' => self::SLUG, 'tab' => 'competitors', 'linked_competitor_id' => (int) $profile['id'] ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Linked products', 'lilleprinsen-price-monitor' ); ?></a>
 									<?php $this->render_competitor_profile_action_form( (int) $profile['id'], ! empty( $profile['enabled'] ) ? 'disable_competitor_profile' : 'enable_competitor_profile', ! empty( $profile['enabled'] ) ? __( 'Pause', 'lilleprinsen-price-monitor' ) : __( 'Activate', 'lilleprinsen-price-monitor' ) ); ?>
 								</details>
@@ -4582,6 +4637,40 @@ final class AdminPage {
 		}
 
 		return 0;
+	}
+
+	/**
+	 * @param array<int,array<string,mixed>> $rows Monitored product rows.
+	 * @return array<int,object> Discovery product rows keyed by monitored product ID.
+	 */
+	private function get_discovery_rows_for_monitored_rows( array $rows ): array {
+		$discovery_rows = array();
+		foreach ( $rows as $row ) {
+			$monitored_id = (int) ( $row['id'] ?? 0 );
+			$product_id   = (int) ( $row['product_id'] ?? 0 );
+			if ( $monitored_id <= 0 || $product_id <= 0 ) {
+				continue;
+			}
+
+			$product = $this->get_product( $product_id );
+			if ( ! $product ) {
+				continue;
+			}
+
+			$variation_id = method_exists( $product, 'is_type' ) && $product->is_type( 'variation' ) ? $product_id : 0;
+			$parent_id    = $variation_id > 0 && method_exists( $product, 'get_parent_id' ) ? (int) $product->get_parent_id() : $product_id;
+			$discovery    = $this->discovery_repository->get_discovery_product_by_product_id( $parent_id, $variation_id );
+			if ( ! $discovery || empty( $discovery->enabled ) ) {
+				$this->sync_product_to_discovery_selection( $product_id, $product );
+				$discovery = $this->discovery_repository->get_discovery_product_by_product_id( $parent_id, $variation_id );
+			}
+
+			if ( $discovery ) {
+				$discovery_rows[ $monitored_id ] = $discovery;
+			}
+		}
+
+		return $discovery_rows;
 	}
 
 	private function sync_product_to_discovery_selection( int $product_id, ?object $product = null ): void {
