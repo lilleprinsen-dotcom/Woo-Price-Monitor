@@ -756,6 +756,18 @@
 		}
 	}
 
+	function clearAutoStartFlag() {
+		if (!window.history || !window.history.replaceState) {
+			return;
+		}
+		var url = new URL(window.location.href);
+		if (!url.searchParams.has('lpm_auto_start_competitor_id')) {
+			return;
+		}
+		url.searchParams.delete('lpm_auto_start_competitor_id');
+		window.history.replaceState({}, document.title, url.toString());
+	}
+
 	function cancelRun(panel) {
 		var runId = panel.dataset.currentRunId || '';
 		if (!runId) {
@@ -858,6 +870,11 @@
 			var detail = event.detail || {};
 			startShortcut(detail.productId || '0', detail.competitorId || '0');
 		});
+		var autoCompetitor = document.querySelector('[data-lpm-auto-start-competitor]');
+		if (autoCompetitor) {
+			startShortcut('0', autoCompetitor.dataset.lpmAutoStartCompetitor || '0');
+			clearAutoStartFlag();
+		}
 		document.addEventListener('keydown', function (event) {
 			if (event.key === 'Escape') {
 				closeDiscoveryModal();
