@@ -295,8 +295,14 @@
 		ajax('lpm_add_product_to_monitoring', { product_id: productId })
 			.then(function (data) {
 				toast(data.message || 'Product added to monitoring.', 'success');
-				button.textContent = 'Added';
 				button.classList.add('button-primary');
+				if (data.discovery_product_id) {
+					button.removeAttribute('data-lpm-add-product');
+					button.setAttribute('data-lpm-start-product', String(data.discovery_product_id));
+					button.textContent = 'Find matches';
+				} else {
+					button.textContent = 'Added';
+				}
 			})
 			.catch(function (error) {
 				toast(error.message, 'error');

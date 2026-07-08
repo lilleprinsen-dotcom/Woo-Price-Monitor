@@ -68,6 +68,8 @@ if ( false === strpos( $summary_output, '8 juli 2026 03:00' ) ) {
 $admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminPage.php' );
 $shell_source = file_get_contents( LPM_TEST_ROOT . '/templates/admin/app-shell.php' );
 $discovery_script = file_get_contents( LPM_TEST_ROOT . '/assets/discovery-admin.js' );
+$discovery_admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/DiscoveryAdminPage.php' );
+$ajax_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminAjaxController.php' );
 
 assert_not_contains( 'render_placeholder_panel', $admin_source, 'Placeholder panels should not remain in the unified admin page.' );
 assert_not_contains( "render_embedded( 'products' )", $admin_source, 'Products tab should not embed the legacy discovery products page.' );
@@ -91,6 +93,14 @@ if ( false === strpos( $admin_source, 'competitors matched' ) || false === strpo
 }
 if ( false === strpos( $discovery_script, 'openDiscoveryModal' ) || false === strpos( $discovery_script, 'closeDiscoveryModal' ) ) {
 	fwrite( STDERR, "Manual discovery shortcuts should open and close the live results modal.\n" );
+	exit( 1 );
+}
+if ( false === strpos( $discovery_admin_source, 'data-lpm-manual-summary' ) || false === strpos( $discovery_script, 'updateRunSummary' ) ) {
+	fwrite( STDERR, "Manual discovery should show a compact automatic-search summary above raw rows.\n" );
+	exit( 1 );
+}
+if ( false === strpos( $ajax_source, 'sync_product_to_discovery_selection' ) || false === strpos( $ajax_source, 'discovery_product_id' ) ) {
+	fwrite( STDERR, "Fast AJAX product adds should prepare the product for competitor discovery immediately.\n" );
 	exit( 1 );
 }
 

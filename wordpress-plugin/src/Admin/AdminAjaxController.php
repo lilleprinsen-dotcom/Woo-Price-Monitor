@@ -9,10 +9,12 @@ namespace Lilleprinsen\PriceMonitor\Admin;
 
 use Lilleprinsen\PriceMonitor\Database\Repository;
 use Lilleprinsen\PriceMonitor\Database\Schema;
+use Lilleprinsen\PriceMonitor\Database\DiscoveryRepository;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\PriceCheckService;
 use Lilleprinsen\PriceMonitor\Service\SuggestionService;
+use Lilleprinsen\PriceMonitor\Service\ProductIdentifierService;
 use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -32,13 +34,19 @@ final class AdminAjaxController {
 
 	private NotificationService $notifications;
 
-	public function __construct( Repository $repository, Settings $settings, ProductSearchService $product_search, PriceCheckService $price_check, SuggestionService $suggestions, NotificationService $notifications ) {
+	private ?DiscoveryRepository $discovery_repository;
+
+	private ?ProductIdentifierService $product_identifiers;
+
+	public function __construct( Repository $repository, Settings $settings, ProductSearchService $product_search, PriceCheckService $price_check, SuggestionService $suggestions, NotificationService $notifications, ?DiscoveryRepository $discovery_repository = null, ?ProductIdentifierService $product_identifiers = null ) {
 		$this->repository     = $repository;
 		$this->settings       = $settings;
 		$this->product_search = $product_search;
 		$this->price_check    = $price_check;
 		$this->suggestions    = $suggestions;
 		$this->notifications  = $notifications;
+		$this->discovery_repository = $discovery_repository;
+		$this->product_identifiers  = $product_identifiers;
 	}
 
 	public function register(): void {
@@ -98,11 +106,16 @@ final class AdminAjaxController {
 			$this->send_error( $this->message_for_monitoring_code( (string) ( $result['code'] ?? '' ) ), 400, $result );
 		}
 
+		$discovery_product_id = $this->sync_product_to_discovery_selection( $product_id, $product );
+
 		$this->repository->write_log(
 			'info',
 			'monitored_product_added_ajax',
-			__( 'Product added to monitoring from async search.', 'lilleprinsen-price-monitor' ),
-			array( 'monitored_product_id' => (int) ( $result['id'] ?? 0 ) ),
+			__( 'Product added to monitoring from async search and prepared for competitor discovery.', 'lilleprinsen-price-monitor' ),
+			array(
+				'monitored_product_id'  => (int) ( $result['id'] ?? 0 ),
+				'discovery_product_id'  => $discovery_product_id,
+			),
 			$product_id
 		);
 
@@ -110,6 +123,7 @@ final class AdminAjaxController {
 			array(
 				'message'              => $this->message_for_monitoring_code( (string) ( $result['code'] ?? '' ) ),
 				'monitored_product_id' => (int) ( $result['id'] ?? 0 ),
+				'discovery_product_id' => $discovery_product_id,
 				'product'              => $this->format_product( $product ),
 			)
 		);
@@ -473,6 +487,23 @@ final class AdminAjaxController {
 		$product = wc_get_product( $product_id );
 
 		return is_object( $product ) ? $product : null;
+	}
+
+	private function sync_product_to_discovery_selection( int $product_id, object $product ): int {
+		if ( ! $this->discovery_repository || ! $this->product_identifiers ) {
+			return 0;
+		}
+
+		$variation_id = method_exists( $product, 'is_type' ) && $product->is_type( 'variation' ) ? (int) $product_id : 0;
+		$parent_id    = $variation_id > 0 && method_exists( $product, 'get_parent_id' ) ? (int) $product->get_parent_id() : $product_id;
+		$identifier_product_id = $variation_id > 0 ? $variation_id : $parent_id;
+		$identifiers           = $this->product_identifiers->get_for_product_id( $identifier_product_id );
+
+		if ( '' === (string) ( $identifiers['sku'] ?? '' ) && method_exists( $product, 'get_sku' ) ) {
+			$identifiers['sku'] = (string) $product->get_sku();
+		}
+
+		return (int) $this->discovery_repository->upsert_discovery_product( $parent_id, $variation_id, $identifiers );
 	}
 
 	private function format_product( object $product ): array {

@@ -941,6 +941,19 @@ class DiscoveryAdminPage {
 				<p><span data-lpm-manual-status class="lpm-status-badge"><?php esc_html_e( 'Queued', 'lilleprinsen-price-monitor' ); ?></span> <span data-lpm-manual-counts></span></p>
 				<progress data-lpm-manual-progress-bar value="0" max="100"></progress>
 			</div>
+			<div class="lpm-discovery-run-summary" data-lpm-manual-summary hidden>
+				<div>
+					<span class="lpm-summary-label"><?php esc_html_e( 'Automatic search summary', 'lilleprinsen-price-monitor' ); ?></span>
+					<strong data-lpm-manual-summary-title><?php esc_html_e( 'Searching selected products', 'lilleprinsen-price-monitor' ); ?></strong>
+					<p data-lpm-manual-summary-copy><?php esc_html_e( 'The plugin is checking competitor search pages and product pages. Possible matches are saved for review; nothing is approved automatically.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<div class="lpm-discovery-summary-stats">
+					<span><strong data-lpm-manual-summary-found>0</strong><?php esc_html_e( 'saved findings', 'lilleprinsen-price-monitor' ); ?></span>
+					<span><strong data-lpm-manual-summary-review>0</strong><?php esc_html_e( 'need review', 'lilleprinsen-price-monitor' ); ?></span>
+					<span><strong data-lpm-manual-summary-issues>0</strong><?php esc_html_e( 'no match / errors', 'lilleprinsen-price-monitor' ); ?></span>
+				</div>
+				<a class="button button-small" data-lpm-manual-review-link href="<?php echo esc_url( add_query_arg( array( 'page' => AdminPage::SLUG, 'tab' => 'approvals', 'lpm_review_filter' => 'match_suggestions' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Review saved findings', 'lilleprinsen-price-monitor' ); ?></a>
+			</div>
 			<table class="widefat striped lpm-discovery-results" data-lpm-manual-results hidden>
 				<thead><tr><th><?php esc_html_e( 'Our product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Competitor', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Search/source', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Status', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Competitor product', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Detected', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Confidence', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Reason', 'lilleprinsen-price-monitor' ); ?></th><th><?php esc_html_e( 'Actions', 'lilleprinsen-price-monitor' ); ?></th></tr></thead>
 				<tbody></tbody>
