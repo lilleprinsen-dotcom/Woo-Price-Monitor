@@ -56,6 +56,15 @@ $normalize_redirect_tab = $reflection->getMethod( 'normalize_redirect_tab' );
 assert_same( 'settings_logs', $normalize_redirect_tab->invoke( $page, 'history' ), 'History redirects should land in Settings & Logs.' );
 assert_same( 'products', $normalize_redirect_tab->invoke( $page, 'products' ), 'Products redirects should not be changed.' );
 
+$render_summary_card = $reflection->getMethod( 'render_summary_card' );
+ob_start();
+$render_summary_card->invoke( $page, 'Last checked', '8 juli 2026 03:00', 'Latest successful check' );
+$summary_output = (string) ob_get_clean();
+if ( false === strpos( $summary_output, '8 juli 2026 03:00' ) ) {
+	fwrite( STDERR, "Summary cards should accept formatted string values.\n" );
+	exit( 1 );
+}
+
 $admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminPage.php' );
 $shell_source = file_get_contents( LPM_TEST_ROOT . '/templates/admin/app-shell.php' );
 
