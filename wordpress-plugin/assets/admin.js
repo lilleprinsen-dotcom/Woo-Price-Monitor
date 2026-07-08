@@ -779,8 +779,7 @@
 		return {
 			site: row.competitor_name || ('Link #' + text(row.competitor_link_id)),
 			price: text(row.observed_price) + (row.currency ? ' ' + row.currency : ''),
-			date: row.checked_at || row.created_at || '—',
-			stock: stockStatusLabel(row.stock_status)
+			date: row.checked_at || row.created_at || '—'
 		};
 	}
 
@@ -842,7 +841,7 @@
 			return '<polyline fill="none" stroke="' + color + '" stroke-width="3" points="' + escapeHtml(points) + '"></polyline>' + rows.map(function (row, rowIndex) {
 				var parts = points.split(' ')[rowIndex].split(',');
 				var tooltip = chartTooltipText(row);
-				return '<circle cx="' + escapeHtml(parts[0]) + '" cy="' + escapeHtml(parts[1]) + '" r="4.5" fill="' + color + '" tabindex="0" role="img" aria-label="' + escapeAttr(tooltip.site + ', ' + tooltip.price + ', ' + tooltip.date) + '" class="lpm-chart-point lpm-chart-point-' + escapeHtml(normalizeStockStatus(row.stock_status)) + '" data-lpm-chart-point="1" data-site="' + escapeAttr(tooltip.site) + '" data-price="' + escapeAttr(tooltip.price) + '" data-date="' + escapeAttr(tooltip.date) + '" data-stock="' + escapeAttr(tooltip.stock) + '"></circle>';
+				return '<circle cx="' + escapeHtml(parts[0]) + '" cy="' + escapeHtml(parts[1]) + '" r="4.5" fill="' + color + '" tabindex="0" role="img" aria-label="' + escapeAttr(tooltip.site + ', ' + tooltip.price + ', ' + tooltip.date) + '" class="lpm-chart-point lpm-chart-point-' + escapeHtml(normalizeStockStatus(row.stock_status)) + '" data-lpm-chart-point="1" data-site="' + escapeAttr(tooltip.site) + '" data-price="' + escapeAttr(tooltip.price) + '" data-date="' + escapeAttr(tooltip.date) + '"></circle>';
 			}).join('');
 		}).join('');
 		var ourLine = '';
@@ -858,6 +857,7 @@
 			'<label>Competitor <select data-lpm-price-chart-filter><option value="all">All competitors</option>' + competitors.map(function (competitor) {
 				return '<option value="' + escapeHtml(competitor.id) + '"' + (String(competitor.id) === String(drawerChartCompetitor) ? ' selected' : '') + '>' + escapeHtml(competitor.name) + '</option>';
 			}).join('') + '</select></label></div>',
+			'<p class="lpm-chart-hint">Hover or focus a point to see site, price and date.</p>',
 			(successful.length || hasOurPrice) ? '<svg class="lpm-chart-svg" viewBox="0 0 ' + width + ' ' + height + '" role="img" aria-label="Product and competitor price history"><line class="lpm-chart-axis" x1="' + pad + '" y1="' + (height - pad) + '" x2="' + (width - pad) + '" y2="' + (height - pad) + '"></line><line class="lpm-chart-axis" x1="' + pad + '" y1="' + pad + '" x2="' + pad + '" y2="' + (height - pad) + '"></line>' + ourLine + lines + '</svg>' : '<p class="lpm-empty">No successful prices for this filter.</p>',
 			'<div class="lpm-chart-meta"><span>Our price: ' + escapeHtml(hasOurPrice ? product.price : '—') + '</span><span>Low: ' + escapeHtml(min || '—') + '</span><span>High: ' + escapeHtml(max || '—') + '</span><span>Latest competitor: ' + escapeHtml(latest ? ((latest.observed_price || '—') + ' ' + (latest.currency || '') + ' at ' + (latest.checked_at || latest.created_at)) : '—') + '</span></div>',
 			renderChartLegend(groups, hasOurPrice),
@@ -936,8 +936,7 @@
 		var tooltip = chartTooltip();
 		tooltip.innerHTML = '<strong>' + escapeHtml(point.dataset.site || 'Competitor') + '</strong>' +
 			'<span>' + escapeHtml(point.dataset.price || '—') + '</span>' +
-			'<small>' + escapeHtml(point.dataset.date || '—') + '</small>' +
-			'<small>' + escapeHtml(point.dataset.stock || 'Stock unknown') + '</small>';
+			'<small>' + escapeHtml(point.dataset.date || '—') + '</small>';
 		tooltip.hidden = false;
 		positionChartTooltip(tooltip, point, event);
 	}
