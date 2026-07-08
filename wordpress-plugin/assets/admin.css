@@ -120,6 +120,59 @@
 	margin-top: 0;
 }
 
+.lpm-control-strip {
+	align-items: center;
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	display: flex;
+	gap: 18px;
+	justify-content: space-between;
+	margin: 0 0 16px;
+	padding: 18px;
+}
+
+.lpm-control-strip h2 {
+	font-size: 20px;
+	margin: 0 0 6px;
+}
+
+.lpm-control-strip p {
+	color: #50575e;
+	margin: 0;
+	max-width: 760px;
+}
+
+.lpm-status-cluster {
+	align-items: center;
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+	min-width: 220px;
+}
+
+.lpm-unified-section {
+	border-top: 1px solid #dcdcde;
+	margin-top: 24px;
+	padding-top: 22px;
+}
+
+.lpm-section-heading {
+	margin: 0 0 14px;
+	max-width: 860px;
+}
+
+.lpm-section-heading h2 {
+	font-size: 20px;
+	margin: 0 0 6px;
+}
+
+.lpm-section-heading p {
+	color: #50575e;
+	margin: 0;
+}
+
 .lpm-summary-card {
 	min-height: 112px;
 }
@@ -520,6 +573,29 @@
 .lpm-sub-panel {
 	box-shadow: none;
 	margin-top: 14px;
+}
+
+.lpm-settings-section {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	margin: 14px 0;
+	padding: 0;
+}
+
+.lpm-settings-section > summary {
+	cursor: pointer;
+	font-size: 15px;
+	font-weight: 700;
+	padding: 14px 16px;
+}
+
+.lpm-settings-section[open] > summary {
+	border-bottom: 1px solid #e2e4e7;
+}
+
+.lpm-settings-section > :not(summary) {
+	margin: 16px;
 }
 
 .lpm-onboarding-wizard {
@@ -1464,6 +1540,16 @@
 	.lpm-grid-summary,
 	.lpm-grid-two {
 		grid-template-columns: 1fr;
+	}
+
+	.lpm-control-strip {
+		align-items: flex-start;
+		flex-direction: column;
+	}
+
+	.lpm-status-cluster {
+		justify-content: flex-start;
+		min-width: 0;
 	}
 
 	.lpm-drawer {

@@ -23,103 +23,129 @@ final class DashboardTab extends AdminViewHelpers {
 	public function render( array $counts, array $settings, array $table_status, bool $woocommerce_active, array $competitor_strategy = array() ): void {
 		$lock_status     = CheckCompetitorLinkJob::get_lock_status();
 		$health_warnings = $this->get_health_warnings( $counts, $settings, $woocommerce_active, $lock_status );
+		$next_action     = $this->get_next_recommended_action( $counts, $settings, $woocommerce_active, $health_warnings );
 		?>
-		<div class="lpm-grid lpm-grid-summary">
-			<?php
-			$this->render_summary_card( __( 'Monitored products', 'lilleprinsen-price-monitor' ), $counts['monitored_products'], __( 'Selected products only', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Active competitor links', 'lilleprinsen-price-monitor' ), $counts['active_competitor_links'], __( 'Stored direct URLs', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), $counts['pending_suggestions'], __( 'Awaiting review', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), $counts['blocked_suggestions'], __( 'Need manual attention', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Recovery suggestions', 'lilleprinsen-price-monitor' ), $counts['recovery_suggestions'], __( 'Price-up or restore plans', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['checks_last_24h'], __( 'Observation rows', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Failed checks last 24h', 'lilleprinsen-price-monitor' ), (int) $counts['failed_checks_last_24h'], __( 'Observation failures', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Recent failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Last 7 days', 'lilleprinsen-price-monitor' ) );
-			$this->render_summary_card( __( 'Active price match sessions', 'lilleprinsen-price-monitor' ), $counts['active_price_match_sessions'], __( 'Dry-run recovery state', 'lilleprinsen-price-monitor' ) );
-			?>
-		</div>
+		<section class="lpm-control-strip">
+			<div>
+				<p class="lpm-drawer-kicker"><?php esc_html_e( 'Control center', 'lilleprinsen-price-monitor' ); ?></p>
+				<h2><?php esc_html_e( 'Safe competitor price monitoring', 'lilleprinsen-price-monitor' ); ?></h2>
+				<p><?php esc_html_e( 'Choose products, add competitors, approve matches, then review price suggestions before anything real can happen.', 'lilleprinsen-price-monitor' ); ?></p>
+			</div>
+			<div class="lpm-status-cluster">
+				<?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Dry-run on', 'lilleprinsen-price-monitor' ) : __( 'Dry-run off', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?>
+				<?php $this->render_status_pill( $this->real_updates_enabled( $settings ) ? __( 'Real updates possible', 'lilleprinsen-price-monitor' ) : __( 'Real updates blocked', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' ); ?>
+				<?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Scheduled checks on', 'lilleprinsen-price-monitor' ) : __( 'Scheduled checks off', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?>
+			</div>
+		</section>
 
 		<div class="lpm-grid lpm-grid-summary">
 			<?php
-			$this->render_health_card( __( 'Last check time', 'lilleprinsen-price-monitor' ), $this->format_datetime( $counts['last_successful_check_time'] ?? null ), __( 'Latest successful observation', 'lilleprinsen-price-monitor' ), '' !== (string) ( $counts['last_successful_check_time'] ?? '' ) ? 'ok' : 'muted' );
-			$this->render_health_card( __( 'Batch lock', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? __( 'Locked', 'lilleprinsen-price-monitor' ) : __( 'Free', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['source'] ) ? sprintf( __( 'Source: %s', 'lilleprinsen-price-monitor' ), (string) $lock_status['source'] ) : __( 'Transient lock status', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? 'warning' : 'ok' );
-			$this->render_health_card( __( 'Scheduled checks', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Opt-in background work', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' );
-			$this->render_health_card( __( 'Real updates', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? __( 'Possible', 'lilleprinsen-price-monitor' ) : __( 'Impossible', 'lilleprinsen-price-monitor' ), __( 'Requires all guardrails', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' );
-			$this->render_health_card( __( 'Webhook notifications', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), __( 'Make/Zapier channel', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' );
-			$this->render_health_card( __( 'Rate limiting', 'lilleprinsen-price-monitor' ), __( 'Profile delay', 'lilleprinsen-price-monitor' ), __( 'Respected during batch selection', 'lilleprinsen-price-monitor' ), 'ok' );
-			$this->render_health_card( __( 'Pending suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['pending_suggestions'] ), __( 'Pricing inbox', 'lilleprinsen-price-monitor' ), (int) $counts['pending_suggestions'] > 0 ? 'warning' : 'ok' );
-			$this->render_health_card( __( 'Blocked suggestions', 'lilleprinsen-price-monitor' ), number_format_i18n( (int) $counts['blocked_suggestions'] ), __( 'Safety review', 'lilleprinsen-price-monitor' ), (int) $counts['blocked_suggestions'] > 0 ? 'danger' : 'ok' );
+			$this->render_summary_card( __( 'Products', 'lilleprinsen-price-monitor' ), $counts['monitored_products'], __( 'Selected for monitoring', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Approved matches', 'lilleprinsen-price-monitor' ), $counts['active_competitor_links'], __( 'Active competitor links', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Needs review', 'lilleprinsen-price-monitor' ), $counts['pending_suggestions'], __( 'Suggestions waiting', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Failed checks', 'lilleprinsen-price-monitor' ), $counts['recent_failed_checks'], __( 'Needs attention', 'lilleprinsen-price-monitor' ) );
+			$this->render_summary_card( __( 'Last checked', 'lilleprinsen-price-monitor' ), $this->format_datetime( $counts['last_successful_check_time'] ?? null ), __( 'Latest successful check', 'lilleprinsen-price-monitor' ) );
 			?>
 		</div>
 
-		<?php $this->render_competitor_health_panel( is_array( $counts['competitor_health'] ?? null ) ? $counts['competitor_health'] : array() ); ?>
-		<?php $this->render_competitor_strategy_panel( $competitor_strategy ); ?>
+		<section class="lpm-card lpm-card-spaced">
+			<div class="lpm-card-header">
+				<div>
+					<h2><?php esc_html_e( 'Next recommended action', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p class="lpm-card-subtitle"><?php echo esc_html( $next_action['body'] ); ?></p>
+				</div>
+				<a class="button button-primary" href="<?php echo esc_url( $next_action['url'] ); ?>"><?php echo esc_html( $next_action['label'] ); ?></a>
+			</div>
+		</section>
 
 		<div class="lpm-grid lpm-grid-two">
+			<section class="lpm-card">
+				<div class="lpm-card-header">
+					<h2><?php esc_html_e( 'Health summary', 'lilleprinsen-price-monitor' ); ?></h2>
+					<?php $this->render_status_pill( empty( $health_warnings ) ? __( 'OK', 'lilleprinsen-price-monitor' ) : __( 'Needs attention', 'lilleprinsen-price-monitor' ), empty( $health_warnings ) ? 'ok' : 'warning' ); ?>
+				</div>
+				<ul class="lpm-check-list">
+					<?php if ( empty( $health_warnings ) ) : ?>
+						<li><?php esc_html_e( 'No urgent operational warnings detected.', 'lilleprinsen-price-monitor' ); ?></li>
+					<?php else : ?>
+						<?php foreach ( array_slice( $health_warnings, 0, 5 ) as $warning ) : ?>
+							<li><?php echo esc_html( $warning ); ?></li>
+						<?php endforeach; ?>
+					<?php endif; ?>
+				</ul>
+			</section>
+
 			<section class="lpm-card">
 				<div class="lpm-card-header">
 					<h2><?php esc_html_e( 'System status', 'lilleprinsen-price-monitor' ); ?></h2>
 				</div>
 				<table class="lpm-status-table">
 					<tbody>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'WooCommerce', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( $woocommerce_active ? __( 'Active', 'lilleprinsen-price-monitor' ) : __( 'Inactive', 'lilleprinsen-price-monitor' ), $woocommerce_active ? 'ok' : 'warning' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Plugin version', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( LPM_VERSION ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'DB schema version', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( (string) $table_status['schema_version'] ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Dry-run mode', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Scheduled checks', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Emergency update disable', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php $this->render_status_pill( ! empty( $settings['disable_all_price_updates'] ) ? __( 'Enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled', 'lilleprinsen-price-monitor' ), ! empty( $settings['disable_all_price_updates'] ) ? 'ok' : 'danger' ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Active price match sessions', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( number_format_i18n( (int) $counts['active_price_match_sessions'] ) ); ?></td>
-						</tr>
-						<tr>
-							<th scope="row"><?php esc_html_e( 'Last successful check', 'lilleprinsen-price-monitor' ); ?></th>
-							<td><?php echo esc_html( $this->format_datetime( $counts['last_successful_check_time'] ?? null ) ); ?></td>
-						</tr>
+						<tr><th scope="row"><?php esc_html_e( 'WooCommerce', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->render_status_pill( $woocommerce_active ? __( 'Active', 'lilleprinsen-price-monitor' ) : __( 'Inactive', 'lilleprinsen-price-monitor' ), $woocommerce_active ? 'ok' : 'warning' ); ?></td></tr>
+						<tr><th scope="row"><?php esc_html_e( 'Plugin version', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( LPM_VERSION ); ?></td></tr>
+						<tr><th scope="row"><?php esc_html_e( 'Database', 'lilleprinsen-price-monitor' ); ?></th><td><?php echo esc_html( (string) $table_status['schema_version'] ); ?></td></tr>
+						<tr><th scope="row"><?php esc_html_e( 'Batch status', 'lilleprinsen-price-monitor' ); ?></th><td><?php $this->render_status_pill( ! empty( $lock_status['locked'] ) ? __( 'Running', 'lilleprinsen-price-monitor' ) : __( 'Ready', 'lilleprinsen-price-monitor' ), ! empty( $lock_status['locked'] ) ? 'warning' : 'ok' ); ?></td></tr>
 					</tbody>
 				</table>
 			</section>
-
-			<section class="lpm-card">
-				<div class="lpm-card-header">
-					<h2><?php esc_html_e( 'Needs attention', 'lilleprinsen-price-monitor' ); ?></h2>
-					<span class="lpm-pill lpm-pill-muted"><?php esc_html_e( 'Dry-run', 'lilleprinsen-price-monitor' ); ?></span>
-				</div>
-				<p><?php esc_html_e( 'Manual checks and dry-run suggestions surface here before any real price update workflow exists.', 'lilleprinsen-price-monitor' ); ?></p>
-				<ul class="lpm-check-list">
-					<?php if ( empty( $health_warnings ) ) : ?>
-						<li><?php esc_html_e( 'No operational warnings detected from the current dashboard counts.', 'lilleprinsen-price-monitor' ); ?></li>
-					<?php else : ?>
-						<?php foreach ( $health_warnings as $warning ) : ?>
-							<li><?php echo esc_html( $warning ); ?></li>
-						<?php endforeach; ?>
-					<?php endif; ?>
-				</ul>
-				<form method="post" class="lpm-form-actions">
-					<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
-					<input type="hidden" name="lpm_action" value="run_small_check_batch_now" />
-					<button type="submit" class="button button-primary"><?php esc_html_e( 'Run one small check batch now', 'lilleprinsen-price-monitor' ); ?></button>
-				</form>
-			</section>
 		</div>
+
+		<details class="lpm-settings-section">
+			<summary><?php esc_html_e( 'Competitor health and market behavior', 'lilleprinsen-price-monitor' ); ?></summary>
+			<?php $this->render_competitor_health_panel( is_array( $counts['competitor_health'] ?? null ) ? $counts['competitor_health'] : array() ); ?>
+			<?php $this->render_competitor_strategy_panel( $competitor_strategy ); ?>
+		</details>
 		<?php
+	}
+
+	/**
+	 * @param array<string, mixed> $counts Dashboard counts.
+	 * @param array<string, mixed> $settings Current settings.
+	 * @param array<int, string> $health_warnings Operational warnings.
+	 * @return array{label:string,body:string,url:string}
+	 */
+	private function get_next_recommended_action( array $counts, array $settings, bool $woocommerce_active, array $health_warnings ): array {
+		if ( ! $woocommerce_active ) {
+			return array(
+				'label' => __( 'Check WooCommerce', 'lilleprinsen-price-monitor' ),
+				'body'  => __( 'WooCommerce must be active before products and prices can be monitored.', 'lilleprinsen-price-monitor' ),
+				'url'   => admin_url( 'plugins.php' ),
+			);
+		}
+		if ( (int) ( $counts['monitored_products'] ?? 0 ) <= 0 ) {
+			return array(
+				'label' => __( 'Add products', 'lilleprinsen-price-monitor' ),
+				'body'  => __( 'Start by selecting the WooCommerce products you want to monitor.', 'lilleprinsen-price-monitor' ),
+				'url'   => add_query_arg( array( 'page' => \Lilleprinsen\PriceMonitor\Admin\AdminPage::SLUG, 'tab' => 'products' ), admin_url( 'admin.php' ) ),
+			);
+		}
+		if ( (int) ( $counts['active_competitor_links'] ?? 0 ) <= 0 ) {
+			return array(
+				'label' => __( 'Find matches', 'lilleprinsen-price-monitor' ),
+				'body'  => __( 'Add competitors and let the plugin suggest product matches for review.', 'lilleprinsen-price-monitor' ),
+				'url'   => add_query_arg( array( 'page' => \Lilleprinsen\PriceMonitor\Admin\AdminPage::SLUG, 'tab' => 'competitors' ), admin_url( 'admin.php' ) ),
+			);
+		}
+		if ( (int) ( $counts['pending_suggestions'] ?? 0 ) > 0 || (int) ( $counts['blocked_suggestions'] ?? 0 ) > 0 ) {
+			return array(
+				'label' => __( 'Review suggestions', 'lilleprinsen-price-monitor' ),
+				'body'  => __( 'Suggestions are waiting for approval or rejection. Dry-run remains safe by default.', 'lilleprinsen-price-monitor' ),
+				'url'   => add_query_arg( array( 'page' => \Lilleprinsen\PriceMonitor\Admin\AdminPage::SLUG, 'tab' => 'approvals' ), admin_url( 'admin.php' ) ),
+			);
+		}
+		if ( ! empty( $health_warnings ) ) {
+			return array(
+				'label' => __( 'Review settings', 'lilleprinsen-price-monitor' ),
+				'body'  => __( 'There are operational warnings that should be checked before increasing automation.', 'lilleprinsen-price-monitor' ),
+				'url'   => add_query_arg( array( 'page' => \Lilleprinsen\PriceMonitor\Admin\AdminPage::SLUG, 'tab' => 'settings_logs' ), admin_url( 'admin.php' ) ),
+			);
+		}
+
+		return array(
+			'label' => __( 'Run checks', 'lilleprinsen-price-monitor' ),
+			'body'  => __( 'Everything looks calm. Run a small check batch or review recent price history.', 'lilleprinsen-price-monitor' ),
+			'url'   => add_query_arg( array( 'page' => \Lilleprinsen\PriceMonitor\Admin\AdminPage::SLUG, 'tab' => 'settings_logs' ), admin_url( 'admin.php' ) ),
+		);
 	}
 
 	/**

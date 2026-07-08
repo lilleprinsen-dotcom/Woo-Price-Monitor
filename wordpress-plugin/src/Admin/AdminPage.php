@@ -76,6 +76,8 @@ final class AdminPage {
 
 	private LogsTab $logs_tab;
 
+	private ?DiscoveryAdminPage $discovery_admin_page = null;
+
 	public function __construct( Repository $repository, Settings $settings, ?PriceCheckService $price_check_service = null, ?PriceRecoveryService $price_recovery_service = null, ?SuggestionService $suggestion_service = null, ?NotificationService $notification_service = null, ?JobScheduler $job_scheduler = null, ?PriceUpdateService $price_update_service = null, ?ProductSearchService $product_search_service = null, ?AdminNoticeStore $notice_store = null, ?CsvImportService $csv_import_service = null, ?RetentionService $retention_service = null, ?GroupSuggestionService $group_suggestion_service = null, ?CompetitorStrategyService $competitor_strategy_service = null ) {
 		$this->repository             = $repository;
 		$this->settings               = $settings;
@@ -95,6 +97,10 @@ final class AdminPage {
 		$this->competitor_strategy_service = $competitor_strategy_service ?? new CompetitorStrategyService();
 		$this->settings_tab           = new SettingsTab();
 		$this->logs_tab               = new LogsTab( $repository, $settings );
+	}
+
+	public function set_discovery_admin_page( DiscoveryAdminPage $discovery_admin_page ): void {
+		$this->discovery_admin_page = $discovery_admin_page;
 	}
 
 	public function handle_actions(): void {
@@ -169,15 +175,11 @@ final class AdminPage {
 	 */
 	private function get_tabs(): array {
 		return array(
-			'dashboard'   => __( 'Dashboard', 'lilleprinsen-price-monitor' ),
+			'dashboard'   => __( 'Overview', 'lilleprinsen-price-monitor' ),
 			'products'    => __( 'Products', 'lilleprinsen-price-monitor' ),
-			'approvals'   => __( 'Approvals', 'lilleprinsen-price-monitor' ),
 			'competitors' => __( 'Competitors', 'lilleprinsen-price-monitor' ),
-			'groups'      => __( 'Groups', 'lilleprinsen-price-monitor' ),
-			'history'     => __( 'History', 'lilleprinsen-price-monitor' ),
-			'import_export' => __( 'Import / Export', 'lilleprinsen-price-monitor' ),
-			'settings'    => __( 'Settings', 'lilleprinsen-price-monitor' ),
-			'logs'        => __( 'Logs', 'lilleprinsen-price-monitor' ),
+			'approvals'   => __( 'Suggestions', 'lilleprinsen-price-monitor' ),
+			'settings_logs' => __( 'Settings & Logs', 'lilleprinsen-price-monitor' ),
 		);
 	}
 
@@ -186,6 +188,17 @@ final class AdminPage {
 	 */
 	private function get_active_tab( array $tabs ): string {
 		$requested_tab = isset( $_GET['tab'] ) ? sanitize_key( wp_unslash( $_GET['tab'] ) ) : 'dashboard';
+		$legacy_tabs   = array(
+			'settings'      => 'settings_logs',
+			'logs'          => 'settings_logs',
+			'history'       => 'settings_logs',
+			'import_export' => 'settings_logs',
+			'groups'        => 'settings_logs',
+		);
+
+		if ( isset( $legacy_tabs[ $requested_tab ] ) ) {
+			return $legacy_tabs[ $requested_tab ];
+		}
 
 		return array_key_exists( $requested_tab, $tabs ) ? $requested_tab : 'dashboard';
 	}
@@ -299,10 +312,33 @@ final class AdminPage {
 			<?php $this->render_monitored_products_table( $rows, $link_counts, $group_names ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_products_page', array( 'tab' => 'products' ) ); ?>
 		</section>
+		<?php if ( $this->discovery_admin_page ) : ?>
+			<section class="lpm-unified-section" aria-label="<?php esc_attr_e( 'Competitor discovery products', 'lilleprinsen-price-monitor' ); ?>">
+				<div class="lpm-section-heading">
+					<p class="lpm-drawer-kicker"><?php esc_html_e( 'Match discovery', 'lilleprinsen-price-monitor' ); ?></p>
+					<h2><?php esc_html_e( 'Products selected for competitor matching', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p><?php esc_html_e( 'These are the only WooCommerce products used when the plugin searches competitors. This keeps discovery bounded and safe for large catalogs.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->discovery_admin_page->render_embedded( 'products' ); ?>
+			</section>
+		<?php endif; ?>
 		<?php
 	}
 
 	public function render_competitors(): void {
+		if ( $this->discovery_admin_page ) {
+			?>
+			<section class="lpm-unified-section" aria-label="<?php esc_attr_e( 'Competitor discovery setup', 'lilleprinsen-price-monitor' ); ?>">
+				<div class="lpm-section-heading">
+					<p class="lpm-drawer-kicker"><?php esc_html_e( 'Competitors', 'lilleprinsen-price-monitor' ); ?></p>
+					<h2><?php esc_html_e( 'Find and monitor competitor products', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p><?php esc_html_e( 'Add competitors, test extraction, configure simple search sources, and run match discovery for selected products only.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->discovery_admin_page->render_embedded( 'competitors' ); ?>
+			</section>
+			<?php
+		}
+
 		$monitored_product_id = $this->get_positive_query_arg( 'monitored_product_id', 0 );
 
 		if ( 0 >= $monitored_product_id ) {
@@ -432,6 +468,16 @@ final class AdminPage {
 			<?php $this->render_approvals_table( $suggestions, $settings ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_approvals_page', array( 'tab' => 'approvals', 'lpm_approval_view' => $view ) ); ?>
 		</section>
+		<?php if ( $this->discovery_admin_page ) : ?>
+			<section class="lpm-unified-section" aria-label="<?php esc_attr_e( 'Match suggestions', 'lilleprinsen-price-monitor' ); ?>">
+				<div class="lpm-section-heading">
+					<p class="lpm-drawer-kicker"><?php esc_html_e( 'Matches', 'lilleprinsen-price-monitor' ); ?></p>
+					<h2><?php esc_html_e( 'Suggested competitor product matches', 'lilleprinsen-price-monitor' ); ?></h2>
+					<p><?php esc_html_e( 'Approve matches only after checking product, variant, color, bundle risk, price and evidence. Approved matches become active monitored competitor links.', 'lilleprinsen-price-monitor' ); ?></p>
+				</div>
+				<?php $this->discovery_admin_page->render_embedded( 'suggestions' ); ?>
+			</section>
+		<?php endif; ?>
 		<?php
 	}
 
@@ -456,6 +502,55 @@ final class AdminPage {
 	 */
 	public function render_settings( array $settings ): void {
 		$this->settings_tab->render( $settings );
+	}
+
+	/**
+	 * @param array<string, mixed> $settings Current settings.
+	 * @param array<string, mixed> $table_status Schema status.
+	 */
+	public function render_settings_logs( array $settings, array $table_status ): void {
+		?>
+		<section class="lpm-card lpm-control-strip">
+			<div>
+				<p class="lpm-drawer-kicker"><?php esc_html_e( 'Safety state', 'lilleprinsen-price-monitor' ); ?></p>
+				<h2><?php esc_html_e( 'Settings, logs and advanced tools', 'lilleprinsen-price-monitor' ); ?></h2>
+				<p><?php esc_html_e( 'Daily work should happen in Products, Competitors and Suggestions. Open these sections when you need automation, safety limits, diagnostics or imports.', 'lilleprinsen-price-monitor' ); ?></p>
+			</div>
+			<div class="lpm-status-cluster">
+				<?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Dry-run on', 'lilleprinsen-price-monitor' ) : __( 'Dry-run off', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?>
+				<?php $this->render_status_pill( $this->real_updates_enabled( $settings ) ? __( 'Real updates possible', 'lilleprinsen-price-monitor' ) : __( 'Real updates blocked', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' ); ?>
+				<?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Schedules on', 'lilleprinsen-price-monitor' ) : __( 'Schedules off', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?>
+			</div>
+		</section>
+
+		<details class="lpm-settings-section" open>
+			<summary><?php esc_html_e( 'General settings and safety limits', 'lilleprinsen-price-monitor' ); ?></summary>
+			<?php $this->render_settings( $settings ); ?>
+		</details>
+
+		<?php if ( $this->discovery_admin_page ) : ?>
+			<details class="lpm-settings-section">
+				<summary><?php esc_html_e( 'Competitor discovery settings', 'lilleprinsen-price-monitor' ); ?></summary>
+				<?php $this->discovery_admin_page->render_embedded( 'settings' ); ?>
+			</details>
+		<?php endif; ?>
+
+		<details class="lpm-settings-section">
+			<summary><?php esc_html_e( 'Logs and diagnostics', 'lilleprinsen-price-monitor' ); ?></summary>
+			<?php $this->render_logs( $table_status ); ?>
+		</details>
+
+		<details class="lpm-settings-section">
+			<summary><?php esc_html_e( 'Price history', 'lilleprinsen-price-monitor' ); ?></summary>
+			<?php $this->render_history(); ?>
+		</details>
+
+		<details class="lpm-settings-section">
+			<summary><?php esc_html_e( 'Import, export and product groups', 'lilleprinsen-price-monitor' ); ?></summary>
+			<?php $this->render_import_export(); ?>
+			<?php $this->render_groups(); ?>
+		</details>
+		<?php
 	}
 
 	public function render_logs( array $table_status ): void {
@@ -4639,6 +4734,7 @@ final class AdminPage {
 	}
 
 	public function redirect_to_tab( string $tab, string $notice, array $extra_args = array() ): void {
+		$tab = $this->normalize_redirect_tab( $tab );
 		$args = array_merge(
 			array(
 				'page'       => self::SLUG,
@@ -4650,6 +4746,18 @@ final class AdminPage {
 
 		wp_safe_redirect( add_query_arg( $args, admin_url( 'admin.php' ) ) );
 		exit;
+	}
+
+	private function normalize_redirect_tab( string $tab ): string {
+		$legacy_tabs = array(
+			'settings'      => 'settings_logs',
+			'logs'          => 'settings_logs',
+			'history'       => 'settings_logs',
+			'import_export' => 'settings_logs',
+			'groups'        => 'settings_logs',
+		);
+
+		return $legacy_tabs[ $tab ] ?? $tab;
 	}
 
 	private function set_admin_notice( string $message, string $type = 'success' ): void {
@@ -4866,6 +4974,7 @@ final class AdminPage {
 	private function get_notice_message( string $notice ): string {
 		$messages = array(
 			'unknown_action'                  => __( 'Unknown action.', 'lilleprinsen-price-monitor' ),
+			'competitor_prices_moved'         => __( 'Competitor discovery now lives inside Price Monitor.', 'lilleprinsen-price-monitor' ),
 			'product_not_found'               => __( 'Product was not found or WooCommerce is inactive.', 'lilleprinsen-price-monitor' ),
 			'monitoring_added'                => __( 'Product added to monitoring.', 'lilleprinsen-price-monitor' ),
 			'already_monitored'               => __( 'Product is already monitored.', 'lilleprinsen-price-monitor' ),
