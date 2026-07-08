@@ -245,12 +245,19 @@
 	function initProductActions() {
 		document.addEventListener('click', function (event) {
 			var addButton = event.target.closest('[data-lpm-add-product]');
+			var competitorSetupButton = event.target.closest('[data-lpm-open-competitors]');
 			var openButton = event.target.closest('[data-lpm-open-product]');
 			var row = event.target.closest('[data-lpm-monitored-row]');
 
 			if (addButton) {
 				event.preventDefault();
 				addProduct(addButton.getAttribute('data-lpm-add-product'), addButton);
+				return;
+			}
+
+			if (competitorSetupButton) {
+				event.preventDefault();
+				window.location.href = config.competitorsUrl || 'admin.php?page=lilleprinsen-price-monitor&tab=competitors';
 				return;
 			}
 
@@ -298,9 +305,9 @@
 				button.classList.add('button-primary');
 				if (data.discovery_product_id) {
 					button.removeAttribute('data-lpm-add-product');
-					button.setAttribute('data-lpm-start-product', String(data.discovery_product_id));
-					button.textContent = 'Find matches';
 					if (parseInt(data.active_competitor_count || '0', 10) > 0) {
+						button.setAttribute('data-lpm-start-product', String(data.discovery_product_id));
+						button.textContent = 'Find matches';
 						toast('Searching active competitors now...', 'success');
 						document.dispatchEvent(new CustomEvent('lpm:start-discovery', {
 							detail: {
@@ -308,6 +315,11 @@
 								competitorId: '0'
 							}
 						}));
+					} else {
+						button.removeAttribute('data-lpm-start-product');
+						button.setAttribute('data-lpm-open-competitors', '1');
+						button.textContent = 'Add competitor';
+						toast('Product is ready. Add a competitor and discovery will start automatically.', 'success');
 					}
 				} else {
 					button.textContent = 'Added';

@@ -109,6 +109,10 @@ if ( false === strpos( $ajax_source, 'active_competitor_count' ) || false === st
 	fwrite( STDERR, "Fast AJAX product adds should automatically start live discovery when active competitors exist.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $admin_script, 'data-lpm-open-competitors' ) || false === strpos( $admin_script, 'Add competitor' ) ) {
+	fwrite( STDERR, "Fast AJAX product adds should point to competitor setup when no active competitors exist.\n" );
+	exit( 1 );
+}
 if ( false === strpos( $admin_source, 'lpm_auto_start_competitor_id' ) || false === strpos( $admin_source, 'data-lpm-auto-start-competitor' ) || false === strpos( $discovery_script, 'clearAutoStartFlag' ) ) {
 	fwrite( STDERR, "New competitor creation should one-time auto-start discovery for selected products.\n" );
 	exit( 1 );

@@ -42,9 +42,10 @@ final class AdminAssets {
 			'lpm-admin',
 			'LPM_ADMIN',
 			array(
-				'ajaxUrl' => admin_url( 'admin-ajax.php' ),
-				'nonce'   => wp_create_nonce( 'lpm_admin_ajax' ),
-				'i18n'    => array(
+				'ajaxUrl'        => admin_url( 'admin-ajax.php' ),
+				'competitorsUrl' => add_query_arg( array( 'page' => AdminPage::SLUG, 'tab' => 'competitors' ), admin_url( 'admin.php' ) ),
+				'nonce'          => wp_create_nonce( 'lpm_admin_ajax' ),
+				'i18n'           => array(
 					'searching'      => __( 'Searching...', 'lilleprinsen-price-monitor' ),
 					'noProducts'     => __( 'No products found.', 'lilleprinsen-price-monitor' ),
 					'loading'        => __( 'Loading...', 'lilleprinsen-price-monitor' ),
