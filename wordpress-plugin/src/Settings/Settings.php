@@ -27,7 +27,9 @@ final class Settings {
 			'default_currency'                => 'NOK',
 			'default_check_frequency_hours'   => 24,
 			'scheduled_checks_enabled'        => 0,
+			'scheduled_check_interval_hours'  => 6,
 			'max_urls_per_batch'              => 10,
+			'scheduled_batch_spacing_minutes' => 5,
 			'check_batch_lock_minutes'        => 10,
 			'create_suggestions_from_scheduled_checks' => 0,
 			'request_timeout_seconds'         => 8,
@@ -168,9 +170,11 @@ final class Settings {
 			'plugin_enabled'                  => $this->sanitize_bool( $settings['plugin_enabled'] ?? $defaults['plugin_enabled'] ),
 			'dry_run_mode'                    => $this->sanitize_bool( $settings['dry_run_mode'] ?? $defaults['dry_run_mode'] ),
 			'default_currency'                => $this->sanitize_currency( $settings['default_currency'] ?? $defaults['default_currency'] ),
-			'default_check_frequency_hours'   => $this->sanitize_int( $settings['default_check_frequency_hours'] ?? $defaults['default_check_frequency_hours'], 1, 720, (int) $defaults['default_check_frequency_hours'] ),
+			'default_check_frequency_hours'   => self::sanitize_check_interval_hours( $settings['default_check_frequency_hours'] ?? $defaults['default_check_frequency_hours'] ),
 			'scheduled_checks_enabled'        => $this->sanitize_bool( $settings['scheduled_checks_enabled'] ?? $defaults['scheduled_checks_enabled'] ),
+			'scheduled_check_interval_hours'  => self::sanitize_check_interval_hours( $settings['scheduled_check_interval_hours'] ?? $defaults['scheduled_check_interval_hours'] ),
 			'max_urls_per_batch'              => $this->sanitize_int( $settings['max_urls_per_batch'] ?? $defaults['max_urls_per_batch'], 1, 100, (int) $defaults['max_urls_per_batch'] ),
+			'scheduled_batch_spacing_minutes' => $this->sanitize_int( $settings['scheduled_batch_spacing_minutes'] ?? $defaults['scheduled_batch_spacing_minutes'], 1, 60, (int) $defaults['scheduled_batch_spacing_minutes'] ),
 			'check_batch_lock_minutes'        => $this->sanitize_int( $settings['check_batch_lock_minutes'] ?? $defaults['check_batch_lock_minutes'], 1, 60, (int) $defaults['check_batch_lock_minutes'] ),
 			'create_suggestions_from_scheduled_checks' => $this->sanitize_bool( $settings['create_suggestions_from_scheduled_checks'] ?? $defaults['create_suggestions_from_scheduled_checks'] ),
 			'request_timeout_seconds'         => $this->sanitize_int( $settings['request_timeout_seconds'] ?? $defaults['request_timeout_seconds'], 1, 60, (int) $defaults['request_timeout_seconds'] ),
@@ -367,6 +371,32 @@ final class Settings {
 			)
 		);
 		exit;
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	public static function check_interval_options(): array {
+		return array(
+			1  => __( 'Every hour', 'lilleprinsen-price-monitor' ),
+			2  => __( 'Every 2 hours', 'lilleprinsen-price-monitor' ),
+			3  => __( 'Every 3 hours', 'lilleprinsen-price-monitor' ),
+			4  => __( 'Every 4 hours', 'lilleprinsen-price-monitor' ),
+			6  => __( 'Every 6 hours', 'lilleprinsen-price-monitor' ),
+			8  => __( 'Every 8 hours', 'lilleprinsen-price-monitor' ),
+			12 => __( 'Every 12 hours', 'lilleprinsen-price-monitor' ),
+			24 => __( 'Every 24 hours', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	public static function sanitize_check_interval_hours( $value ): int {
+		$hours   = absint( $value );
+		$options = array_keys( self::check_interval_options() );
+
+		return in_array( $hours, $options, true ) ? $hours : 24;
 	}
 
 	/**

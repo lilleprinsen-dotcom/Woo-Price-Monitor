@@ -293,7 +293,7 @@ final class Repository {
 				'strategy'              => $this->sanitize_monitored_strategy( (string) ( $data['strategy'] ?? 'match_competitor' ) ),
 				'min_margin_percent'    => $this->nullable_decimal( $data['min_margin_percent'] ?? null ),
 				'min_price'             => $this->nullable_decimal( $data['min_price'] ?? null ),
-				'check_frequency_hours' => $this->sanitize_bounded_int( $data['check_frequency_hours'] ?? 24, 1, 720, 24 ),
+				'check_frequency_hours' => $this->sanitize_bounded_int( $data['check_frequency_hours'] ?? 24, 1, 24, 24 ),
 				'updated_at'            => current_time( 'mysql' ),
 			),
 			array( 'id' => absint( $monitored_product_id ) ),
@@ -970,7 +970,7 @@ final class Repository {
 	/**
 	 * @return array<int, array<string, mixed>>
 	 */
-	public function get_due_competitor_links( int $limit ): array {
+	public function get_due_competitor_links( int $limit, ?int $frequency_override_hours = null ): array {
 		$links_table     = $this->tables['competitor_links'];
 		$monitored_table = $this->tables['monitored_products'];
 		$competitors     = $this->tables['competitors'];
@@ -981,7 +981,16 @@ final class Repository {
 
 		$limit = $this->sanitize_per_page( $limit );
 		$now   = current_time( 'mysql' );
+		$frequency_override_hours = null === $frequency_override_hours ? null : max( 1, min( 24, absint( $frequency_override_hours ) ) );
 		if ( $this->table_exists( $competitors ) ) {
+			$frequency_sql = null === $frequency_override_hours ? 'mp.check_frequency_hours' : '%d';
+			$args          = array( 1, 1, 1, $now );
+			if ( null !== $frequency_override_hours ) {
+				$args[] = $frequency_override_hours;
+			}
+			$args[] = $now;
+			$args[] = $now;
+			$args[] = $limit;
 			$sql = $this->wpdb->prepare(
 				"SELECT
 					cl.*,
@@ -1000,7 +1009,7 @@ final class Repository {
 					AND (cl.competitor_id IS NULL OR c.enabled = %d)
 					AND (
 						cl.last_checked_at IS NULL
-						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
+						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL {$frequency_sql} HOUR)
 					)
 					AND (cl.next_check_after IS NULL OR cl.next_check_after <= %s)
 					AND (
@@ -1015,15 +1024,16 @@ final class Repository {
 					)
 				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
 				LIMIT %d",
-				1,
-				1,
-				1,
-				$now,
-				$now,
-				$now,
-				$limit
+				$args
 			);
 		} else {
+			$frequency_sql = null === $frequency_override_hours ? 'mp.check_frequency_hours' : '%d';
+			$args          = array( 1, 1, $now );
+			if ( null !== $frequency_override_hours ) {
+				$args[] = $frequency_override_hours;
+			}
+			$args[] = $now;
+			$args[] = $limit;
 			$sql = $this->wpdb->prepare(
 				"SELECT cl.*, mp.product_id, mp.sku, mp.check_frequency_hours
 				FROM {$links_table} cl
@@ -1032,16 +1042,12 @@ final class Repository {
 					AND mp.enabled = %d
 					AND (
 						cl.last_checked_at IS NULL
-						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL mp.check_frequency_hours HOUR)
+						OR cl.last_checked_at <= DATE_SUB(%s, INTERVAL {$frequency_sql} HOUR)
 					)
 					AND (cl.next_check_after IS NULL OR cl.next_check_after <= %s)
 				ORDER BY cl.last_checked_at IS NULL DESC, cl.last_checked_at ASC, cl.id ASC
 				LIMIT %d",
-				1,
-				1,
-				$now,
-				$now,
-				$limit
+				$args
 			);
 		}
 		$rows  = $this->wpdb->get_results( $sql, ARRAY_A );

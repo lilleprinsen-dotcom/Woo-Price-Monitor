@@ -519,7 +519,7 @@ final class AdminPage {
 			<div class="lpm-status-cluster">
 				<?php $this->render_status_pill( ! empty( $settings['dry_run_mode'] ) ? __( 'Dry-run on', 'lilleprinsen-price-monitor' ) : __( 'Dry-run off', 'lilleprinsen-price-monitor' ), ! empty( $settings['dry_run_mode'] ) ? 'ok' : 'danger' ); ?>
 				<?php $this->render_status_pill( $this->real_updates_enabled( $settings ) ? __( 'Real updates possible', 'lilleprinsen-price-monitor' ) : __( 'Real updates blocked', 'lilleprinsen-price-monitor' ), $this->real_updates_enabled( $settings ) ? 'danger' : 'ok' ); ?>
-				<?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? __( 'Schedules on', 'lilleprinsen-price-monitor' ) : __( 'Schedules off', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?>
+				<?php $this->render_status_pill( ! empty( $settings['scheduled_checks_enabled'] ) ? sprintf( __( 'Checks every %d h', 'lilleprinsen-price-monitor' ), (int) $settings['scheduled_check_interval_hours'] ) : __( 'Schedules off', 'lilleprinsen-price-monitor' ), ! empty( $settings['scheduled_checks_enabled'] ) ? 'warning' : 'muted' ); ?>
 			</div>
 		</section>
 
@@ -2139,7 +2139,7 @@ final class AdminPage {
 
 		if ( 'set_check_frequency' === $bulk_action ) {
 			$frequency = isset( $_POST['bulk_check_frequency_hours'] ) ? absint( wp_unslash( $_POST['bulk_check_frequency_hours'] ) ) : (int) $data['check_frequency_hours'];
-			$data['check_frequency_hours'] = min( 720, max( 1, $frequency ) );
+			$data['check_frequency_hours'] = Settings::sanitize_check_interval_hours( $frequency );
 		}
 
 		if ( 'set_min_margin' === $bulk_action ) {
@@ -2340,7 +2340,11 @@ final class AdminPage {
 			</label>
 			<label>
 				<span><?php esc_html_e( 'Frequency hours', 'lilleprinsen-price-monitor' ); ?></span>
-				<input type="number" min="1" max="720" step="1" name="bulk_check_frequency_hours" value="24" />
+				<select name="bulk_check_frequency_hours">
+					<?php foreach ( Settings::check_interval_options() as $value => $label ) : ?>
+						<option value="<?php echo esc_attr( (string) $value ); ?>" <?php selected( 24, (int) $value ); ?>><?php echo esc_html( $label ); ?></option>
+					<?php endforeach; ?>
+				</select>
 			</label>
 			<label>
 				<span><?php esc_html_e( 'Min margin', 'lilleprinsen-price-monitor' ); ?></span>
@@ -2649,7 +2653,11 @@ final class AdminPage {
 
 				<label class="lpm-field">
 					<span><?php esc_html_e( 'Check frequency hours', 'lilleprinsen-price-monitor' ); ?></span>
-					<input type="number" min="1" max="720" step="1" name="check_frequency_hours" value="<?php echo esc_attr( (string) $monitored_product['check_frequency_hours'] ); ?>" />
+					<select name="check_frequency_hours">
+						<?php foreach ( Settings::check_interval_options() as $value => $label ) : ?>
+							<option value="<?php echo esc_attr( (string) $value ); ?>" <?php selected( (int) $monitored_product['check_frequency_hours'], (int) $value ); ?>><?php echo esc_html( $label ); ?></option>
+						<?php endforeach; ?>
+					</select>
 				</label>
 
 				<div class="lpm-form-actions">

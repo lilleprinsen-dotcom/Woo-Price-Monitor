@@ -53,14 +53,14 @@ final class CheckCompetitorLinkJob {
 	/**
 	 * @return array<string, int>
 	 */
-	public function run_scheduled_batch(): array {
+	public function run_scheduled_batch( string $queue_source = 'scheduled' ): array {
 		$settings = $this->settings->get_all();
 
 		if ( empty( $settings['scheduled_checks_enabled'] ) || ( ! wp_doing_cron() && ! is_admin() ) ) {
 			return $this->empty_result( 'unsafe_scheduled_context' );
 		}
 
-		return $this->run_batch( 'scheduled' );
+		return $this->run_batch( 'continuation' === sanitize_key( $queue_source ) ? 'scheduled_continuation' : 'scheduled' );
 	}
 
 	/**
@@ -123,7 +123,8 @@ final class CheckCompetitorLinkJob {
 		}
 
 		try {
-			$links                 = $this->repository->get_due_competitor_links( $limit );
+			$frequency_override    = 0 === strpos( $source, 'scheduled' ) ? Settings::sanitize_check_interval_hours( $settings['scheduled_check_interval_hours'] ?? 24 ) : null;
+			$links                 = $this->repository->get_due_competitor_links( $limit, $frequency_override );
 			$processed_competitors = array();
 
 			$this->repository->write_log( 'info', 'check_batch_started', __( 'Competitor check batch started.', 'lilleprinsen-price-monitor' ), array( 'source' => $source, 'limit' => $limit ) );
@@ -176,6 +177,10 @@ final class CheckCompetitorLinkJob {
 			}
 
 			$this->repository->write_log( 'info', 'check_batch_completed', __( 'Competitor check batch completed.', 'lilleprinsen-price-monitor' ), array_merge( array( 'source' => $source ), $result ) );
+
+			if ( 0 === strpos( $source, 'scheduled' ) && $result['processed'] >= $limit ) {
+				JobScheduler::queue_continuation_batch( $settings );
+			}
 
 			return $result;
 		} finally {

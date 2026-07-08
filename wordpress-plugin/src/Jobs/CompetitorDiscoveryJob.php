@@ -28,6 +28,8 @@ class CompetitorDiscoveryJob {
 	public const ACTION = 'lpm_run_competitor_discovery_batch';
 
 	private const LOCK_KEY = 'lpm_competitor_discovery_lock';
+	private const RECURRING_ARGS = array( 0, 0, 'missing_links' );
+	private const INTERVAL_OPTION = 'lpm_discovery_schedule_interval_days';
 
 	private Repository $repository;
 	private DiscoveryRepository $discovery_repository;
@@ -77,19 +79,28 @@ class CompetitorDiscoveryJob {
 			return;
 		}
 
-		if ( as_next_scheduled_action( self::ACTION ) ) {
+		$interval_days = DiscoverySettings::sanitize_schedule_interval_days( $settings['discovery_schedule_interval_days'] ?? 7 );
+		$scheduled_for = absint( get_option( self::INTERVAL_OPTION, 0 ) );
+
+		if ( $scheduled_for !== $interval_days ) {
+			$this->unschedule();
+		}
+
+		if ( as_next_scheduled_action( self::ACTION, self::RECURRING_ARGS, 'lilleprinsen-price-monitor' ) ) {
 			return;
 		}
 
 		$hour  = absint( $settings['discovery_low_traffic_hour'] ?? 2 );
-		$first = strtotime( 'next Sunday ' . $hour . ':00:00', current_time( 'timestamp' ) );
-		as_schedule_recurring_action( $first ?: time() + DAY_IN_SECONDS, WEEK_IN_SECONDS, self::ACTION, array( 0, 0, 'missing_links' ), 'lilleprinsen-price-monitor' );
+		$first = strtotime( 'tomorrow ' . $hour . ':00:00', current_time( 'timestamp' ) );
+		as_schedule_recurring_action( $first ?: time() + DAY_IN_SECONDS, $interval_days * DAY_IN_SECONDS, self::ACTION, self::RECURRING_ARGS, 'lilleprinsen-price-monitor' );
+		update_option( self::INTERVAL_OPTION, $interval_days, false );
 	}
 
 	/** Unschedule recurring discovery actions. */
 	public function unschedule(): void {
 		if ( function_exists( 'as_unschedule_all_actions' ) ) {
-			as_unschedule_all_actions( self::ACTION, array(), 'lilleprinsen-price-monitor' );
+			as_unschedule_all_actions( self::ACTION, null, 'lilleprinsen-price-monitor' );
+			delete_option( self::INTERVAL_OPTION );
 		}
 	}
 
@@ -298,6 +309,9 @@ class CompetitorDiscoveryJob {
 			}
 
 			$this->discovery_repository->finish_run( $run_id, 'completed', $processed, $suggestions, $failures, $last_error, $requests, $discovered );
+			if ( $requests >= $request_limit ) {
+				$this->queue_continuation( $competitor_id, $offset, $scope, $settings );
+			}
 		} catch ( \Throwable $error ) {
 			$this->discovery_repository->finish_run( $run_id, 'failed', $processed, $suggestions, $failures + 1, $error->getMessage(), $requests, $discovered );
 		} finally {
@@ -335,6 +349,25 @@ class CompetitorDiscoveryJob {
 		$scope = sanitize_key( $scope );
 
 		return in_array( $scope, array( 'missing_links', 'all_selected' ), true ) ? $scope : 'missing_links';
+	}
+
+	/**
+	 * Queue another small discovery batch instead of trying to drain all selected products at once.
+	 *
+	 * @param array<string,mixed> $settings Current settings.
+	 */
+	private function queue_continuation( int $competitor_id, int $offset, string $scope, array $settings ): void {
+		if ( ! function_exists( 'as_schedule_single_action' ) ) {
+			return;
+		}
+
+		$args = array( absint( $competitor_id ), absint( $offset ), $this->sanitize_run_scope( $scope ) );
+		if ( function_exists( 'as_next_scheduled_action' ) && as_next_scheduled_action( self::ACTION, $args, 'lilleprinsen-price-monitor' ) ) {
+			return;
+		}
+
+		$spacing_minutes = max( 1, min( 180, absint( $settings['discovery_batch_spacing_minutes'] ?? 15 ) ) );
+		as_schedule_single_action( time() + ( $spacing_minutes * MINUTE_IN_SECONDS ), self::ACTION, $args, 'lilleprinsen-price-monitor' );
 	}
 
 	/** Record competitor health. */

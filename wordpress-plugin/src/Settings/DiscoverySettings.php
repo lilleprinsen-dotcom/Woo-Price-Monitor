@@ -30,6 +30,7 @@ class DiscoverySettings {
 	public function defaults(): array {
 		return array(
 			'discovery_enabled'                   => 0,
+			'discovery_schedule_interval_days'    => 7,
 			'discovery_sku_scan_enabled'          => 1,
 			'discovery_sku_crawl_enabled'         => 1,
 			'discovery_rediscover_missing_links_only' => 1,
@@ -48,6 +49,7 @@ class DiscoverySettings {
 			'discovery_manual_max_products_per_run' => 50,
 			'discovery_manual_max_competitors_per_run' => 10,
 			'discovery_request_delay_seconds'     => 3,
+			'discovery_batch_spacing_minutes'     => 15,
 			'discovery_low_traffic_hour'          => 2,
 			'discovery_auto_pause_failures'       => 5,
 			'discovery_same_domain_only'          => 1,
@@ -131,6 +133,7 @@ class DiscoverySettings {
 
 		return array(
 			'discovery_enabled'                   => empty( $input['discovery_enabled'] ) ? 0 : 1,
+			'discovery_schedule_interval_days'    => self::sanitize_schedule_interval_days( $input['discovery_schedule_interval_days'] ?? $defaults['discovery_schedule_interval_days'] ),
 			'discovery_sku_scan_enabled'          => empty( $input['discovery_sku_scan_enabled'] ) ? 0 : 1,
 			'discovery_sku_crawl_enabled'         => empty( $input['discovery_sku_crawl_enabled'] ) ? 0 : 1,
 			'discovery_rediscover_missing_links_only' => empty( $input['discovery_rediscover_missing_links_only'] ) ? 0 : 1,
@@ -149,6 +152,7 @@ class DiscoverySettings {
 			'discovery_manual_max_products_per_run' => $this->sanitize_int( $input['discovery_manual_max_products_per_run'] ?? $defaults['discovery_manual_max_products_per_run'], 1, 200 ),
 			'discovery_manual_max_competitors_per_run' => $this->sanitize_int( $input['discovery_manual_max_competitors_per_run'] ?? $defaults['discovery_manual_max_competitors_per_run'], 1, 50 ),
 			'discovery_request_delay_seconds'     => $this->sanitize_int( $input['discovery_request_delay_seconds'] ?? $defaults['discovery_request_delay_seconds'], 0, 30 ),
+			'discovery_batch_spacing_minutes'     => $this->sanitize_int( $input['discovery_batch_spacing_minutes'] ?? $defaults['discovery_batch_spacing_minutes'], 1, 180 ),
 			'discovery_low_traffic_hour'          => $this->sanitize_int( $input['discovery_low_traffic_hour'] ?? $defaults['discovery_low_traffic_hour'], 0, 23 ),
 			'discovery_auto_pause_failures'       => $this->sanitize_int( $input['discovery_auto_pause_failures'] ?? $defaults['discovery_auto_pause_failures'], 1, 50 ),
 			'discovery_same_domain_only'          => empty( $input['discovery_same_domain_only'] ) ? 0 : 1,
@@ -162,6 +166,31 @@ class DiscoverySettings {
 			'discovery_product_url_patterns'      => $this->sanitize_pattern_list( $input['discovery_product_url_patterns'] ?? $defaults['discovery_product_url_patterns'] ),
 			'discovery_sku_search_url_templates'  => $this->sanitize_search_template_list( $input['discovery_sku_search_url_templates'] ?? $defaults['discovery_sku_search_url_templates'] ),
 		);
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	public static function schedule_interval_options(): array {
+		return array(
+			1 => __( 'Every day', 'lilleprinsen-price-monitor' ),
+			2 => __( 'Every 2 days', 'lilleprinsen-price-monitor' ),
+			3 => __( 'Every 3 days', 'lilleprinsen-price-monitor' ),
+			4 => __( 'Every 4 days', 'lilleprinsen-price-monitor' ),
+			5 => __( 'Every 5 days', 'lilleprinsen-price-monitor' ),
+			6 => __( 'Every 6 days', 'lilleprinsen-price-monitor' ),
+			7 => __( 'Every 7 days', 'lilleprinsen-price-monitor' ),
+		);
+	}
+
+	/**
+	 * @param mixed $value Raw value.
+	 */
+	public static function sanitize_schedule_interval_days( $value ): int {
+		$days    = absint( $value );
+		$options = array_keys( self::schedule_interval_options() );
+
+		return in_array( $days, $options, true ) ? $days : 7;
 	}
 
 	/**
