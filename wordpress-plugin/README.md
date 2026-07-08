@@ -32,6 +32,7 @@ Implemented foundation:
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 - Optional external browser worker integration for explicitly configured JavaScript-heavy competitors. The worker feeds candidates and product data into the same approval-first workflow.
 - Competitor link identity guard: approved matches store the competitor SKU/EAN/MPN/title baseline, and later price checks are blocked for review if the same URL appears to have changed to another product.
+- Scheduled monitoring intervals are admin-controlled: approved competitor links can be checked every 1-24 hours, scheduled rediscovery for selected products without matches can run every 1-7 days, and large due sets are drained through small queued batches instead of launching all checks at once.
 
 ## Architecture Principles
 

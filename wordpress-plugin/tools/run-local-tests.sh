@@ -15,6 +15,7 @@ TESTS=(
 	"$ROOT_DIR/tools/test-pricing-rules.php"
 	"$ROOT_DIR/tools/test-price-recovery.php"
 	"$ROOT_DIR/tools/test-price-check-identity-guard.php"
+	"$ROOT_DIR/tools/test-scheduler-settings.php"
 	"$ROOT_DIR/tools/test-suggestion-service.php"
 	"$ROOT_DIR/tools/test-competitor-strategy.php"
 	"$ROOT_DIR/tools/test-group-suggestions.php"

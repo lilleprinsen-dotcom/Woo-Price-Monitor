@@ -8,6 +8,7 @@
 namespace Lilleprinsen\PriceMonitor\Admin\Tabs;
 
 use Lilleprinsen\PriceMonitor\Admin\AdminViewHelpers;
+use Lilleprinsen\PriceMonitor\Settings\Settings;
 
 if ( ! defined( 'ABSPATH' ) ) {
 	exit;
@@ -40,9 +41,11 @@ final class SettingsTab extends AdminViewHelpers {
 						<h2><?php esc_html_e( 'Monitoring', 'lilleprinsen-price-monitor' ); ?></h2>
 					</div>
 					<?php
-					$this->render_number_field( 'default_check_frequency_hours', __( 'Default check frequency (hours)', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_select_field( 'default_check_frequency_hours', __( 'Default product check frequency', 'lilleprinsen-price-monitor' ), $settings, Settings::check_interval_options() );
 					$this->render_checkbox_field( 'scheduled_checks_enabled', __( 'Scheduled checks enabled', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Requires Action Scheduler; otherwise no background job is registered.', 'lilleprinsen-price-monitor' ) );
+					$this->render_select_field( 'scheduled_check_interval_hours', __( 'Check approved matches every', 'lilleprinsen-price-monitor' ), $settings, Settings::check_interval_options() );
 					$this->render_number_field( 'max_urls_per_batch', __( 'Max URLs per batch', 'lilleprinsen-price-monitor' ), $settings, 1 );
+					$this->render_number_field( 'scheduled_batch_spacing_minutes', __( 'Minutes between queued batches', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_number_field( 'check_batch_lock_minutes', __( 'Batch lock minutes', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_checkbox_field( 'create_suggestions_from_scheduled_checks', __( 'Create suggestions from scheduled checks', 'lilleprinsen-price-monitor' ), $settings, __( 'Disabled by default. Scheduled checks never update WooCommerce prices.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'request_timeout_seconds', __( 'Request timeout (seconds)', 'lilleprinsen-price-monitor' ), $settings, 1 );
@@ -50,7 +53,7 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_number_field( 'observation_retention_days', __( 'Successful observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					$this->render_number_field( 'failed_observation_retention_days', __( 'Failed observation retention (days)', 'lilleprinsen-price-monitor' ), $settings, 1 );
 					?>
-					<p class="lpm-field-description"><?php esc_html_e( 'Batch checks use a transient lock and retry backoff. Cleanup remains manual and admin-only.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-field-description"><?php esc_html_e( 'Scheduled checks run in small queued batches. If more approved links are due than one batch can handle, the next batch is spaced out instead of starting everything at once.', 'lilleprinsen-price-monitor' ); ?></p>
 				</section>
 
 				<section class="lpm-card">
