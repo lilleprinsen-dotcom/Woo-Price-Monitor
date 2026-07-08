@@ -12,11 +12,12 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 abstract class AdminViewHelpers {
-	protected function render_summary_card( string $label, int $value, string $description ): void {
+	protected function render_summary_card( string $label, int|string $value, string $description ): void {
+		$display_value = is_int( $value ) ? number_format_i18n( $value ) : $value;
 		?>
 		<section class="lpm-card lpm-summary-card">
 			<span class="lpm-summary-label"><?php echo esc_html( $label ); ?></span>
-			<strong><?php echo esc_html( number_format_i18n( $value ) ); ?></strong>
+			<strong><?php echo esc_html( $display_value ); ?></strong>
 			<span><?php echo esc_html( $description ); ?></span>
 		</section>
 		<?php
