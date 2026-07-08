@@ -14,7 +14,7 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 
 ## Checklist
 
-- [ ] Open WooCommerce > Competitor Prices > Overview and review Admin test readiness: selected discovery products, active competitors, scheduled discovery, scheduled price checks, dry-run mode, real WooCommerce price updates, and JavaScript-only competitor count.
+- [ ] Open WooCommerce > Price Monitor > Overview and review Admin test readiness: monitored products, active competitors, scheduled discovery, scheduled price checks, dry-run mode, real WooCommerce price updates, and JavaScript-only competitor count.
 - [ ] Confirm the Overview says matches must be approved before monitoring starts.
 - [ ] Confirm real WooCommerce price updates are disabled and dry-run/emergency safety is enabled before testing on production data.
 - [ ] Activate the plugin from WordPress admin.
@@ -23,17 +23,17 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Deactivate WooCommerce temporarily and confirm the admin dependency notice appears without a fatal error.
 - [ ] Reactivate WooCommerce and open WooCommerce > Price Monitor.
 - [ ] Save Settings and confirm the success notice appears.
-- [ ] Confirm Dashboard, Settings, and Logs still load after the admin tab renderer refactor.
+- [ ] Confirm Overview and Settings & Logs still load after the admin tab renderer refactor.
 - [ ] Confirm POST actions still show notices and redirects after the admin action handler refactor.
-- [ ] Confirm dry-run mode is visible on the Dashboard and enabled by default.
-- [ ] Confirm Dashboard health cards show last check time, checks last 24 hours, failed checks last 24 hours, batch lock status, scheduled checks, pending/blocked suggestions, active price match sessions, real-update possibility, and webhook notification state.
-- [ ] Confirm Dashboard warnings appear when WooCommerce is inactive, dry-run mode is disabled, emergency update disable is off, scheduled checks use a large batch size, or many checks have failed.
+- [ ] Confirm dry-run mode is visible on the Overview and enabled by default.
+- [ ] Confirm Overview health cards show monitored products, active competitors, approved matches, suggestions needing review, failed checks, and safety mode.
+- [ ] Confirm Overview warnings appear when WooCommerce is inactive, dry-run mode is disabled, emergency update disable is off, scheduled checks use a large batch size, or many checks have failed.
 - [ ] Confirm notifications and webhook notifications are disabled by default.
 - [ ] Add a staging Make/Zapier/webhook URL, optional secret, and enable webhook notifications.
 - [ ] Click Test webhook and confirm the provider receives a JSON payload with `event`, `site_url`, `plugin_version`, `message_text`, `review_url`, and no real price-update action link.
 - [ ] If a webhook secret is set, confirm the request includes an `X-LPM-Signature` header.
 - [ ] Break the webhook URL temporarily and confirm the admin flow continues while a webhook failure is logged.
-- [ ] On Products, confirm the pre-search message says to search by name, SKU, or ID.
+- [ ] On Products, confirm the pre-search message says to search by name, SKU, EAN/GTIN, or ID.
 - [ ] With JavaScript enabled, type fewer than 3 non-numeric characters and confirm async search does not run.
 - [ ] With JavaScript enabled, type a numeric product ID and confirm async search runs immediately without page reload.
 - [ ] With JavaScript enabled, type 3+ SKU/name characters and confirm debounced async search returns at most 20 products.
@@ -57,7 +57,7 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Configure a page where meta tags expose the regular price and a mapped sale-price selector exposes a lower sale price. Confirm auto mode selects the sale price when monitored price field is `sale_price_first`.
 - [ ] Mark the profile as requiring JavaScript and confirm profile testing returns the clear internal-checker warning without trying browser automation.
 - [ ] Confirm profile-only Test URL does not create a product observation row or update a competitor link.
-- [ ] Open Groups and create a group with pricing mode `shared_price`.
+- [ ] Open Settings & Logs > Import / Export and create a group with pricing mode `shared_price`.
 - [ ] Search monitored products by name, SKU, and product ID from the group member panel and confirm results are limited to monitored products found in a bounded search.
 - [ ] Add 3 monitored products to the group.
 - [ ] Set one group member as primary and confirm only one primary member is shown.
@@ -120,7 +120,7 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Set recovery basis to `all_competitors_must_increase` and confirm recovery is skipped while any enabled exact/similar competitor remains lower.
 - [ ] Set `recovery_max_competitor_price_age_hours` low on staging and confirm stale primary/exact/similar competitor data forces manual review.
 - [ ] Confirm recovery suggestions show original regular, original sale, original active, current WooCommerce, new competitor, and suggested recovery prices.
-- [ ] Open Approvals and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
+- [ ] Open Suggestions and confirm pending, blocked, approved dry-run, rejected, and recovery counts.
 - [ ] Use the Needs review, Blocked, Recovery, and Failed quick filters and confirm they map to bounded server-side suggestion queries.
 - [ ] Open an approval URL with `lpm_suggestion_id` and confirm the row is highlighted and the details panel loads.
 - [ ] Click a suggestion row or Details button and confirm the details panel shows product image, current price, competitor price, suggested price, margin, warnings/rules, and recovery/session state when available.
@@ -133,14 +133,14 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Confirm webhook `review_url` and `approval_url` require normal WordPress admin login.
 - [ ] Confirm no unauthenticated webhook link can perform a real WooCommerce price update.
 - [ ] Confirm token links never expose an approve-and-update-price action and never bypass real-update admin confirmation.
-- [ ] Open Logs and test filters for level, event, and product ID.
+- [ ] Open Settings & Logs > Logs and test filters for level, event, and product ID.
 - [ ] Confirm log pagination does not load all rows at once.
-- [ ] Open History and test filters for product ID, competitor link ID, success/failed, and date range.
+- [ ] Open Settings & Logs > Debug and test history filters for product ID, competitor link ID, success/failed, and date range.
 - [ ] Confirm History shows active price match sessions with original active price, matched price, recovery strategy, status, and actions.
 - [ ] End an `active_dry_run` price match session from History and confirm WooCommerce price is unchanged.
 - [ ] Confirm real active sessions cannot be ended from the dry-run-only History action.
 - [ ] Confirm the competitor management screen shows the latest five checks for the selected monitored product.
-- [ ] Open Import / Export and download the sample CSV template.
+- [ ] Open Settings & Logs > Import / Export and download the sample CSV template.
 - [ ] Upload a small valid CSV and confirm the preview shows valid rows before anything is committed.
 - [ ] Upload rows with missing products, invalid URLs, invalid strategy, invalid enabled values, and duplicate competitor URLs; confirm warnings/errors are clear.
 - [ ] Confirm a valid preview and verify monitored products/rules/competitor links are created or updated.
@@ -166,14 +166,14 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 
 ## Competitor Discovery Staging Walkthrough
 
-Use this short path before controlled live dry-run. It should be safe with a large catalog because discovery uses only products explicitly selected under Competitor Prices.
+Use this short path before controlled live dry-run. It should be safe with a large catalog because discovery uses only products explicitly selected under Price Monitor.
 
 - [ ] Install and activate on staging with WooCommerce active.
 - [ ] Keep `dry_run_mode` enabled, `disable_all_price_updates` enabled, and `allow_real_price_updates` disabled.
-- [ ] Go to WooCommerce > Competitor Prices > Products to Monitor.
+- [ ] Go to WooCommerce > Price Monitor > Products.
 - [ ] Add exactly 10 staging products by SKU, product ID, or variation ID.
 - [ ] Confirm the selected-products count is 10 and no warning says products are missing.
-- [ ] Go to Find Matches and add 2 competitor profiles.
+- [ ] Go to WooCommerce > Price Monitor > Competitors and add 2 competitor profiles.
 - [ ] For each competitor, test one simple server-rendered product page.
 - [ ] Review detected JSON-LD, meta, selector, and visible text candidates.
 - [ ] Click Use this price for the best regular or sale price candidate and confirm the saved-rule notice. If the candidate came from JSON-LD, meta, or visible text, no CSS selector is required.
@@ -186,7 +186,7 @@ Use this short path before controlled live dry-run. It should be safe with a lar
 - [ ] Click Retest on one row and confirm only that product/competitor pair is retested.
 - [ ] Click Cancel during a run and confirm no further rows process. Already-created suggestions should remain.
 - [ ] Approve one clearly correct suggestion and confirm the row says Active monitored competitor link.
-- [ ] Open Overview and confirm the approved link appears in Active monitored competitor links with last checked, last price, last error, next check, and status columns.
+- [ ] Open Overview and confirm the approved link is counted as an approved match, then open the product details to verify last checked, last price, last error, next check, and status.
 - [ ] Reject one weak suggestion and confirm it does not immediately reappear unless the competitor page data changes.
 - [ ] Run one small price check batch on staging and confirm WooCommerce product prices do not change.
 

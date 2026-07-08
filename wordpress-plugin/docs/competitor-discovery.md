@@ -6,7 +6,7 @@ The normal workflow is simple:
 
 1. Select the products you want to monitor.
 2. Add a competitor website.
-3. Click **Scan monitored SKUs**.
+3. Click **Find matches**.
 4. Review and approve suggested matches.
 
 The assistant searches the competitor website for the SKUs you selected, checks possible competitor product pages, and suggests matches when it finds the same SKU/EAN/MPN or strong product evidence. If a competitor search does not find trustworthy SKU evidence, the assistant can also search by the product name to find possible pages, then it still reads the page and verifies identifiers before suggesting a match.
@@ -19,15 +19,15 @@ You can add products from:
 
 - The product edit screen: check **Include in competitor discovery**.
 - The WooCommerce product list: use the bulk action **Include in competitor discovery**.
-- **WooCommerce > Competitor Prices > Products to Monitor**: paste SKUs, product IDs, or variation IDs.
+- **WooCommerce > Price Monitor > Products**: search by name, SKU, EAN/GTIN, or product ID, or use the collapsed bulk-add area for SKUs, product IDs, and EAN/GTIN values.
 
 Variation identifiers are preferred over parent product identifiers. Parent values are used only when the variation value is empty.
 
-The selected-products page shows product name, SKU, EAN/GTIN, EAN source, brand, pending suggestions, and last discovery run. Identifier counts and duplicate warnings are shown on the overview page.
+The Products page shows product name, SKU, EAN/GTIN, brand, monitoring status, competitor matches, pending suggestions, and last checked time. Identifier counts and duplicate warnings are shown on the overview page.
 
 ## EAN/GTIN Source
 
-Open **WooCommerce > Competitor Prices > Advanced Settings** and choose **Where is EAN/GTIN stored?**
+Open **WooCommerce > Price Monitor > Settings & Logs > Advanced settings** and choose **Where is EAN/GTIN stored?**
 
 Options:
 
@@ -38,11 +38,11 @@ Options:
 
 If **Custom field / product meta key** is selected, enter **EAN/GTIN meta key**. Examples: `_alg_ean`, `_wpm_gtin_code`, `_global_unique_id`, `ean`, `gtin`, `barcode`.
 
-Use **Test EAN/GTIN source** on **Products to Monitor**. The test only checks selected discovery products, not the full catalog.
+Use **Test EAN/GTIN source** from the product/discovery settings area. The test only checks selected products, not the full catalog.
 
 ## Add Or Test A Competitor
 
-Open **WooCommerce > Competitor Prices > Find Matches**.
+Open **WooCommerce > Price Monitor > Competitors**.
 
 1. Choose an existing competitor or create a new one.
 2. Paste one competitor product URL.
@@ -65,11 +65,11 @@ The assistant shows:
 
 Source labels are plain-language labels such as **Structured product data**, **Product meta tag**, **Page content**, **Image URL**, and **Custom competitor rule**.
 
-## Scan Monitored SKUs
+## Find Matches
 
-Use **Scan monitored SKUs** for the Reprice-style workflow: the plugin takes the SKUs from **Products to Monitor**, crawls a small safe set of pages on the competitor website, searches the competitor website, queues possible product pages, reads identifiers and prices, then creates suggested matches.
+Use **Find matches** for the Reprice-style workflow: the plugin takes the SKUs and identifiers from **Products**, crawls a small safe set of pages on the competitor website, searches the competitor website, queues possible product pages, reads identifiers and prices, then creates suggested matches.
 
-The button is shown in **WooCommerce > Competitor Prices > Find Matches**, in the **Competitors** table. After clicking it, wait a minute and open **Suggested Matches**. Matches are still review-only until an admin approves them.
+The button is shown in **WooCommerce > Price Monitor > Competitors**, in the **Competitors** table. After clicking it, open **Suggestions** to review results. Matches are still review-only until an admin approves them.
 
 The default scan is intentionally bounded:
 
@@ -92,7 +92,7 @@ Common search formats are tried automatically, including WooCommerce-style `?s=S
 
 ## Add Discovery Sources
 
-Use **Add page with many products** when the competitor search does not find enough pages or when you know a useful category/listing/sitemap page.
+Use **Listing/category source URLs** when the competitor search does not find enough pages or when you know a useful category/listing/sitemap page.
 
 Supported source types:
 
@@ -104,9 +104,9 @@ By default, source discovery stays on the competitor domain, removes common trac
 
 Manual discovery and SKU scanning both use bounded Action Scheduler batches with request limits, page limits, delays, locks, and resume-friendly stored state.
 
-## Review Suggested Matches
+## Review Suggestions
 
-Open **WooCommerce > Competitor Prices > Suggested Matches**.
+Open **WooCommerce > Price Monitor > Suggestions**.
 
 Each suggestion shows:
 

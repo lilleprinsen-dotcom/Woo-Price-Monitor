@@ -30,7 +30,7 @@ final class LogNotificationChannel implements NotificationInterface {
 		}
 
 		$context['channel'] = 'log';
-		$context['note']    = __( 'Notification event logged for debugging/audit. Direct WhatsApp is not implemented.', 'lilleprinsen-price-monitor' );
+		$context['note']    = __( 'Notification event logged for debugging/audit. WhatsApp delivery can be handled by an external webhook provider.', 'lilleprinsen-price-monitor' );
 
 		return $this->repository->write_log(
 			'info',

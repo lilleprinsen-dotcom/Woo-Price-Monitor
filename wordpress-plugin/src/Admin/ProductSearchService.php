@@ -46,9 +46,59 @@ final class ProductSearchService {
 		}
 
 		$this->search_by_sku( $query, $products );
+		$this->search_by_identifier_meta( $query, $products, $limit );
 		$this->search_by_title( $query, $products, $limit );
 
 		return array_slice( array_map( array( $this, 'product_to_display_array' ), array_values( $products ) ), 0, $limit );
+	}
+
+	/**
+	 * @param array<int, object> $products Products keyed by product ID.
+	 */
+	private function search_by_identifier_meta( string $query, array &$products, int $limit ): void {
+		if ( ! function_exists( 'wc_get_products' ) || count( $products ) >= $limit ) {
+			return;
+		}
+
+		$meta_keys = array( '_global_unique_id', '_alg_ean', '_wpm_gtin_code', 'ean', 'gtin', 'barcode' );
+		$queries   = array( 'relation' => 'OR' );
+		foreach ( $meta_keys as $key ) {
+			$queries[] = array(
+				'key'     => $key,
+				'value'   => $query,
+				'compare' => '=',
+			);
+		}
+
+		try {
+			$matches = wc_get_products(
+				array(
+					'limit'      => $limit - count( $products ),
+					'status'     => array( 'publish', 'private', 'draft' ),
+					'meta_query' => $queries,
+				)
+			);
+		} catch ( \Throwable $throwable ) {
+			if ( $this->repository ) {
+				$this->repository->write_log(
+					'error',
+					'product_identifier_search_failed',
+					__( 'WooCommerce product identifier search failed.', 'lilleprinsen-price-monitor' ),
+					array( 'error' => $throwable->getMessage() )
+				);
+			}
+			return;
+		}
+
+		if ( ! is_array( $matches ) ) {
+			return;
+		}
+
+		foreach ( $matches as $product ) {
+			if ( is_object( $product ) && method_exists( $product, 'get_id' ) ) {
+				$this->add_product_object_to_results( $product, $products );
+			}
+		}
 	}
 
 	/**

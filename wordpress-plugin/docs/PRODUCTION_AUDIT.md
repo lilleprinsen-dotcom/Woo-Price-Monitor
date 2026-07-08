@@ -78,7 +78,7 @@ The plugin is designed to start as an admin-only, dry-run price-control tool. Re
 - Parser behavior is still MVP-level and should be trusted only after reviewing observation history.
 - JavaScript-heavy competitor pages require a future external worker; the internal checker does not render JavaScript.
 - Group real updates are guarded but should be tested on staging with real WooCommerce products before production use.
-- Mid-update rollback is not implemented for group updates; the plugin logs exactly which products succeeded and failed.
+- Mid-update rollback for group updates is outside the current safety model; the plugin logs exactly which products succeeded and failed.
 - Cost/margin behavior depends on store-specific cost metadata and should be verified before strict margin blocking.
 - Webhook delivery depends on the configured third-party provider and should be tested before WhatsApp forwarding.
 

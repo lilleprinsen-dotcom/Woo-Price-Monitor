@@ -277,7 +277,7 @@ final class SettingsTab extends AdminViewHelpers {
 						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
 						<?php $this->render_status_pill( ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Webhook enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' ); ?>
 					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'Direct WhatsApp is not implemented. Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
+					<p class="lpm-field-description"><?php esc_html_e( 'Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
 					<?php
 					$this->render_checkbox_field( 'notifications_enabled', __( 'Notifications enabled', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'notify_on_new_suggestion', __( 'Notify on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
@@ -286,7 +286,7 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_text_field( 'notification_phone_number', __( 'Notification phone number', 'lilleprinsen-price-monitor' ), $settings, '+47 ...' );
 					$this->render_select_field(
 						'whatsapp_provider',
-						__( 'WhatsApp provider placeholder', 'lilleprinsen-price-monitor' ),
+						__( 'WhatsApp forwarding provider', 'lilleprinsen-price-monitor' ),
 						$settings,
 						array(
 							'none'           => __( 'None', 'lilleprinsen-price-monitor' ),
