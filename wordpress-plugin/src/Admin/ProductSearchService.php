@@ -16,6 +16,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 
 final class ProductSearchService {
 	private const DEFAULT_LIMIT = 20;
+	private const TITLE_CANDIDATE_LIMIT = 80;
 
 	private ?Repository $repository;
 
@@ -127,7 +128,7 @@ final class ProductSearchService {
 		try {
 			$matches = wc_get_products(
 				array(
-					'limit'   => $limit - count( $products ),
+					'limit'   => max( $limit - count( $products ), min( self::TITLE_CANDIDATE_LIMIT, $limit * 4 ) ),
 					'status'  => array( 'publish', 'private', 'draft' ),
 					'orderby' => 'title',
 					'order'   => 'ASC',
@@ -150,11 +151,123 @@ final class ProductSearchService {
 			return;
 		}
 
+		$ranked = array();
 		foreach ( $matches as $product ) {
 			if ( is_object( $product ) && method_exists( $product, 'get_id' ) ) {
-				$this->add_product_object_to_results( $product, $products );
+				$score = $this->score_title_match( $query, $product );
+				if ( $score > 0 ) {
+					$ranked[] = array(
+						'product' => $product,
+						'score'   => $score,
+					);
+				}
 			}
 		}
+
+		usort(
+			$ranked,
+			static function ( array $a, array $b ): int {
+				return (int) $b['score'] <=> (int) $a['score'];
+			}
+		);
+
+		foreach ( $ranked as $row ) {
+			if ( count( $products ) >= $limit ) {
+				return;
+			}
+			$this->add_product_object_to_results( $row['product'], $products );
+		}
+	}
+
+	private function score_title_match( string $query, object $product ): int {
+		$title = method_exists( $product, 'get_name' ) ? (string) $product->get_name() : '';
+		if ( '' === trim( $title ) ) {
+			return 0;
+		}
+
+		$query_tokens = $this->search_tokens( $query );
+		$title_tokens = $this->search_tokens( $title );
+		if ( empty( $query_tokens ) || empty( $title_tokens ) ) {
+			return 0;
+		}
+
+		$matches      = 0;
+		$prefix_match = false;
+		$score        = 0;
+		foreach ( $query_tokens as $index => $query_token ) {
+			if ( $this->token_matches_any( $query_token, $title_tokens ) ) {
+				++$matches;
+				$score += 10;
+				if ( 0 === $index ) {
+					$prefix_match = true;
+					$score       += 25;
+				}
+			}
+		}
+
+		$query_phrase = implode( ' ', $query_tokens );
+		$title_phrase = implode( ' ', $title_tokens );
+		if ( str_contains( $title_phrase, $query_phrase ) ) {
+			$score += 100;
+		}
+
+		$token_count      = count( $query_tokens );
+		$minimum_matches  = $token_count >= 4 ? 3 : min( 2, $token_count );
+		$brand_like_match = $prefix_match && $matches >= 2;
+		if ( $matches < $minimum_matches && ! $brand_like_match ) {
+			return 0;
+		}
+
+		return $score + $matches;
+	}
+
+	/**
+	 * @return array<int, string>
+	 */
+	private function search_tokens( string $value ): array {
+		$value = html_entity_decode( $value, ENT_QUOTES | ENT_HTML5, 'UTF-8' );
+		$value = preg_replace( '/([a-z])([A-Z])/', '$1 $2', $value );
+		$value = is_string( $value ) ? strtolower( $value ) : '';
+		$value = strtr(
+			$value,
+			array(
+				'æ' => 'ae',
+				'ø' => 'o',
+				'å' => 'a',
+				'é' => 'e',
+				'è' => 'e',
+				'ö' => 'o',
+				'ü' => 'u',
+			)
+		);
+		$value = preg_replace( '/[^a-z0-9]+/', ' ', $value );
+		$raw   = preg_split( '/\s+/', trim( is_string( $value ) ? $value : '' ) );
+		$tokens = array();
+		foreach ( is_array( $raw ) ? $raw : array() as $token ) {
+			$token = trim( (string) $token );
+			if ( strlen( $token ) < 2 ) {
+				continue;
+			}
+			$tokens[ $token ] = $token;
+		}
+
+		return array_values( $tokens );
+	}
+
+	/**
+	 * @param array<int, string> $candidates Candidate title tokens.
+	 */
+	private function token_matches_any( string $needle, array $candidates ): bool {
+		foreach ( $candidates as $candidate ) {
+			if ( $needle === $candidate ) {
+				return true;
+			}
+			if ( strlen( $needle ) >= 5 && ( str_starts_with( $candidate, $needle ) || str_starts_with( $needle, $candidate ) ) ) {
+				return true;
+			}
+		}
+
+		return false;
 	}
 
 	/**
