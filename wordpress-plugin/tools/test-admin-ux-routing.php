@@ -94,4 +94,10 @@ if ( false === strpos( $discovery_script, 'openDiscoveryModal' ) || false === st
 	exit( 1 );
 }
 
+$admin_script = file_get_contents( LPM_TEST_ROOT . '/assets/admin.js' );
+if ( false === strpos( $admin_script, 'data-lpm-chart-point' ) || false === strpos( $admin_script, 'lpm-chart-tooltip' ) ) {
+	fwrite( STDERR, "Price history chart points should expose compact hover/focus tooltips.\n" );
+	exit( 1 );
+}
+
 echo "Admin UX routing tests passed.\n";

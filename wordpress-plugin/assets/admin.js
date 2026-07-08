@@ -748,6 +748,15 @@
 		return renderPriceChart(drawerData.chart_observations || []) + renderObservations(drawerData.observations || []);
 	}
 
+	function chartTooltipText(row) {
+		return {
+			site: row.competitor_name || ('Link #' + text(row.competitor_link_id)),
+			price: text(row.observed_price) + (row.currency ? ' ' + row.currency : ''),
+			date: row.checked_at || row.created_at || '—',
+			stock: stockStatusLabel(row.stock_status)
+		};
+	}
+
 	function renderPriceChart(observations) {
 		var product = drawerData.product || {};
 		var ourPrice = parseFloat(product.price);
@@ -805,7 +814,8 @@
 
 			return '<polyline fill="none" stroke="' + color + '" stroke-width="3" points="' + escapeHtml(points) + '"></polyline>' + rows.map(function (row, rowIndex) {
 				var parts = points.split(' ')[rowIndex].split(',');
-				return '<circle cx="' + escapeHtml(parts[0]) + '" cy="' + escapeHtml(parts[1]) + '" r="3.5" fill="' + color + '" class="lpm-chart-point-' + escapeHtml(normalizeStockStatus(row.stock_status)) + '"><title>' + escapeHtml((row.competitor_name || ('Link #' + row.competitor_link_id)) + ' · ' + row.observed_price + ' ' + (row.currency || '') + ' · ' + stockStatusLabel(row.stock_status) + ' · ' + (row.checked_at || row.created_at)) + '</title></circle>';
+				var tooltip = chartTooltipText(row);
+				return '<circle cx="' + escapeHtml(parts[0]) + '" cy="' + escapeHtml(parts[1]) + '" r="4.5" fill="' + color + '" tabindex="0" role="img" aria-label="' + escapeAttr(tooltip.site + ', ' + tooltip.price + ', ' + tooltip.date) + '" class="lpm-chart-point lpm-chart-point-' + escapeHtml(normalizeStockStatus(row.stock_status)) + '" data-lpm-chart-point="1" data-site="' + escapeAttr(tooltip.site) + '" data-price="' + escapeAttr(tooltip.price) + '" data-date="' + escapeAttr(tooltip.date) + '" data-stock="' + escapeAttr(tooltip.stock) + '"></circle>';
 			}).join('');
 		}).join('');
 		var ourLine = '';
@@ -874,6 +884,74 @@
 
 	function chartColor(index) {
 		return ['#2271b1', '#008a20', '#b32d2e', '#8a4b00', '#6f42c1', '#007c89'][index % 6];
+	}
+
+	function chartTooltip() {
+		var tooltip = document.querySelector('[data-lpm-chart-tooltip]');
+		if (!tooltip) {
+			tooltip = document.createElement('div');
+			tooltip.className = 'lpm-chart-tooltip';
+			tooltip.dataset.lpmChartTooltip = '1';
+			document.body.appendChild(tooltip);
+		}
+		return tooltip;
+	}
+
+	function positionChartTooltip(tooltip, point, event) {
+		var rect = point.getBoundingClientRect();
+		var x = event && Number.isFinite(event.clientX) ? event.clientX : rect.left + rect.width / 2;
+		var y = event && Number.isFinite(event.clientY) ? event.clientY : rect.top;
+		tooltip.style.left = Math.min(window.innerWidth - 220, Math.max(12, x + 12)) + 'px';
+		tooltip.style.top = Math.max(12, y + 14) + 'px';
+	}
+
+	function showChartTooltip(point, event) {
+		var tooltip = chartTooltip();
+		tooltip.innerHTML = '<strong>' + escapeHtml(point.dataset.site || 'Competitor') + '</strong>' +
+			'<span>' + escapeHtml(point.dataset.price || '—') + '</span>' +
+			'<small>' + escapeHtml(point.dataset.date || '—') + '</small>' +
+			'<small>' + escapeHtml(point.dataset.stock || 'Stock unknown') + '</small>';
+		tooltip.hidden = false;
+		positionChartTooltip(tooltip, point, event);
+	}
+
+	function hideChartTooltip() {
+		var tooltip = document.querySelector('[data-lpm-chart-tooltip]');
+		if (tooltip) {
+			tooltip.hidden = true;
+		}
+	}
+
+	function initChartTooltips() {
+		document.addEventListener('mouseover', function (event) {
+			var point = event.target.closest && event.target.closest('[data-lpm-chart-point]');
+			if (point) {
+				showChartTooltip(point, event);
+			}
+		});
+		document.addEventListener('mousemove', function (event) {
+			var point = event.target.closest && event.target.closest('[data-lpm-chart-point]');
+			var tooltip = document.querySelector('[data-lpm-chart-tooltip]');
+			if (point && tooltip && !tooltip.hidden) {
+				positionChartTooltip(tooltip, point, event);
+			}
+		});
+		document.addEventListener('mouseout', function (event) {
+			if (event.target.closest && event.target.closest('[data-lpm-chart-point]')) {
+				hideChartTooltip();
+			}
+		});
+		document.addEventListener('focusin', function (event) {
+			var point = event.target.closest && event.target.closest('[data-lpm-chart-point]');
+			if (point) {
+				showChartTooltip(point, null);
+			}
+		});
+		document.addEventListener('focusout', function (event) {
+			if (event.target.closest && event.target.closest('[data-lpm-chart-point]')) {
+				hideChartTooltip();
+			}
+		});
 	}
 
 	function renderObservations(observations) {
@@ -1297,5 +1375,6 @@
 		initDrawer();
 		initApprovals();
 		initPlatformWizard();
+		initChartTooltips();
 	});
 })();

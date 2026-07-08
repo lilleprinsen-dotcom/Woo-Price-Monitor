@@ -1040,10 +1040,57 @@
 	stroke-width: 2.5;
 }
 
+.lpm-chart-svg .lpm-chart-point {
+	cursor: pointer;
+	outline: none;
+	stroke: #fff;
+	stroke-width: 1.5;
+}
+
+.lpm-chart-svg .lpm-chart-point:hover,
+.lpm-chart-svg .lpm-chart-point:focus {
+	filter: drop-shadow(0 2px 4px rgba(29, 35, 39, 0.28));
+	r: 6;
+	stroke: #1d2327;
+}
+
 .lpm-chart-svg .lpm-chart-point-out_of_stock {
 	opacity: 0.45;
 	stroke: #8a2424;
 	stroke-width: 1.5;
+}
+
+.lpm-chart-tooltip {
+	background: #1d2327;
+	border-radius: 6px;
+	box-shadow: 0 8px 24px rgba(29, 35, 39, 0.22);
+	color: #fff;
+	display: grid;
+	font-size: 12px;
+	gap: 2px;
+	line-height: 1.35;
+	max-width: 220px;
+	padding: 8px 10px;
+	pointer-events: none;
+	position: fixed;
+	z-index: 100001;
+}
+
+.lpm-chart-tooltip[hidden] {
+	display: none;
+}
+
+.lpm-chart-tooltip strong {
+	font-size: 12px;
+}
+
+.lpm-chart-tooltip span {
+	font-size: 15px;
+	font-weight: 800;
+}
+
+.lpm-chart-tooltip small {
+	color: #dcdcde;
 }
 
 .lpm-chart-meta,
