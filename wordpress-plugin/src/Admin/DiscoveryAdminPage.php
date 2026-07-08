@@ -217,7 +217,7 @@ class DiscoveryAdminPage {
 		);
 		echo '<h2 class="nav-tab-wrapper">';
 		foreach ( $tabs as $key => $label ) {
-			$url = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => $key ), admin_url( 'admin.php' ) );
+			$url = $this->unified_admin_url( $key );
 			printf( '<a class="nav-tab %s" href="%s">%s</a>', esc_attr( $current === $key ? 'nav-tab-active' : '' ), esc_url( $url ), esc_html( $label ) );
 		}
 		echo '</h2>';
@@ -239,8 +239,8 @@ class DiscoveryAdminPage {
 				<p><?php esc_html_e( 'Select products, add competitors, run discovery, then approve matches before monitoring starts.', 'lilleprinsen-price-monitor' ); ?></p>
 			</div>
 			<p class="lpm-discovery-hero-actions">
-				<a class="button button-primary" href="<?php echo esc_url( add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'products' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Select products', 'lilleprinsen-price-monitor' ); ?></a>
-				<a class="button" href="<?php echo esc_url( add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'competitors' ), admin_url( 'admin.php' ) ) ); ?>"><?php esc_html_e( 'Set up competitors', 'lilleprinsen-price-monitor' ); ?></a>
+				<a class="button button-primary" href="<?php echo esc_url( $this->unified_admin_url( 'products' ) ); ?>"><?php esc_html_e( 'Select products', 'lilleprinsen-price-monitor' ); ?></a>
+				<a class="button" href="<?php echo esc_url( $this->unified_admin_url( 'competitors' ) ); ?>"><?php esc_html_e( 'Set up competitors', 'lilleprinsen-price-monitor' ); ?></a>
 			</p>
 		</div>
 		<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;margin-top:16px;">
@@ -322,7 +322,7 @@ class DiscoveryAdminPage {
 				<button class="button"><?php esc_html_e( 'Test EAN/GTIN source', 'lilleprinsen-price-monitor' ); ?></button>
 			</form>
 		</details>
-		<form method="get" style="margin:12px 0;"><input type="hidden" name="page" value="lpm-competitor-prices" /><input type="hidden" name="view" value="products" /><input type="search" name="s" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search selected products', 'lilleprinsen-price-monitor' ); ?>" /> <button class="button"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button></form>
+		<form method="get" style="margin:12px 0;"><input type="hidden" name="page" value="<?php echo esc_attr( AdminPage::SLUG ); ?>" /><input type="hidden" name="tab" value="products" /><input type="search" name="lpm_product_search" value="<?php echo esc_attr( $search ); ?>" placeholder="<?php esc_attr_e( 'Search selected products', 'lilleprinsen-price-monitor' ); ?>" /> <button class="button"><?php esc_html_e( 'Search', 'lilleprinsen-price-monitor' ); ?></button></form>
 		<?php if ( 0 === $total ) : ?>
 			<div class="notice notice-warning inline"><p><?php esc_html_e( 'No products are selected yet. Search for products above or paste SKUs below before running discovery; the assistant will never scan the full WooCommerce catalog.', 'lilleprinsen-price-monitor' ); ?> <a class="button button-primary" href="#lpm_discovery_product_search"><?php esc_html_e( 'Search products', 'lilleprinsen-price-monitor' ); ?></a></p></div>
 		<?php endif; ?>
@@ -745,8 +745,8 @@ class DiscoveryAdminPage {
 		$competitor_id    = absint( $this->last_test['competitor_id'] ?? 0 );
 		$suggestion_count = absint( $this->last_test['suggestion_count'] ?? 0 );
 		$success          = ! empty( $this->last_test['success'] );
-		$suggestions_url  = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'suggestions' ), admin_url( 'admin.php' ) );
-		$products_url     = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => 'products' ), admin_url( 'admin.php' ) );
+		$suggestions_url  = $this->unified_admin_url( 'suggestions' );
+		$products_url     = $this->unified_admin_url( 'products' );
 		?>
 		<h3><?php esc_html_e( 'Detected price candidates', 'lilleprinsen-price-monitor' ); ?></h3>
 		<?php if ( ! empty( $this->last_test['requires_javascript'] ) ) : ?><div class="notice notice-warning inline"><p><?php esc_html_e( 'This competitor page appears to require JavaScript. The internal checker cannot render JavaScript; connect an external scraper/browser worker in the future before relying on this competitor.', 'lilleprinsen-price-monitor' ); ?></p></div><?php endif; ?>
@@ -1142,10 +1142,30 @@ class DiscoveryAdminPage {
 		}
 		echo '<p class="tablenav-pages">';
 		for ( $i = 1; $i <= $pages; $i++ ) {
-			$url = add_query_arg( array( 'page' => 'lpm-competitor-prices', 'view' => $view, 'paged' => $i, 's' => $search ), admin_url( 'admin.php' ) );
+			$url = $this->unified_admin_url( $view, array( 'paged' => $i, 's' => $search ) );
 			printf( '<a class="button %s" href="%s">%s</a> ', esc_attr( $i === $page ? 'button-primary' : '' ), esc_url( $url ), esc_html( (string) $i ) );
 		}
 		echo '</p>';
+	}
+
+	/**
+	 * Build a unified Price Monitor admin URL from legacy discovery view names.
+	 *
+	 * @param array<string,mixed> $extra_args Extra query args.
+	 */
+	private function unified_admin_url( string $view, array $extra_args = array() ): string {
+		$args = array_merge(
+			array(
+				'page' => AdminPage::SLUG,
+				'tab'  => $this->legacy_view_to_unified_tab( $view ),
+			),
+			array_filter(
+				$extra_args,
+				static fn( $value ): bool => '' !== $value && null !== $value
+			)
+		);
+
+		return add_query_arg( $args, admin_url( 'admin.php' ) );
 	}
 
 	private function set_notice( string $message, string $type = 'success' ): void {
