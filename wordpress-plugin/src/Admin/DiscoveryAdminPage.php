@@ -890,7 +890,7 @@ class DiscoveryAdminPage {
 		return false !== strpos( $template, '{sku}' ) || false !== strpos( $template, '{query}' ) || false !== strpos( $template, '{ean}' ) || false !== strpos( $template, '{gtin}' ) || false !== strpos( $template, '%s' );
 	}
 
-	private function render_manual_discovery_panel(): void {
+	public function render_manual_discovery_panel(): void {
 		$products    = $this->discovery_repository->get_enabled_products_for_matching( 200 );
 		$competitors = array_values( array_filter( $this->repository->get_competitors( 1, 200 ), static fn( $competitor ) => ! empty( $competitor['enabled'] ) ) );
 		$settings    = $this->settings->get_all();

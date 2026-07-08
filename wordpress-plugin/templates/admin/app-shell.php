@@ -81,6 +81,8 @@ if ( ! defined( 'ABSPATH' ) ) {
 		</section>
 	</div>
 
+	<?php $this->render_manual_discovery_modal(); ?>
+
 	<div class="lpm-drawer-backdrop" data-lpm-drawer-close hidden></div>
 	<aside class="lpm-drawer" aria-hidden="true" aria-label="<?php esc_attr_e( 'Product details', 'lilleprinsen-price-monitor' ); ?>">
 		<header class="lpm-drawer-header">

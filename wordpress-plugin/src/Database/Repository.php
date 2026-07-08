@@ -581,6 +581,16 @@ final class Repository {
 		return $this->get_table_count( 'competitors' );
 	}
 
+	public function count_active_competitors(): int {
+		$table = $this->tables['competitors'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return 0;
+		}
+
+		return (int) $this->wpdb->get_var( "SELECT COUNT(*) FROM {$table} WHERE enabled = 1" );
+	}
+
 	/**
 	 * @return array<int, array<string, mixed>>
 	 */

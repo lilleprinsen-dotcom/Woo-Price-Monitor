@@ -105,6 +105,28 @@
 		}
 	}
 
+	function openDiscoveryModal() {
+		var modal = document.querySelector('[data-lpm-discovery-modal]');
+		if (!modal) {
+			return null;
+		}
+		modal.hidden = false;
+		document.documentElement.classList.add('lpm-modal-open');
+		var close = modal.querySelector('[data-lpm-close-discovery-modal]');
+		if (close && close.focus) {
+			close.focus();
+		}
+		return modal;
+	}
+
+	function closeDiscoveryModal() {
+		var modal = document.querySelector('[data-lpm-discovery-modal]');
+		if (modal) {
+			modal.hidden = true;
+		}
+		document.documentElement.classList.remove('lpm-modal-open');
+	}
+
 	function approveLiveSuggestion(button) {
 		post('lpm_manual_discovery_approve', { suggestion_id: button.dataset.lpmManualApprove }).then(function (data) {
 			var tr = button.closest('tr');
@@ -672,6 +694,7 @@
 		if (!panel) {
 			return;
 		}
+		openDiscoveryModal();
 		var product = panel.querySelector('[data-lpm-manual-product]');
 		var competitor = panel.querySelector('[data-lpm-manual-competitor]');
 		if (product) {
@@ -681,7 +704,7 @@
 			competitor.value = competitorId || '0';
 		}
 		startPanelRun(panel);
-		if (panel.scrollIntoView) {
+		if (!document.querySelector('[data-lpm-discovery-modal]') && panel.scrollIntoView) {
 			panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
 		}
 	}
@@ -760,18 +783,31 @@
 			var addDiscoveryProductButton = event.target.closest('[data-lpm-discovery-add-product]');
 			var productStart = event.target.closest('[data-lpm-start-product]');
 			var competitorStart = event.target.closest('[data-lpm-start-competitor]');
+			var closeDiscovery = event.target.closest('[data-lpm-close-discovery-modal]');
 			if (addDiscoveryProductButton) {
 				event.preventDefault();
 				addDiscoveryProduct(addDiscoveryProductButton);
 				return;
 			}
+			if (closeDiscovery) {
+				event.preventDefault();
+				closeDiscoveryModal();
+				return;
+			}
 			if (productStart) {
 				event.preventDefault();
 				startShortcut(productStart.dataset.lpmStartProduct || '0', '0');
+				return;
 			}
 			if (competitorStart) {
 				event.preventDefault();
 				startShortcut('0', competitorStart.dataset.lpmStartCompetitor || '0');
+				return;
+			}
+		});
+		document.addEventListener('keydown', function (event) {
+			if (event.key === 'Escape') {
+				closeDiscoveryModal();
 			}
 		});
 		initDiscoveryProductSearch();
