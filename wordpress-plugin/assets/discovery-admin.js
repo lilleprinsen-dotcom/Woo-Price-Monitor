@@ -133,8 +133,13 @@
 			if (tr) {
 				tr.classList.remove('lpm-discovery-result-found');
 				tr.classList.add('lpm-discovery-result-approved');
+				tr.dataset.status = 'approved';
 				replaceStatus(tr, 'approved');
 				tr.querySelector('[data-lpm-row-actions]').textContent = data.message || window.LPM_DISCOVERY.i18n.activeLink;
+				var panel = tr.closest('[data-lpm-manual-discovery-panel]');
+				if (panel) {
+					updateRunSummary(panel, { status: 'completed', found: 0, errors: 0 }, 'Active monitored link');
+				}
 			}
 			closeApprovalModal();
 		}).catch(function (error) {
@@ -498,6 +503,7 @@
 		}
 		var tr = document.createElement('tr');
 		tr.className = 'lpm-discovery-result-row lpm-discovery-result-' + (row.status || 'queued');
+		tr.dataset.status = row.status || 'queued';
 		tr.dataset.suggestionId = row.suggestion_id || '';
 		tr.dataset.discoveryProductId = row.discovery_product_id || '';
 		tr.dataset.competitorId = row.competitor_id || '';
@@ -599,6 +605,46 @@
 		tbody.appendChild(tr);
 	}
 
+	function updateRunSummary(panel, run, message) {
+		var summary = panel.querySelector('[data-lpm-manual-summary]');
+		if (!summary) {
+			return;
+		}
+		var rows = Array.prototype.slice.call(panel.querySelectorAll('[data-lpm-manual-results] tbody tr'));
+		var issueCount = rows.filter(function (row) {
+			return row.dataset.status === 'no_match' || row.dataset.status === 'error';
+		}).length;
+		var reviewCount = panel.querySelectorAll('[data-lpm-manual-approve]').length;
+		var title = summary.querySelector('[data-lpm-manual-summary-title]');
+		var copy = summary.querySelector('[data-lpm-manual-summary-copy]');
+		var found = summary.querySelector('[data-lpm-manual-summary-found]');
+		var review = summary.querySelector('[data-lpm-manual-summary-review]');
+		var issues = summary.querySelector('[data-lpm-manual-summary-issues]');
+
+		summary.hidden = false;
+		if (title) {
+			title.textContent = message || 'Searching competitor products';
+		}
+		if (copy) {
+			if (run.status === 'completed') {
+				copy.textContent = reviewCount > 0 ? 'Search complete. Review and approve only the matches that are clearly correct.' : 'Search complete. No approval-ready matches were found; open Details on rows to see why.';
+			} else if (run.status === 'cancelled') {
+				copy.textContent = 'Search cancelled. Any findings already created are still saved for review.';
+			} else {
+				copy.textContent = 'The plugin is checking competitor search pages and product pages. You can close this window; findings remain saved in Suggestions.';
+			}
+		}
+		if (found) {
+			found.textContent = String(run.found || reviewCount || 0);
+		}
+		if (review) {
+			review.textContent = String(reviewCount);
+		}
+		if (issues) {
+			issues.textContent = String(Math.max(issueCount, run.errors || 0));
+		}
+	}
+
 	function setProgress(panel, run, message) {
 		var progress = panel.querySelector('[data-lpm-manual-progress]');
 		var status = panel.querySelector('[data-lpm-manual-status]');
@@ -621,6 +667,7 @@
 		if (cancel) {
 			cancel.hidden = !(run.status === 'running');
 		}
+		updateRunSummary(panel, run, message);
 	}
 
 	function shouldConfirmBeforeCreate(panel, productValue, competitorValue) {
@@ -754,8 +801,10 @@
 					if (tr) {
 						tr.classList.remove('lpm-discovery-result-found');
 						tr.classList.add('lpm-discovery-result-rejected');
+						tr.dataset.status = 'rejected';
 						replaceStatus(tr, 'rejected');
 						tr.querySelector('[data-lpm-row-actions]').textContent = data.message || 'Rejected';
+						updateRunSummary(panel, { status: 'completed', found: 0, errors: 0 }, 'Rejected');
 					}
 				}).catch(function (error) {
 					window.alert(error.message);

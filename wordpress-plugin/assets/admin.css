@@ -1278,6 +1278,58 @@
 	min-width: 1120px;
 }
 
+.lpm-discovery-run-summary {
+	align-items: center;
+	background: #fff;
+	border: 1px solid #c3d9ec;
+	border-radius: 8px;
+	display: grid;
+	gap: 14px;
+	grid-template-columns: minmax(260px, 1fr) auto auto;
+	margin: 14px 0;
+	padding: 14px 16px;
+}
+
+.lpm-discovery-run-summary[hidden] {
+	display: none;
+}
+
+.lpm-discovery-run-summary strong {
+	display: block;
+	font-size: 16px;
+	margin-top: 2px;
+}
+
+.lpm-discovery-run-summary p {
+	color: #50575e;
+	margin: 4px 0 0;
+}
+
+.lpm-discovery-summary-stats {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	justify-content: flex-end;
+}
+
+.lpm-discovery-summary-stats span {
+	background: #f6f7f7;
+	border: 1px solid #dcdcde;
+	border-radius: 999px;
+	color: #50575e;
+	display: inline-flex;
+	gap: 5px;
+	padding: 6px 10px;
+	white-space: nowrap;
+}
+
+.lpm-discovery-summary-stats strong {
+	color: #1d2327;
+	display: inline;
+	font-size: 13px;
+	margin: 0;
+}
+
 .lpm-production-summary {
 	align-items: center;
 	display: flex;
@@ -1693,13 +1745,16 @@
 	}
 
 	.lpm-discovery-hero,
-	.lpm-discovery-card-header {
+	.lpm-discovery-card-header,
+	.lpm-discovery-run-summary {
 		align-items: flex-start;
 		display: grid;
+		grid-template-columns: 1fr;
 	}
 
 	.lpm-discovery-hero-actions,
-	.lpm-discovery-stats {
+	.lpm-discovery-stats,
+	.lpm-discovery-summary-stats {
 		justify-content: flex-start;
 	}
 

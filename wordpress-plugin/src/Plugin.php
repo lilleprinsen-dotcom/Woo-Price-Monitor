@@ -102,8 +102,8 @@ final class Plugin {
 		$csv_import           = new CsvImportService( $repository );
 		$admin_page           = new AdminPage( $repository, $settings, $price_check, $price_recovery, $suggestion_service, $notification_service, $job_scheduler, $price_update, $product_search, $notice_store, $csv_import, $retention_service, $group_suggestions );
 		$token_handler        = new TokenActionHandler( $repository, $settings, $approval_tokens );
-		$ajax_controller      = new AdminAjaxController( $repository, $settings, $product_search, $price_check, $suggestion_service, $notification_service );
 		$product_identifiers  = new ProductIdentifierService( $discovery_settings );
+		$ajax_controller      = new AdminAjaxController( $repository, $settings, $product_search, $price_check, $suggestion_service, $notification_service, $discovery_repository, $product_identifiers );
 		$extractor            = new CompetitorProductExtractor( $url_service, $discovery_settings, $external_worker );
 		$source_service       = new DiscoverySourceService( $url_service, $discovery_settings );
 		$sku_search           = new SkuSearchDiscoveryService( $url_service, $source_service, $discovery_settings, $external_worker );
