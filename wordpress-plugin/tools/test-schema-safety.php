@@ -19,9 +19,10 @@ lpm_run_tests(
 		'Main schema declares scale indexes for common filters' => static function (): void {
 			$source = (string) file_get_contents( LPM_TEST_ROOT . '/src/Database/Schema.php' );
 
-			lpm_assert_same( '2.2.1', Schema::VERSION, 'Main schema version should bump when indexes change.' );
+			lpm_assert_same( '2.2.2', Schema::VERSION, 'Main schema version should bump when indexes change.' );
 			lpm_assert_contains( 'KEY enabled_next_check_after (enabled, next_check_after)', $source, 'Competitor link scheduler should have an enabled/next-check index.' );
 			lpm_assert_contains( 'KEY monitored_enabled (monitored_product_id, enabled)', $source, 'Competitor links should support product-scoped enabled filters.' );
+			lpm_assert_contains( 'KEY identity_drift_detected_at (identity_drift_detected_at)', $source, 'Competitor links should support identity drift review filters.' );
 			lpm_assert_contains( 'KEY status_created_at (status, created_at)', $source, 'Suggestion inbox should support status/date pagination.' );
 			lpm_assert_contains( 'KEY event_created_at (event, created_at)', $source, 'Logs should support event/date filters.' );
 		},

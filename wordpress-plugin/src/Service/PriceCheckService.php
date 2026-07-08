@@ -154,8 +154,10 @@ final class PriceCheckService {
 			'extraction_method' => 'external_browser_worker',
 			'regular_price'     => $worker_result['regular_price'] ?? null,
 			'sale_price'        => $worker_result['sale_price'] ?? null,
+			'title'             => (string) ( $worker_result['title'] ?? '' ),
 			'sku'               => (string) ( $worker_result['sku'] ?? '' ),
 			'gtin'              => (string) ( $worker_result['gtin'] ?? '' ),
+			'mpn'               => (string) ( $worker_result['mpn'] ?? '' ),
 			'price_field'       => (string) ( $worker_result['monitored_price_field'] ?? '' ),
 			'stock_status'      => (string) ( $worker_result['stock_status'] ?? 'unknown' ),
 			'error'             => null !== $price ? '' : (string) ( $worker_result['error'] ?? $worker_result['message'] ?? __( 'External browser worker did not detect a price.', 'lilleprinsen-price-monitor' ) ),
@@ -210,6 +212,39 @@ final class PriceCheckService {
 			return $result;
 		}
 
+		if ( ! empty( $result['success'] ) ) {
+			$identity_guard = self::evaluate_identity_guard( $competitor_link, $result );
+			if ( ! empty( $identity_guard['drift_detected'] ) ) {
+				$result['success']           = false;
+				$result['price']             = null;
+				$result['error']             = (string) $identity_guard['reason'];
+				$result['extraction_method'] = 'identity_guard';
+				$this->repository->mark_competitor_link_identity_drift( $competitor_link_id, (string) $identity_guard['reason'] );
+				$this->repository->write_log(
+					'error',
+					'competitor_link_identity_drift_detected',
+					__( 'Competitor link identity changed. Price check was blocked until the match is reviewed.', 'lilleprinsen-price-monitor' ),
+					array_merge(
+						array( 'competitor_link_id' => $competitor_link_id ),
+						(array) ( $identity_guard['details'] ?? array() )
+					),
+					$product_id
+				);
+			} elseif ( ! empty( $identity_guard['should_store_baseline'] ) ) {
+				$this->repository->set_competitor_link_identity_snapshot( $competitor_link_id, (array) $identity_guard['observed_identity'] );
+				$this->repository->write_log(
+					'info',
+					'competitor_link_identity_baseline_recorded',
+					__( 'Competitor link identity baseline was recorded for future drift checks.', 'lilleprinsen-price-monitor' ),
+					array_merge(
+						array( 'competitor_link_id' => $competitor_link_id ),
+						(array) ( $identity_guard['observed_identity'] ?? array() )
+					),
+					$product_id
+				);
+			}
+		}
+
 		$this->repository->create_price_observation(
 			array(
 				'competitor_link_id'   => $competitor_link_id,
@@ -218,9 +253,9 @@ final class PriceCheckService {
 				'observed_price'       => $result['success'] ? $result['price'] : null,
 				'observed_regular_price' => $result['success'] ? ( $result['regular_price'] ?? null ) : null,
 				'observed_sale_price'  => $result['success'] ? ( $result['sale_price'] ?? null ) : null,
-				'observed_sku'         => $result['success'] ? ( $result['sku'] ?? '' ) : '',
-				'observed_gtin'        => $result['success'] ? ( $result['gtin'] ?? '' ) : '',
-				'price_field'          => $result['success'] ? ( $result['price_field'] ?? '' ) : '',
+				'observed_sku'         => $result['sku'] ?? '',
+				'observed_gtin'        => $result['gtin'] ?? '',
+				'price_field'          => $result['price_field'] ?? '',
 				'currency'             => $result['success'] ? $result['currency'] : null,
 				'stock_status'         => $result['stock_status'] ?? null,
 				'extraction_method'    => $result['extraction_method'],
@@ -233,6 +268,107 @@ final class PriceCheckService {
 		);
 
 		return $result;
+	}
+
+	/**
+	 * Compare approved link identity with the latest extracted identity.
+	 *
+	 * @param array<string,mixed> $competitor_link Link row.
+	 * @param array<string,mixed> $result Parsed check result.
+	 * @return array{drift_detected:bool,should_store_baseline:bool,reason:string,details:array<string,mixed>,observed_identity:array<string,string>}
+	 */
+	public static function evaluate_identity_guard( array $competitor_link, array $result ): array {
+		$observed = self::observed_identity_from_result( $result );
+		$approved = array(
+			'sku'        => self::normalize_identifier( (string) ( $competitor_link['approved_sku'] ?? '' ) ),
+			'gtin'       => self::normalize_identifier( (string) ( $competitor_link['approved_gtin'] ?? '' ) ),
+			'mpn'        => self::normalize_identifier( (string) ( $competitor_link['approved_mpn'] ?? '' ) ),
+			'title_hash' => self::normalize_hash( (string) ( $competitor_link['approved_title_hash'] ?? '' ) ),
+		);
+
+		$guard_enabled = ! array_key_exists( 'identity_guard_enabled', $competitor_link ) || ! empty( $competitor_link['identity_guard_enabled'] );
+		if ( ! $guard_enabled ) {
+			return self::identity_guard_result( false, false, '', array( 'guard_enabled' => false ), $observed );
+		}
+
+		$has_baseline = '' !== $approved['sku'] || '' !== $approved['gtin'] || '' !== $approved['mpn'] || '' !== $approved['title_hash'];
+		$has_observed = '' !== $observed['sku'] || '' !== $observed['gtin'] || '' !== $observed['mpn'] || '' !== $observed['title_hash'];
+
+		if ( ! $has_baseline ) {
+			return self::identity_guard_result( false, $has_observed, '', array( 'baseline_missing' => true ), $observed );
+		}
+
+		$mismatches = array();
+		foreach ( array( 'gtin', 'sku', 'mpn' ) as $field ) {
+			if ( '' !== $approved[ $field ] && '' !== $observed[ $field ] && $approved[ $field ] !== $observed[ $field ] ) {
+				$mismatches[] = sprintf( '%1$s changed from %2$s to %3$s', strtoupper( $field ), $approved[ $field ], $observed[ $field ] );
+			}
+		}
+
+		if ( empty( $mismatches ) && '' !== $approved['title_hash'] && '' !== $observed['title_hash'] && $approved['title_hash'] !== $observed['title_hash'] && '' === $approved['sku'] && '' === $approved['gtin'] && '' === $approved['mpn'] ) {
+			$mismatches[] = __( 'Product title changed from the approved baseline.', 'lilleprinsen-price-monitor' );
+		}
+
+		if ( empty( $mismatches ) ) {
+			return self::identity_guard_result( false, false, '', array( 'baseline_matched' => true ), $observed );
+		}
+
+		$reason = __( 'Possible competitor product change detected: ', 'lilleprinsen-price-monitor' ) . implode( '; ', $mismatches ) . '. ' . __( 'Review this match before using the competitor price.', 'lilleprinsen-price-monitor' );
+
+		return self::identity_guard_result(
+			true,
+			false,
+			$reason,
+			array(
+				'mismatches' => $mismatches,
+				'approved'   => $approved,
+				'observed'   => $observed,
+			),
+			$observed
+		);
+	}
+
+	/**
+	 * @param array<string,mixed> $result Parsed check result.
+	 * @return array{sku:string,gtin:string,mpn:string,title:string,title_hash:string}
+	 */
+	private static function observed_identity_from_result( array $result ): array {
+		$title = sanitize_text_field( (string) ( $result['title'] ?? '' ) );
+
+		return array(
+			'sku'        => self::normalize_identifier( (string) ( $result['sku'] ?? '' ) ),
+			'gtin'       => self::normalize_identifier( (string) ( $result['gtin'] ?? '' ) ),
+			'mpn'        => self::normalize_identifier( (string) ( $result['mpn'] ?? '' ) ),
+			'title'      => $title,
+			'title_hash' => '' !== $title ? hash( 'sha256', strtolower( preg_replace( '/\s+/', ' ', $title ) ?? $title ) ) : '',
+		);
+	}
+
+	private static function normalize_identifier( string $value ): string {
+		$value = strtolower( sanitize_text_field( $value ) );
+
+		return preg_replace( '/[^a-z0-9]/', '', $value ) ?? '';
+	}
+
+	private static function normalize_hash( string $value ): string {
+		$value = strtolower( sanitize_text_field( $value ) );
+
+		return preg_match( '/^[a-f0-9]{64}$/', $value ) ? $value : '';
+	}
+
+	/**
+	 * @param array<string,mixed> $details Guard details.
+	 * @param array<string,string> $observed Observed identity.
+	 * @return array{drift_detected:bool,should_store_baseline:bool,reason:string,details:array<string,mixed>,observed_identity:array<string,string>}
+	 */
+	private static function identity_guard_result( bool $drift_detected, bool $should_store_baseline, string $reason, array $details, array $observed ): array {
+		return array(
+			'drift_detected'        => $drift_detected,
+			'should_store_baseline' => $should_store_baseline,
+			'reason'                => $reason,
+			'details'               => $details,
+			'observed_identity'     => $observed,
+		);
 	}
 
 	/**

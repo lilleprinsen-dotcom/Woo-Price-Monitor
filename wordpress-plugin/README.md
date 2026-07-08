@@ -31,6 +31,7 @@ Implemented foundation:
 - Optional lightweight frontend price-match box in Norwegian and coupon-discount exclusion for real actively price-matched products. Dry-run sessions do not trigger customer-facing display or coupon exclusion.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
 - Optional external browser worker integration for explicitly configured JavaScript-heavy competitors. The worker feeds candidates and product data into the same approval-first workflow.
+- Competitor link identity guard: approved matches store the competitor SKU/EAN/MPN/title baseline, and later price checks are blocked for review if the same URL appears to have changed to another product.
 
 ## Architecture Principles
 

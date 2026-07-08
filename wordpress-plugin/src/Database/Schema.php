@@ -12,7 +12,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 }
 
 final class Schema {
-	public const VERSION = '2.2.1';
+	public const VERSION = '2.2.2';
 
 	public const OPTION_NAME = 'lpm_schema_version';
 
@@ -121,6 +121,14 @@ final class Schema {
 			enabled tinyint(1) NOT NULL DEFAULT 1,
 			is_primary tinyint(1) NOT NULL DEFAULT 0,
 			price_field_override varchar(50) DEFAULT NULL,
+			approved_sku varchar(191) DEFAULT NULL,
+			approved_gtin varchar(191) DEFAULT NULL,
+			approved_mpn varchar(191) DEFAULT NULL,
+			approved_title varchar(255) DEFAULT NULL,
+			approved_title_hash char(64) DEFAULT NULL,
+			identity_guard_enabled tinyint(1) NOT NULL DEFAULT 1,
+			identity_drift_detected_at datetime DEFAULT NULL,
+			identity_drift_reason text NULL,
 			last_price decimal(20,4) DEFAULT NULL,
 			last_currency varchar(10) DEFAULT NULL,
 			last_stock_status varchar(50) DEFAULT NULL,
@@ -136,6 +144,11 @@ final class Schema {
 			KEY competitor_name (competitor_name),
 			KEY enabled (enabled),
 			KEY is_primary (is_primary),
+			KEY approved_sku (approved_sku),
+			KEY approved_gtin (approved_gtin),
+			KEY approved_mpn (approved_mpn),
+			KEY identity_guard_enabled (identity_guard_enabled),
+			KEY identity_drift_detected_at (identity_drift_detected_at),
 			KEY enabled_last_checked_at (enabled, last_checked_at),
 			KEY enabled_next_check_after (enabled, next_check_after),
 			KEY monitored_enabled (monitored_product_id, enabled),
