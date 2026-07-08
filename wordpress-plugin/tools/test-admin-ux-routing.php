@@ -108,6 +108,10 @@ if ( false === strpos( $ajax_source, 'active_competitor_count' ) || false === st
 	fwrite( STDERR, "Fast AJAX product adds should automatically start live discovery when active competitors exist.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $admin_source, 'lpm_auto_start_competitor_id' ) || false === strpos( $admin_source, 'data-lpm-auto-start-competitor' ) || false === strpos( $discovery_script, 'clearAutoStartFlag' ) ) {
+	fwrite( STDERR, "New competitor creation should one-time auto-start discovery for selected products.\n" );
+	exit( 1 );
+}
 
 if ( false === strpos( $admin_script, 'data-lpm-chart-point' ) || false === strpos( $admin_script, 'lpm-chart-tooltip' ) ) {
 	fwrite( STDERR, "Price history chart points should expose compact hover/focus tooltips.\n" );

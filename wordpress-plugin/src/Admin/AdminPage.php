@@ -1301,7 +1301,7 @@ final class AdminPage {
 
 		if ( $profile_id > 0 ) {
 			$this->repository->write_log( 'info', 'competitor_profile_added', __( 'Competitor profile added.', 'lilleprinsen-price-monitor' ), array( 'competitor_id' => $profile_id ) );
-			$this->redirect_to_tab( 'competitors', 'competitor_profile_added' );
+			$this->redirect_to_tab( 'competitors', 'competitor_profile_added', array( 'lpm_auto_start_competitor_id' => $profile_id ) );
 		}
 
 		$this->redirect_to_tab( 'competitors', 'competitor_profile_add_failed', array( 'lpm_notice_type' => 'error' ) );
@@ -2874,6 +2874,7 @@ final class AdminPage {
 		$editing_profile   = $this->get_editing_competitor_profile();
 		$linked_profile_id = $this->get_positive_query_arg( 'linked_competitor_id', 0 );
 		$test_result       = $this->get_competitor_profile_test_result();
+		$auto_start_competitor_id = $this->get_positive_query_arg( 'lpm_auto_start_competitor_id', 0 );
 		?>
 		<section class="lpm-card lpm-card-spaced">
 			<div class="lpm-card-header">
@@ -2885,6 +2886,9 @@ final class AdminPage {
 			</div>
 			<?php $this->render_competitor_profiles_table( $profiles, $selected_product_count ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_competitor_profiles_page', array( 'tab' => 'competitors' ) ); ?>
+			<?php if ( $auto_start_competitor_id > 0 && $selected_product_count > 0 ) : ?>
+				<span hidden data-lpm-auto-start-competitor="<?php echo esc_attr( (string) $auto_start_competitor_id ); ?>"></span>
+			<?php endif; ?>
 		</section>
 
 		<details class="lpm-settings-section" <?php echo $editing_profile ? 'open' : ''; ?>>
