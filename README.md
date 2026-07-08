@@ -18,6 +18,23 @@ For non-technical local testing, use the click files in this folder:
 
 See `EASY-LOCAL-SERVER.md` for the simple step-by-step version.
 
+### DigitalOcean / Ubuntu Without Finding WordPress IP
+
+For staging and production droplets, the easiest setup is Cloudflare Tunnel:
+
+- no DigitalOcean port `8787` exposed publicly
+- no Cloudways/WordPress IP allowlist
+- stable HTTPS endpoint such as `https://lpm-worker.example.com`
+
+See `CLOUDFLARE-TUNNEL.md` or run the Ubuntu installer:
+
+```bash
+cd /tmp
+curl -fsSL https://raw.githubusercontent.com/lilleprinsen-dotcom/Woo-Price-Monitor/main/install-worker-cloudflare-tunnel-ubuntu.sh -o install-worker-cloudflare-tunnel-ubuntu.sh
+chmod +x install-worker-cloudflare-tunnel-ubuntu.sh
+./install-worker-cloudflare-tunnel-ubuntu.sh
+```
+
 Start a local worker:
 
 ```bash
