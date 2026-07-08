@@ -80,34 +80,10 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		</section>
 
-		<section class="lpm-panel <?php echo esc_attr( 'history' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="history">
+		<section class="lpm-panel <?php echo esc_attr( 'settings_logs' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings_logs">
 			<?php
-			if ( 'history' === $active_tab ) {
-				$this->render_history();
-			}
-			?>
-		</section>
-
-		<section class="lpm-panel <?php echo esc_attr( 'import_export' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="import_export">
-			<?php
-			if ( 'import_export' === $active_tab ) {
-				$this->render_import_export();
-			}
-			?>
-		</section>
-
-		<section class="lpm-panel <?php echo esc_attr( 'settings' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings">
-			<?php
-			if ( 'settings' === $active_tab ) {
-				$this->render_settings( $settings );
-			}
-			?>
-		</section>
-
-		<section class="lpm-panel <?php echo esc_attr( 'logs' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="logs">
-			<?php
-			if ( 'logs' === $active_tab ) {
-				$this->render_logs( $table_status );
+			if ( 'settings_logs' === $active_tab ) {
+				$this->render_settings_logs( $settings, $table_status );
 			}
 			?>
 		</section>

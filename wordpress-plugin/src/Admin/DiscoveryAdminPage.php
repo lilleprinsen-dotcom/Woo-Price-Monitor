@@ -69,7 +69,7 @@ class DiscoveryAdminPage {
 
 	/** Register submenu. */
 	public function register_menu(): void {
-		add_submenu_page( 'woocommerce', __( 'Competitor Price Assistant', 'lilleprinsen-price-monitor' ), __( 'Competitor Prices', 'lilleprinsen-price-monitor' ), 'manage_woocommerce', 'lpm-competitor-prices', array( $this, 'render' ) );
+		add_submenu_page( null, __( 'Competitor Price Assistant', 'lilleprinsen-price-monitor' ), __( 'Competitor Prices', 'lilleprinsen-price-monitor' ), 'manage_woocommerce', 'lpm-competitor-prices', array( $this, 'render' ) );
 	}
 
 	/** Handle form actions. */
@@ -136,6 +136,27 @@ class DiscoveryAdminPage {
 	public function render(): void {
 		DiscoverySchema::maybe_upgrade();
 		$view = isset( $_GET['view'] ) ? sanitize_key( wp_unslash( $_GET['view'] ) ) : 'overview';
+		$redirect_tab = $this->legacy_view_to_unified_tab( $view );
+
+		if ( ! headers_sent() ) {
+			$args = array(
+				'page'       => AdminPage::SLUG,
+				'tab'        => $redirect_tab,
+				'lpm_notice' => 'competitor_prices_moved',
+			);
+			foreach ( array( 'paged', 's', 'competitor_id', 'discovery_product_id' ) as $key ) {
+				if ( isset( $_GET[ $key ] ) ) {
+					$args[ $key ] = sanitize_text_field( wp_unslash( $_GET[ $key ] ) );
+				}
+			}
+			wp_safe_redirect(
+				add_query_arg(
+					$args,
+					admin_url( 'admin.php' )
+				)
+			);
+			exit;
+		}
 		?>
 		<div class="wrap">
 			<div class="lpm-discovery-hero">
@@ -172,6 +193,43 @@ class DiscoveryAdminPage {
 			?>
 		</div>
 		<?php
+	}
+
+	/** Render one discovery section inside the unified Price Monitor shell. */
+	public function render_embedded( string $view ): void {
+		DiscoverySchema::maybe_upgrade();
+		$this->render_notice();
+		switch ( $view ) {
+			case 'products':
+				$this->render_products();
+				break;
+			case 'competitors':
+				$this->render_competitors();
+				break;
+			case 'suggestions':
+				$this->render_suggestions();
+				break;
+			case 'settings':
+				$this->render_settings();
+				break;
+			default:
+				$this->render_overview();
+				break;
+		}
+	}
+
+	private function legacy_view_to_unified_tab( string $view ): string {
+		if ( 'products' === $view ) {
+			return 'products';
+		}
+		if ( 'competitors' === $view ) {
+			return 'competitors';
+		}
+		if ( 'suggestions' === $view ) {
+			return 'approvals';
+		}
+
+		return 'dashboard';
 	}
 
 	/** Render tabs. */

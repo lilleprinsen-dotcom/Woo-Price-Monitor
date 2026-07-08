@@ -8,7 +8,8 @@ The plugin is built for a high-traffic WooCommerce store with around 100k produc
 
 Implemented foundation:
 
-- Admin page under WooCommerce: Dashboard, Products, Approvals, Competitors, Groups, History, Settings, and Logs.
+- Unified admin page under WooCommerce > Price Monitor with five primary sections: Overview, Products, Competitors, Suggestions, and Settings & Logs.
+- Legacy competitor discovery URLs redirect into the unified Price Monitor interface instead of appearing as a separate visible menu item.
 - Product search by ID, SKU, or bounded title query, limited to 20 results.
 - Custom database tables for monitoring rows, competitor profiles, competitor links, product groups, price observations, suggestions, price match sessions, approval tokens, and logs.
 - Competitor profile management with reusable domain, timing, extraction, selector, stock text, and JavaScript-requirement settings.
@@ -29,6 +30,7 @@ Implemented foundation:
 - Product groups for related monitored products that should share pricing decisions, with group-aware suggestions, dry-run group approval, and a guarded explicit-admin group real-update foundation.
 - Optional lightweight frontend price-match box in Norwegian and coupon-discount exclusion for real actively price-matched products. Dry-run sessions do not trigger customer-facing display or coupon exclusion.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
+- Optional external browser worker integration for explicitly configured JavaScript-heavy competitors. The worker feeds candidates and product data into the same approval-first workflow.
 
 ## Architecture Principles
 
@@ -71,7 +73,7 @@ This project currently does not implement:
 - Automatic or bulk WooCommerce price updates.
 - Direct SQL updates to `_price`, `_regular_price`, or `_sale_price`.
 - Heavy reporting over all products or all orders.
-- JavaScript/browser scraping, anti-bot bypassing, or external scraper workers.
+- Anti-bot bypassing, CAPTCHA solving, proxy rotation, or search-engine scraping. The optional browser worker is for explicitly configured competitor pages only.
 - Unauthenticated real WooCommerce price update links. Token links can only record dry-run match/approve actions or reject suggestions.
 
 ## Development

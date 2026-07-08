@@ -113,6 +113,7 @@ final class Plugin {
 		$manual_discovery     = new ManualDiscoveryService( $repository, $discovery_repository, $discovery_settings, $sku_search, $extractor, $match_suggestions, $url_service );
 		$discovery_ajax       = new DiscoveryAjaxController( $manual_discovery, $product_search, $discovery_repository, $product_identifiers );
 		$discovery_admin      = new DiscoveryAdminPage( $repository, $discovery_repository, $discovery_settings, $product_identifiers, $extractor, $match_suggestions, $discovery_job, $url_service, $sku_search );
+		$admin_page->set_discovery_admin_page( $discovery_admin );
 		$discovery_products   = new DiscoveryProductAdmin( $repository, $discovery_repository, $product_identifiers, $extractor );
 
 		$this->maybe_upgrade_schema_for_non_admin_runtime();
