@@ -47,10 +47,25 @@ final class ProductSearchService {
 		}
 
 		$this->search_by_sku( $query, $products );
-		$this->search_by_identifier_meta( $query, $products, $limit );
+		if ( $this->looks_like_identifier_query( $query ) ) {
+			$this->search_by_identifier_meta( $query, $products, $limit );
+		}
 		$this->search_by_title( $query, $products, $limit );
 
 		return array_slice( array_map( array( $this, 'product_to_display_array' ), array_values( $products ) ), 0, $limit );
+	}
+
+	private function looks_like_identifier_query( string $query ): bool {
+		$query = trim( $query );
+		if ( '' === $query || preg_match( '/\s/', $query ) ) {
+			return false;
+		}
+
+		if ( preg_match( '/^\d{6,14}$/', $query ) ) {
+			return true;
+		}
+
+		return (bool) preg_match( '/^(?=.*\d)[A-Za-z0-9][A-Za-z0-9_.-]{2,}$/', $query );
 	}
 
 	/**
@@ -97,9 +112,36 @@ final class ProductSearchService {
 
 		foreach ( $matches as $product ) {
 			if ( is_object( $product ) && method_exists( $product, 'get_id' ) ) {
-				$this->add_product_object_to_results( $product, $products );
+				if ( $this->product_has_identifier( $product, $query, $meta_keys ) ) {
+					$this->add_product_object_to_results( $product, $products );
+				}
 			}
 		}
+	}
+
+	/**
+	 * @param array<int,string> $meta_keys Identifier meta keys to verify.
+	 */
+	private function product_has_identifier( object $product, string $query, array $meta_keys ): bool {
+		$query = trim( $query );
+		if ( '' === $query ) {
+			return false;
+		}
+
+		if ( method_exists( $product, 'get_sku' ) && 0 === strcasecmp( trim( (string) $product->get_sku() ), $query ) ) {
+			return true;
+		}
+
+		if ( method_exists( $product, 'get_meta' ) ) {
+			foreach ( $meta_keys as $key ) {
+				$value = $product->get_meta( $key, true );
+				if ( is_scalar( $value ) && 0 === strcasecmp( trim( (string) $value ), $query ) ) {
+					return true;
+				}
+			}
+		}
+
+		return false;
 	}
 
 	/**
@@ -245,7 +287,7 @@ final class ProductSearchService {
 		$tokens = array();
 		foreach ( is_array( $raw ) ? $raw : array() as $token ) {
 			$token = trim( (string) $token );
-			if ( strlen( $token ) < 2 ) {
+			if ( strlen( $token ) < 2 && ! ctype_digit( $token ) ) {
 				continue;
 			}
 			$tokens[ $token ] = $token;
