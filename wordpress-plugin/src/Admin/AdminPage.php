@@ -363,6 +363,9 @@ final class AdminPage {
 			</details>
 			<?php $this->render_monitored_products_table( $rows, $link_counts, $pending_counts, $group_names, $discovery_rows, $match_counts, $active_competitor_count ); ?>
 			<?php $this->render_pagination( $total, $page, $per_page, 'lpm_products_page', array( 'tab' => 'products' ) ); ?>
+			<?php if ( $this->get_positive_query_arg( 'lpm_auto_start_all_discovery', 0 ) > 0 && $active_competitor_count > 0 && $total > 0 ) : ?>
+				<span hidden data-lpm-auto-start-all-discovery="1"></span>
+			<?php endif; ?>
 		</section>
 		<?php
 	}
@@ -979,7 +982,11 @@ final class AdminPage {
 		}
 
 		$this->repository->write_log( 'info', 'monitored_products_bulk_added', __( 'Products bulk-added to monitoring.', 'lilleprinsen-price-monitor' ), array( 'count' => $added ) );
-		$this->redirect_to_tab( 'products', $added > 0 ? 'monitoring_added' : 'product_not_found', array( 'lpm_notice_type' => $added > 0 ? 'success' : 'error' ) );
+		$extra_args = array( 'lpm_notice_type' => $added > 0 ? 'success' : 'error' );
+		if ( $added > 0 && $this->repository->count_active_competitors() > 0 ) {
+			$extra_args['lpm_auto_start_all_discovery'] = 1;
+		}
+		$this->redirect_to_tab( 'products', $added > 0 ? 'monitoring_added' : 'product_not_found', $extra_args );
 	}
 
 	public function handle_monitored_status_action( string $action ): void {

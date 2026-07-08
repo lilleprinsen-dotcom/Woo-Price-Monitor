@@ -756,15 +756,15 @@
 		}
 	}
 
-	function clearAutoStartFlag() {
+	function clearAutoStartFlag(flag) {
 		if (!window.history || !window.history.replaceState) {
 			return;
 		}
 		var url = new URL(window.location.href);
-		if (!url.searchParams.has('lpm_auto_start_competitor_id')) {
+		if (!url.searchParams.has(flag)) {
 			return;
 		}
-		url.searchParams.delete('lpm_auto_start_competitor_id');
+		url.searchParams.delete(flag);
 		window.history.replaceState({}, document.title, url.toString());
 	}
 
@@ -873,7 +873,12 @@
 		var autoCompetitor = document.querySelector('[data-lpm-auto-start-competitor]');
 		if (autoCompetitor) {
 			startShortcut('0', autoCompetitor.dataset.lpmAutoStartCompetitor || '0');
-			clearAutoStartFlag();
+			clearAutoStartFlag('lpm_auto_start_competitor_id');
+		}
+		var autoAllDiscovery = document.querySelector('[data-lpm-auto-start-all-discovery]');
+		if (autoAllDiscovery) {
+			startShortcut('0', '0');
+			clearAutoStartFlag('lpm_auto_start_all_discovery');
 		}
 		document.addEventListener('keydown', function (event) {
 			if (event.key === 'Escape') {

@@ -117,13 +117,21 @@ if ( false === strpos( $admin_source, 'lpm_auto_start_competitor_id' ) || false 
 	fwrite( STDERR, "New competitor creation should one-time auto-start discovery for selected products.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $admin_source, 'lpm_auto_start_all_discovery' ) || false === strpos( $admin_source, 'data-lpm-auto-start-all-discovery' ) || false === strpos( $discovery_script, 'lpm_auto_start_all_discovery' ) ) {
+	fwrite( STDERR, "Bulk product adds should one-time auto-start live discovery when active competitors exist.\n" );
+	exit( 1 );
+}
 if ( false !== strpos( (string) $discovery_admin_without_route, 'lpm-competitor-prices' ) ) {
 	fwrite( STDERR, "Discovery UI should link to the unified Price Monitor tabs, keeping only the hidden legacy route slug.\n" );
 	exit( 1 );
 }
 
-if ( false === strpos( $admin_script, 'data-lpm-chart-point' ) || false === strpos( $admin_script, 'lpm-chart-tooltip' ) ) {
-	fwrite( STDERR, "Price history chart points should expose compact hover/focus tooltips.\n" );
+if ( false === strpos( $admin_script, 'data-lpm-chart-point' ) || false === strpos( $admin_script, 'lpm-chart-tooltip' ) || false === strpos( $admin_script, 'Hover or focus a point to see site, price and date.' ) ) {
+	fwrite( STDERR, "Price history chart points should expose compact hover/focus tooltips with clear guidance.\n" );
+	exit( 1 );
+}
+if ( false !== strpos( $admin_script, 'dataset.stock' ) ) {
+	fwrite( STDERR, "Price history chart tooltip should stay compact and avoid secondary stock details.\n" );
 	exit( 1 );
 }
 
