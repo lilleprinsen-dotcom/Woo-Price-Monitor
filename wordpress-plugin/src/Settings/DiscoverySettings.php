@@ -53,7 +53,7 @@ class DiscoverySettings {
 			'discovery_low_traffic_hour'          => 2,
 			'discovery_auto_pause_failures'       => 5,
 			'discovery_same_domain_only'          => 1,
-			'discovery_identifier_meta_keys'      => '_global_unique_id,_alg_ean,_wpm_gtin_code,ean,gtin,barcode',
+			'discovery_identifier_meta_keys'      => '_global_unique_id,_alg_ean,_wpm_gtin_code,ean,gtin,barcode,izettle_barcode,zettle_barcode',
 			'discovery_mpn_meta_keys'             => 'mpn,_mpn,manufacturer_sku',
 			'discovery_brand_meta_keys'           => '_brand,brand,pa_brand',
 			'discovery_request_timeout'           => 12,
