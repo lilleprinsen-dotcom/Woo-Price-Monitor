@@ -498,6 +498,14 @@ class DiscoveryRepository {
 		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE status = %s", $status ) );
 	}
 
+	public function count_suggestions_for_competitor( int $competitor_id, string $status = 'pending' ): int {
+		global $wpdb;
+
+		$table = $this->table( 'discovery_match_suggestions' );
+
+		return (int) $wpdb->get_var( $wpdb->prepare( "SELECT COUNT(*) FROM {$table} WHERE competitor_id = %d AND status = %s", absint( $competitor_id ), $status ) );
+	}
+
 	/**
 	 * Get one suggestion.
 	 */

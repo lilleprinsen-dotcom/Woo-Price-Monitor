@@ -40,6 +40,9 @@ final class AdminActionHandler {
 			case 'add_monitored_product':
 				$this->page->handle_add_monitored_product();
 				break;
+			case 'bulk_add_monitored_products':
+				$this->page->handle_bulk_add_monitored_products();
+				break;
 			case 'enable_monitored':
 			case 'disable_monitored':
 			case 'remove_monitored':

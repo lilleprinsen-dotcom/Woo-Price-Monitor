@@ -19,6 +19,13 @@ function assert_same( $expected, $actual, string $message ): void {
 	}
 }
 
+function assert_not_contains( string $needle, string $haystack, string $message ): void {
+	if ( false !== strpos( $haystack, $needle ) ) {
+		fwrite( STDERR, $message . "\nUnexpected text: " . $needle . "\n" );
+		exit( 1 );
+	}
+}
+
 $reflection = new ReflectionClass( AdminPage::class );
 $page       = $reflection->newInstanceWithoutConstructor();
 
@@ -48,5 +55,16 @@ $normalize_redirect_tab = $reflection->getMethod( 'normalize_redirect_tab' );
 
 assert_same( 'settings_logs', $normalize_redirect_tab->invoke( $page, 'history' ), 'History redirects should land in Settings & Logs.' );
 assert_same( 'products', $normalize_redirect_tab->invoke( $page, 'products' ), 'Products redirects should not be changed.' );
+
+$admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminPage.php' );
+$shell_source = file_get_contents( LPM_TEST_ROOT . '/templates/admin/app-shell.php' );
+
+assert_not_contains( 'render_placeholder_panel', $admin_source, 'Placeholder panels should not remain in the unified admin page.' );
+assert_not_contains( "render_embedded( 'products' )", $admin_source, 'Products tab should not embed the legacy discovery products page.' );
+assert_not_contains( "render_embedded( 'competitors' )", $admin_source, 'Competitors tab should not embed the legacy discovery competitors page.' );
+assert_not_contains( "render_embedded( 'suggestions' )", $admin_source, 'Suggestions tab should not embed the legacy suggested matches page.' );
+assert_not_contains( 'Products selected for competitor matching', $admin_source, 'Products tab should not render a duplicate discovery product section.' );
+assert_not_contains( 'Suggested competitor product matches', $admin_source, 'Suggestions tab should not render a separate match suggestion section.' );
+assert_not_contains( 'data-lpm-tab-panel="groups"', $shell_source, 'Removed Groups tab panel should not remain in the app shell.' );
 
 echo "Admin UX routing tests passed.\n";

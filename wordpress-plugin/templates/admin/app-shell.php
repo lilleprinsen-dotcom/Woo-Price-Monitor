@@ -72,14 +72,6 @@ if ( ! defined( 'ABSPATH' ) ) {
 			?>
 		</section>
 
-		<section class="lpm-panel <?php echo esc_attr( 'groups' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="groups">
-			<?php
-			if ( 'groups' === $active_tab ) {
-				$this->render_groups();
-			}
-			?>
-		</section>
-
 		<section class="lpm-panel <?php echo esc_attr( 'settings_logs' === $active_tab ? 'is-active' : '' ); ?>" data-lpm-tab-panel="settings_logs">
 			<?php
 			if ( 'settings_logs' === $active_tab ) {

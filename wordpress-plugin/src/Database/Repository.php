@@ -362,6 +362,36 @@ final class Repository {
 	}
 
 	/**
+	 * @return array<int, int>
+	 */
+	public function count_pending_price_suggestions_for_monitored_products( array $monitored_product_ids ): array {
+		$table = $this->tables['price_suggestions'];
+		$ids   = array_values( array_filter( array_map( 'absint', $monitored_product_ids ) ) );
+
+		if ( empty( $ids ) || ! $this->table_exists( $table ) ) {
+			return array();
+		}
+
+		$placeholders = implode( ',', array_fill( 0, count( $ids ), '%d' ) );
+		$sql          = $this->wpdb->prepare(
+			"SELECT monitored_product_id, COUNT(*) AS total FROM {$table} WHERE status IN ('pending', 'blocked') AND monitored_product_id IN ({$placeholders}) GROUP BY monitored_product_id",
+			$ids
+		);
+		$rows         = $this->wpdb->get_results( $sql, ARRAY_A );
+		$counts       = array();
+
+		if ( ! is_array( $rows ) ) {
+			return $counts;
+		}
+
+		foreach ( $rows as $row ) {
+			$counts[ (int) $row['monitored_product_id'] ] = (int) $row['total'];
+		}
+
+		return $counts;
+	}
+
+	/**
 	 * @return array<string, mixed>|null
 	 */
 	public function get_monitored_product( int $monitored_product_id ): ?array {
@@ -2858,6 +2888,11 @@ final class Repository {
 			case 'failed':
 				$where[] = 'ps.status = %s';
 				$args[]  = $view;
+				break;
+			case 'price_suggestions':
+				$where[] = 'ps.status IN (%s, %s)';
+				$args[]  = 'pending';
+				$args[]  = 'blocked';
 				break;
 			case 'approved_real_update':
 				$where[] = 'ps.status = %s';

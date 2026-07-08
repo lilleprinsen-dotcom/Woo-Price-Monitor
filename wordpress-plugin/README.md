@@ -34,6 +34,19 @@ Implemented foundation:
 - Competitor link identity guard: approved matches store the competitor SKU/EAN/MPN/title baseline, and later price checks are blocked for review if the same URL appears to have changed to another product.
 - Scheduled monitoring intervals are admin-controlled: approved competitor links can be checked every 1-24 hours, scheduled rediscovery for selected products without matches can run every 1-7 days, and large due sets are drained through small queued batches instead of launching all checks at once.
 
+## Safe Admin Workflow
+
+Use the plugin from **WooCommerce > Price Monitor**:
+
+1. Open **Products** and add only the WooCommerce products you want to monitor.
+2. Open **Competitors** and add each competitor domain, search template/source URLs, and extraction rules.
+3. Click **Find matches** for selected products and competitors.
+4. Open **Suggestions** and approve or reject match suggestions. Approved matches become active monitored competitor links.
+5. Review price suggestions in the same **Suggestions** inbox. Keep dry-run enabled until staging checks are complete.
+6. Use **Settings & Logs** for safety, automation, notifications, import/export, logs, and advanced/debug settings.
+
+The plugin only searches selected products, never auto-approves matches, and keeps real WooCommerce price updates blocked by default.
+
 ## Architecture Principles
 
 - Admin-only behavior for monitoring, checks, suggestions, approvals, imports, exports, and updates.

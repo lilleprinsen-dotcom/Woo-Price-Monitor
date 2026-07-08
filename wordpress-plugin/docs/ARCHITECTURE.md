@@ -101,7 +101,7 @@ Observation rows store check metadata such as product ID, competitor link ID, ob
 
 If a profile uses selector mode, limited selector extraction is attempted first. Selector support is intentionally small and dependency-free: `.class`, `#id`, and `[attr="value"]` patterns are translated through `DOMDocument` and `DOMXPath`. Profiles can map current/active price, regular price, sale price, SKU, and EAN/GTIN selectors, then choose which mapped price field should be monitored. Profile stock selectors can classify stock as `in_stock`, `out_of_stock`, or `unknown` when matching text is configured.
 
-Profiles marked as requiring JavaScript return a clear warning because the internal checker does not render JavaScript. Browser automation, anti-bot bypassing, and external scraper workers are future work and are not implemented here.
+Profiles marked as requiring JavaScript return a clear warning because the internal checker does not render JavaScript. Browser automation, anti-bot bypassing, and external scraper workers stay outside the WordPress runtime unless the optional external worker is explicitly configured.
 
 ### Pricing Rules And Suggestions
 
@@ -194,7 +194,7 @@ Current notification modules:
 
 Notifications are disabled by default. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Webhook failures are logged and do not block the admin or batch flow.
 
-Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by those external tools. Direct Meta WhatsApp Cloud API and Twilio WhatsApp integrations are not implemented.
+Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by those external tools. Direct Meta WhatsApp Cloud API and Twilio WhatsApp delivery are intentionally handled outside the plugin.
 
 Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
@@ -266,7 +266,7 @@ Important conservative defaults:
 - `block_suggestions_for_out_of_stock_products = 0`
 - `rows_per_page = 25`
 
-Retention cleanup is manual and admin-only. Automatic cleanup is not implemented.
+Retention cleanup is manual and admin-only in the current safety model.
 
 ## Request Flows
 
