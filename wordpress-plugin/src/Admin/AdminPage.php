@@ -3292,10 +3292,19 @@ final class AdminPage {
 							<?php if ( ! empty( $link['is_primary'] ) ) : ?>
 								<?php $this->render_status_pill( __( 'Primary', 'lilleprinsen-price-monitor' ), 'ok' ); ?>
 							<?php endif; ?>
+							<?php if ( ! empty( $link['identity_drift_detected_at'] ) ) : ?>
+								<?php $this->render_status_pill( __( 'Review match', 'lilleprinsen-price-monitor' ), 'danger' ); ?>
+							<?php endif; ?>
 							<details class="lpm-row-details">
 								<summary><?php esc_html_e( 'Details', 'lilleprinsen-price-monitor' ); ?></summary>
 								<?php printf( esc_html__( 'Match type: %s', 'lilleprinsen-price-monitor' ), esc_html( (string) $link['match_type'] ) ); ?><br>
-								<?php printf( esc_html__( 'Stock: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $link['last_stock_status'] ?? null ) ) ); ?>
+								<?php printf( esc_html__( 'Stock: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $link['last_stock_status'] ?? null ) ) ); ?><br>
+								<?php printf( esc_html__( 'Approved SKU: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $link['approved_sku'] ?? null ) ) ); ?><br>
+								<?php printf( esc_html__( 'Approved EAN/GTIN: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $link['approved_gtin'] ?? null ) ) ); ?><br>
+								<?php printf( esc_html__( 'Approved MPN: %s', 'lilleprinsen-price-monitor' ), esc_html( $this->format_nullable_value( $link['approved_mpn'] ?? null ) ) ); ?>
+								<?php if ( ! empty( $link['identity_drift_reason'] ) ) : ?>
+									<br><strong><?php esc_html_e( 'Identity warning:', 'lilleprinsen-price-monitor' ); ?></strong> <?php echo esc_html( (string) $link['identity_drift_reason'] ); ?>
+								<?php endif; ?>
 							</details>
 						</td>
 						<td>

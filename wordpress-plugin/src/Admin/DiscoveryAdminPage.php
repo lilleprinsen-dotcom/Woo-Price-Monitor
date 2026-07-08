@@ -720,7 +720,23 @@ class DiscoveryAdminPage {
 		}
 		$match_type    = 'High confidence' === (string) $suggestion->confidence_label ? 'exact' : 'similar';
 		$existing_link = $this->repository->get_competitor_link_by_url( $monitored_id, (string) $suggestion->competitor_url );
-		$data = array( 'monitored_product_id' => $monitored_id, 'competitor_id' => (int) $suggestion->competitor_id, 'competitor_name' => $competitor['name'] ?? '', 'competitor_url' => (string) $suggestion->competitor_url, 'match_type' => $match_type, 'enabled' => 1, 'is_primary' => 0 );
+		$discovered    = $this->discovery_repository->get_discovered_product( (int) $suggestion->discovered_product_id );
+		$approved_title = $discovered ? sanitize_text_field( (string) ( $discovered->title ?? '' ) ) : '';
+		$data = array(
+			'monitored_product_id' => $monitored_id,
+			'competitor_id'        => (int) $suggestion->competitor_id,
+			'competitor_name'      => $competitor['name'] ?? '',
+			'competitor_url'       => (string) $suggestion->competitor_url,
+			'match_type'           => $match_type,
+			'enabled'              => 1,
+			'is_primary'           => 0,
+			'approved_sku'         => $discovered ? (string) ( $discovered->sku ?? '' ) : '',
+			'approved_gtin'        => $discovered ? (string) ( $discovered->gtin ?? '' ) : '',
+			'approved_mpn'         => $discovered ? (string) ( $discovered->mpn ?? '' ) : '',
+			'approved_title'       => $approved_title,
+			'approved_title_hash'  => '' !== $approved_title ? hash( 'sha256', strtolower( preg_replace( '/\s+/', ' ', $approved_title ) ?? $approved_title ) ) : '',
+			'identity_guard_enabled' => 1,
+		);
 		$link_id = $existing_link ? (int) $existing_link['id'] : $this->repository->add_competitor_link( $data );
 		if ( $existing_link ) {
 			$this->repository->update_competitor_link( $link_id, $data );

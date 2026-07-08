@@ -640,10 +640,16 @@ final class Repository {
 				'match_type'           => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
 				'enabled'              => ! empty( $data['enabled'] ) ? 1 : 0,
 				'is_primary'           => ! empty( $data['is_primary'] ) ? 1 : 0,
+				'approved_sku'         => $this->nullable_limited_text( $data['approved_sku'] ?? null, 191 ),
+				'approved_gtin'        => $this->nullable_limited_text( $data['approved_gtin'] ?? null, 191 ),
+				'approved_mpn'         => $this->nullable_limited_text( $data['approved_mpn'] ?? null, 191 ),
+				'approved_title'       => $this->nullable_limited_text( $data['approved_title'] ?? null, 255 ),
+				'approved_title_hash'  => $this->nullable_hash( $data['approved_title_hash'] ?? null ),
+				'identity_guard_enabled' => ! array_key_exists( 'identity_guard_enabled', $data ) || ! empty( $data['identity_guard_enabled'] ) ? 1 : 0,
 				'created_at'           => $now,
 				'updated_at'           => $now,
 			),
-			array( '%d', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%s' )
+			array( '%d', '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s' )
 		);
 
 		$link_id = false !== $inserted ? (int) $this->wpdb->insert_id : 0;
@@ -674,16 +680,80 @@ final class Repository {
 				'match_type'      => $this->sanitize_match_type( (string) ( $data['match_type'] ?? 'unknown' ) ),
 				'enabled'         => ! empty( $data['enabled'] ) ? 1 : 0,
 				'is_primary'      => ! empty( $data['is_primary'] ) ? 1 : 0,
+				'approved_sku'    => $this->nullable_limited_text( $data['approved_sku'] ?? null, 191 ),
+				'approved_gtin'   => $this->nullable_limited_text( $data['approved_gtin'] ?? null, 191 ),
+				'approved_mpn'    => $this->nullable_limited_text( $data['approved_mpn'] ?? null, 191 ),
+				'approved_title'  => $this->nullable_limited_text( $data['approved_title'] ?? null, 255 ),
+				'approved_title_hash' => $this->nullable_hash( $data['approved_title_hash'] ?? null ),
+				'identity_guard_enabled' => ! array_key_exists( 'identity_guard_enabled', $data ) || ! empty( $data['identity_guard_enabled'] ) ? 1 : 0,
+				'identity_drift_detected_at' => null,
+				'identity_drift_reason' => null,
 				'updated_at'      => current_time( 'mysql' ),
 			),
 			array( 'id' => absint( $competitor_link_id ) ),
-			array( '%d', '%s', '%s', '%s', '%d', '%d', '%s' ),
+			array( '%d', '%s', '%s', '%s', '%d', '%d', '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ),
 			array( '%d' )
 		);
 
 		if ( false !== $updated && ! empty( $data['is_primary'] ) ) {
 			$this->unset_primary_competitor_links( absint( $data['monitored_product_id'] ?? 0 ), $competitor_link_id );
 		}
+
+		return false !== $updated;
+	}
+
+	/**
+	 * Store the first trusted identity snapshot for an existing competitor link.
+	 *
+	 * @param array<string,mixed> $identity Identity fields.
+	 */
+	public function set_competitor_link_identity_snapshot( int $competitor_link_id, array $identity ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'approved_sku'        => $this->nullable_limited_text( $identity['sku'] ?? null, 191 ),
+				'approved_gtin'       => $this->nullable_limited_text( $identity['gtin'] ?? null, 191 ),
+				'approved_mpn'        => $this->nullable_limited_text( $identity['mpn'] ?? null, 191 ),
+				'approved_title'      => $this->nullable_limited_text( $identity['title'] ?? null, 255 ),
+				'approved_title_hash' => $this->nullable_hash( $identity['title_hash'] ?? null ),
+				'identity_guard_enabled' => 1,
+				'identity_drift_detected_at' => null,
+				'identity_drift_reason' => null,
+				'updated_at'          => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%s', '%s', '%s', '%s', '%s', '%d', '%s', '%s', '%s' ),
+			array( '%d' )
+		);
+
+		return false !== $updated;
+	}
+
+	public function mark_competitor_link_identity_drift( int $competitor_link_id, string $reason ): bool {
+		$table = $this->tables['competitor_links'];
+
+		if ( ! $this->table_exists( $table ) ) {
+			return false;
+		}
+
+		$updated = $this->wpdb->update(
+			$table,
+			array(
+				'identity_drift_detected_at' => current_time( 'mysql' ),
+				'identity_drift_reason'      => sanitize_textarea_field( $reason ),
+				'last_error'                 => sanitize_textarea_field( $reason ),
+				'updated_at'                 => current_time( 'mysql' ),
+			),
+			array( 'id' => absint( $competitor_link_id ) ),
+			array( '%s', '%s', '%s', '%s' ),
+			array( '%d' )
+		);
 
 		return false !== $updated;
 	}
@@ -1005,7 +1075,11 @@ final class Repository {
 		} else {
 			$data['consecutive_failures'] = 0;
 			$data['next_check_after']     = null;
+			$data['identity_drift_detected_at'] = null;
+			$data['identity_drift_reason'] = null;
 			$formats[]                    = '%d';
+			$formats[]                    = '%s';
+			$formats[]                    = '%s';
 			$formats[]                    = '%s';
 		}
 
@@ -3001,6 +3075,15 @@ final class Repository {
 		$value = sanitize_text_field( (string) $value );
 
 		return '' === $value ? null : substr( $value, 0, $length );
+	}
+
+	/**
+	 * @param mixed $value Raw SHA-256 hash.
+	 */
+	private function nullable_hash( $value ): ?string {
+		$value = strtolower( sanitize_text_field( (string) $value ) );
+
+		return preg_match( '/^[a-f0-9]{64}$/', $value ) ? $value : null;
 	}
 
 	/**

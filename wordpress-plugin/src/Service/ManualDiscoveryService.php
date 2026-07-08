@@ -176,7 +176,8 @@ class ManualDiscoveryService {
 			return array( 'success' => false, 'message' => __( 'The product could not be added to monitoring.', 'lilleprinsen-price-monitor' ) );
 		}
 
-		$data = self::competitor_link_data_for_approval( $suggestion, $competitor ?: array(), $monitored_id );
+		$discovered = $this->discovery_repository->get_discovered_product( (int) $suggestion->discovered_product_id );
+		$data       = self::competitor_link_data_for_approval( $suggestion, $competitor ?: array(), $monitored_id, $discovered );
 		$existing_link = $this->repository->get_competitor_link_by_url( $monitored_id, (string) $suggestion->competitor_url );
 		$link_id       = $existing_link ? (int) $existing_link['id'] : $this->repository->add_competitor_link( $data );
 		if ( $existing_link ) {
@@ -314,7 +315,8 @@ class ManualDiscoveryService {
 	 * @param array<string,mixed> $competitor Competitor profile.
 	 * @return array<string,mixed>
 	 */
-	public static function competitor_link_data_for_approval( object $suggestion, array $competitor, int $monitored_id ): array {
+	public static function competitor_link_data_for_approval( object $suggestion, array $competitor, int $monitored_id, ?object $discovered = null ): array {
+		$title = $discovered ? sanitize_text_field( (string) ( $discovered->title ?? '' ) ) : '';
 		return array(
 			'monitored_product_id' => $monitored_id,
 			'competitor_id'        => (int) $suggestion->competitor_id,
@@ -323,6 +325,12 @@ class ManualDiscoveryService {
 			'match_type'           => 'High confidence' === (string) $suggestion->confidence_label ? 'exact' : 'similar',
 			'enabled'              => 1,
 			'is_primary'           => 0,
+			'approved_sku'         => $discovered ? (string) ( $discovered->sku ?? '' ) : '',
+			'approved_gtin'        => $discovered ? (string) ( $discovered->gtin ?? '' ) : '',
+			'approved_mpn'         => $discovered ? (string) ( $discovered->mpn ?? '' ) : '',
+			'approved_title'       => $title,
+			'approved_title_hash'  => '' !== $title ? hash( 'sha256', strtolower( preg_replace( '/\s+/', ' ', $title ) ?? $title ) ) : '',
+			'identity_guard_enabled' => 1,
 		);
 	}
 
