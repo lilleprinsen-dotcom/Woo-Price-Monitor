@@ -300,6 +300,15 @@
 					button.removeAttribute('data-lpm-add-product');
 					button.setAttribute('data-lpm-start-product', String(data.discovery_product_id));
 					button.textContent = 'Find matches';
+					if (parseInt(data.active_competitor_count || '0', 10) > 0) {
+						toast('Searching active competitors now...', 'success');
+						document.dispatchEvent(new CustomEvent('lpm:start-discovery', {
+							detail: {
+								productId: String(data.discovery_product_id),
+								competitorId: '0'
+							}
+						}));
+					}
 				} else {
 					button.textContent = 'Added';
 				}

@@ -70,6 +70,7 @@ $shell_source = file_get_contents( LPM_TEST_ROOT . '/templates/admin/app-shell.p
 $discovery_script = file_get_contents( LPM_TEST_ROOT . '/assets/discovery-admin.js' );
 $discovery_admin_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/DiscoveryAdminPage.php' );
 $ajax_source = file_get_contents( LPM_TEST_ROOT . '/src/Admin/AdminAjaxController.php' );
+$admin_script = file_get_contents( LPM_TEST_ROOT . '/assets/admin.js' );
 
 assert_not_contains( 'render_placeholder_panel', $admin_source, 'Placeholder panels should not remain in the unified admin page.' );
 assert_not_contains( "render_embedded( 'products' )", $admin_source, 'Products tab should not embed the legacy discovery products page.' );
@@ -103,8 +104,11 @@ if ( false === strpos( $ajax_source, 'sync_product_to_discovery_selection' ) || 
 	fwrite( STDERR, "Fast AJAX product adds should prepare the product for competitor discovery immediately.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $ajax_source, 'active_competitor_count' ) || false === strpos( $admin_script, 'lpm:start-discovery' ) || false === strpos( $discovery_script, "addEventListener('lpm:start-discovery'" ) ) {
+	fwrite( STDERR, "Fast AJAX product adds should automatically start live discovery when active competitors exist.\n" );
+	exit( 1 );
+}
 
-$admin_script = file_get_contents( LPM_TEST_ROOT . '/assets/admin.js' );
 if ( false === strpos( $admin_script, 'data-lpm-chart-point' ) || false === strpos( $admin_script, 'lpm-chart-tooltip' ) ) {
 	fwrite( STDERR, "Price history chart points should expose compact hover/focus tooltips.\n" );
 	exit( 1 );

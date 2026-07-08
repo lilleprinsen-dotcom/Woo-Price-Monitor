@@ -124,6 +124,7 @@ final class AdminAjaxController {
 				'message'              => $this->message_for_monitoring_code( (string) ( $result['code'] ?? '' ) ),
 				'monitored_product_id' => (int) ( $result['id'] ?? 0 ),
 				'discovery_product_id' => $discovery_product_id,
+				'active_competitor_count' => $this->repository->count_active_competitors(),
 				'product'              => $this->format_product( $product ),
 			)
 		);
