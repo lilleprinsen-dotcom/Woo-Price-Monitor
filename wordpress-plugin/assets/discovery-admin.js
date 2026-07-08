@@ -854,6 +854,10 @@
 				return;
 			}
 		});
+		document.addEventListener('lpm:start-discovery', function (event) {
+			var detail = event.detail || {};
+			startShortcut(detail.productId || '0', detail.competitorId || '0');
+		});
 		document.addEventListener('keydown', function (event) {
 			if (event.key === 'Escape') {
 				closeDiscoveryModal();
