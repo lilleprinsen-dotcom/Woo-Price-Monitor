@@ -192,15 +192,17 @@ final class ApprovalTokenService {
 		}
 
 		if ( self::ACTION_REJECT === $action ) {
-			return ! empty( $settings['allow_token_dry_run_approval_links'] ) || ( ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_reject'] ) );
+			return ! empty( $settings['allow_token_dry_run_approval_links'] )
+				|| ( ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_reject'] ) )
+				|| ( ! empty( $settings['ntfy_notifications_enabled'] ) && ! empty( $settings['allow_token_reject'] ) );
 		}
 
 		if ( self::ACTION_MATCH_PRICE === $action ) {
-			return ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_match_price_dry_run'] );
+			return ( ! empty( $settings['whatsapp_action_links_enabled'] ) || ! empty( $settings['ntfy_notifications_enabled'] ) ) && ! empty( $settings['allow_token_match_price_dry_run'] );
 		}
 
 		if ( self::ACTION_MATCH_PRICE_MINUS_1 === $action ) {
-			return ! empty( $settings['whatsapp_action_links_enabled'] ) && ! empty( $settings['allow_token_match_price_minus_1_dry_run'] );
+			return ( ! empty( $settings['whatsapp_action_links_enabled'] ) || ! empty( $settings['ntfy_notifications_enabled'] ) ) && ! empty( $settings['allow_token_match_price_minus_1_dry_run'] );
 		}
 
 		return false;

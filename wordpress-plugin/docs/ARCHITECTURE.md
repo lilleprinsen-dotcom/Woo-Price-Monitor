@@ -187,18 +187,19 @@ When `disable_coupons_for_price_matched_products = 1`, coupon discounts are filt
 Current notification modules:
 
 - `src/Notifications/LogNotificationChannel.php` writes log entries for debugging/audit.
+- `src/Notifications/NtfyNotificationChannel.php` posts ntfy push notifications with up to three iPhone action buttons for match price, match -1, and reject.
 - `src/Notifications/WebhookNotificationChannel.php` posts JSON payloads to Make, Zapier, or another webhook provider when enabled.
 - `src/Notifications/NotificationMessageBuilder.php` builds structured payloads and human-readable `message_text`.
 - `src/Service/ReviewLinkService.php` builds safe WordPress admin review links.
 - `src/Service/ApprovalTokenService.php` creates one-time token links for dry-run approval/rejection and webhook action links.
 
-Notifications are disabled by default. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Webhook failures are logged and do not block the admin or batch flow.
+Notifications are disabled by default. ntfy notifications require `ntfy_notifications_enabled = 1`, a valid `ntfy_server_url`, and a private `ntfy_topic`. Webhook notifications also require `webhook_notifications_enabled = 1` and a valid `webhook_url`. The webhook channel can include an `X-LPM-Signature` HMAC-SHA256 header when `webhook_secret` is set. Notification failures are logged and do not block the admin or batch flow.
 
 Webhook payloads can be received by Make/Zapier and forwarded to WhatsApp by those external tools. Direct Meta WhatsApp Cloud API and Twilio WhatsApp delivery are intentionally handled outside the plugin.
 
 Review links in notification payloads point to normal WordPress admin pages and require the usual admin login. No unauthenticated real WooCommerce price-update links are created.
 
-When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. When `whatsapp_action_links_enabled = 1`, suggestion payloads may also include `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `action_link_expires_at`, `competitor_url`, and `review_url` for Make/Zapier/WhatsApp messages. Tokens are stored only as hashes in `lpm_approval_tokens`, expire, and are one-time use.
+When `allow_token_dry_run_approval_links = 1`, suggestion webhook payloads may include `dry_run_approve_url`, `reject_url`, and `token_expires_at`. When `whatsapp_action_links_enabled = 1` or `ntfy_notifications_enabled = 1`, suggestion payloads may also include `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `action_link_expires_at`, `competitor_url`, and `review_url`. ntfy turns these into iPhone action buttons. Tokens are stored only as hashes in `lpm_approval_tokens`, expire, and are one-time use.
 
 Token actions can record dry-run approve/reject decisions and can adjust the stored suggested price to competitor price or competitor price minus 1 kr before dry-run approval. Match-price token actions validate positive price, configured max drop/increase, monitored-product minimum price, and group-member minimum prices before touching the suggestion. They never call `PriceUpdateService` and never update WooCommerce prices. Real updates still require logged-in admin confirmation through the normal admin workflow.
 
@@ -229,6 +230,9 @@ Important conservative defaults:
 - `allow_real_price_updates = 0`
 - `require_confirmation_for_real_updates = 1`
 - `notifications_enabled = 0`
+- `ntfy_notifications_enabled = 0`
+- `ntfy_server_url = 'https://ntfy.sh'`
+- `ntfy_topic = ''`
 - `webhook_notifications_enabled = 0`
 - `webhook_url = ''`
 - `webhook_send_on_new_suggestion = 1`
@@ -376,11 +380,11 @@ Current competitor link bulk actions:
 
 ### Webhook Notifications
 
-1. Admin enables notifications and webhook notifications in Settings.
-2. Admin saves a Make/Zapier/webhook URL and optional secret.
+1. Admin enables notifications and either ntfy iPhone push approvals or webhook notifications in Settings.
+2. Admin saves an ntfy topic, or a Make/Zapier/webhook URL and optional secret.
 3. New, blocked, recovery, and failed-check events call `NotificationService`.
 4. The log channel writes audit entries according to the log notification toggles.
-5. The webhook channel checks its own event toggles and posts a bounded JSON payload.
+5. The ntfy/webhook channel checks its own event toggles and posts a bounded payload.
 6. Payloads include product/suggestion context, `message_text`, `review_url`, and `approval_url`.
 7. `approval_url` is a normal admin review URL, not an unauthenticated update action.
 8. If token links are enabled, payloads can include one-time `dry_run_approve_url` and `reject_url` values for dry-run workflow actions only.

@@ -28,7 +28,9 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Confirm dry-run mode is visible on the Overview and enabled by default.
 - [ ] Confirm Overview health cards show monitored products, active competitors, approved matches, suggestions needing review, failed checks, and safety mode.
 - [ ] Confirm Overview warnings appear when WooCommerce is inactive, dry-run mode is disabled, emergency update disable is off, scheduled checks use a large batch size, or many checks have failed.
-- [ ] Confirm notifications and webhook notifications are disabled by default.
+- [ ] Confirm notifications, ntfy iPhone push, and webhook notifications are disabled by default.
+- [ ] Install/subscribe to an ntfy topic on a staging iPhone, enable iPhone push approvals, save settings, and click Send iPhone push test.
+- [ ] Confirm the test arrives on iOS and that no WooCommerce price is changed.
 - [ ] Add a staging Make/Zapier/webhook URL, optional secret, and enable webhook notifications.
 - [ ] Click Test webhook and confirm the provider receives a JSON payload with `event`, `site_url`, `plugin_version`, `message_text`, `review_url`, and no real price-update action link.
 - [ ] If a webhook secret is set, confirm the request includes an `X-LPM-Signature` header.
@@ -99,6 +101,9 @@ Before live dry-run, complete the audit checklist in `docs/PRODUCTION_AUDIT.md`.
 - [ ] Enable token dry-run approval links, create a pending suggestion notification, and confirm the webhook payload includes `dry_run_approve_url`, `reject_url`, and `token_expires_at`.
 - [ ] Enable webhook/WhatsApp action links and create a pending suggestion notification.
 - [ ] Confirm the webhook payload includes `action_match_price_url`, `action_match_price_minus_1_url`, `action_reject_url`, `competitor_url`, `review_url`, `action_link_expires_at`, and `action_warning_text`.
+- [ ] Enable ntfy iPhone push approvals and create a pending suggestion notification.
+- [ ] Confirm the ntfy notification includes three actions: Match price, Match -1, and Reject.
+- [ ] Tap each action on staging and confirm it records only a dry-run/reject decision through the normal token handler.
 - [ ] Use the Match price action link in dry-run mode and confirm the suggestion price is set to competitor price, status becomes approved dry-run, and WooCommerce price is unchanged.
 - [ ] Use the Match price -1 kr action link in dry-run mode and confirm the suggestion price is set to competitor price minus 1, status becomes approved dry-run, and WooCommerce price is unchanged.
 - [ ] Try a Match price action that violates max drop/increase, monitored min price, or group member min price and confirm it is blocked without changing `suggested_price`.

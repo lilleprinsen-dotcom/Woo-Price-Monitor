@@ -29,6 +29,7 @@ use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Cli\Command as CliCommand;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
+use Lilleprinsen\PriceMonitor\Notifications\NtfyNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Service\ApprovalTokenService;
 use Lilleprinsen\PriceMonitor\Service\CompetitorProductExtractor;
@@ -90,6 +91,7 @@ final class Plugin {
 		$notification_service = new NotificationService(
 			array(
 				new LogNotificationChannel( $repository ),
+				new NtfyNotificationChannel( $repository, null, $approval_tokens ),
 				new WebhookNotificationChannel( $repository, null, $approval_tokens ),
 			)
 		);

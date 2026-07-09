@@ -129,6 +129,9 @@ final class AdminActionHandler {
 			case 'send_test_webhook':
 				$this->page->handle_send_test_webhook();
 				break;
+			case 'send_test_ntfy':
+				$this->page->handle_send_test_ntfy();
+				break;
 			case 'run_retention_cleanup':
 				$this->page->handle_run_retention_cleanup();
 				break;
