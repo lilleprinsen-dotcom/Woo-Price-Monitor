@@ -138,5 +138,13 @@ if ( false !== strpos( $admin_script, 'dataset.stock' ) ) {
 	fwrite( STDERR, "Price history chart tooltip should stay compact and avoid secondary stock details.\n" );
 	exit( 1 );
 }
+if ( false === strpos( $admin_script, 'lpm-price-candidates' ) || false === strpos( $admin_script, 'data-lpm-use-price-field' ) || false === strpos( $ajax_source, 'lpm_update_competitor_link_price_field' ) ) {
+	fwrite( STDERR, "Competitor link tests should show detected price candidates with one-click save actions.\n" );
+	exit( 1 );
+}
+if ( false !== strpos( $admin_script, 'Lowest detected price' ) ) {
+	fwrite( STDERR, "Unsupported lowest-price choices should stay hidden from the simple admin UI.\n" );
+	exit( 1 );
+}
 
 echo "Admin UX routing tests passed.\n";

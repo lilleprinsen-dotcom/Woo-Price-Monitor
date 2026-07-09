@@ -5,6 +5,7 @@
 	var drawerData = null;
 	var drawerTab = 'summary';
 	var drawerChartCompetitor = 'all';
+	var drawerTestResults = {};
 	var selectedSuggestionId = 0;
 	var selectedSuggestionStatus = '';
 
@@ -68,8 +69,7 @@
 			['sale_price_first', 'Sale price first'],
 			['sale_price', 'Sale price only'],
 			['regular_price', 'Regular price only'],
-			['price_selector', 'Current price selector'],
-			['lowest_price', 'Lowest detected price']
+			['price_selector', 'Current price selector']
 		];
 	}
 
@@ -359,6 +359,7 @@
 		document.addEventListener('click', function (event) {
 			var edit = event.target.closest('[data-lpm-edit-link]');
 			var test = event.target.closest('[data-lpm-test-link]');
+			var usePrice = event.target.closest('[data-lpm-use-price-field]');
 			var suggestion = event.target.closest('[data-lpm-create-suggestion]');
 
 			if (edit) {
@@ -367,6 +368,10 @@
 
 			if (test) {
 				runLinkAction(test, 'lpm_test_competitor_link', 'competitor_link_id');
+			}
+
+			if (usePrice) {
+				saveDetectedPriceField(usePrice);
 			}
 
 			if (suggestion) {
@@ -686,10 +691,45 @@
 				'<button type="button" class="button button-small" data-lpm-test-link="' + escapeHtml(link.id) + '">Test check</button>',
 				link.last_price ? '<button type="button" class="button button-small" data-lpm-create-suggestion="' + escapeHtml(link.id) + '">Create suggestion</button>' : '',
 				'</div>',
+				renderPriceCandidatePanel(link),
 				renderObservations(link.recent_observations || []),
 				'</article>'
 			].join('');
 		}).join('') + '</div>';
+	}
+
+	function renderPriceCandidatePanel(link) {
+		var result = drawerTestResults[String(link.id)] || null;
+		var candidates = result && Array.isArray(result.price_candidates) ? result.price_candidates : [];
+
+		if (!result) {
+			return '<p class="lpm-field-description">Use "Test check" if the saved price looks wrong. The plugin will show detected price options here.</p>';
+		}
+
+		if (!candidates.length) {
+			return '<div class="lpm-price-candidates lpm-price-candidates-warning"><strong>No price choices found</strong><p>' + escapeHtml(result.error || 'The test did not expose usable price candidates.') + '</p></div>';
+		}
+
+		return [
+			'<section class="lpm-price-candidates">',
+			'<div><strong>Detected price choices</strong><p>Choose the value this competitor should use for monitoring. No CSS selector is needed for JSON-LD, meta tag or visible-text prices.</p></div>',
+			'<div class="lpm-price-candidate-grid">',
+			candidates.map(function (candidate) {
+				var field = candidate.field || '';
+				var isActive = field && field === (link.price_field_override || link.effective_price_field || '');
+				return [
+					'<article class="lpm-price-candidate' + (candidate.selected ? ' is-selected' : '') + '">',
+					'<strong>' + escapeHtml(candidate.price_label || candidate.price || '—') + '</strong>',
+					'<span>' + escapeHtml(candidate.field_label || field || 'Detected price') + '</span>',
+					'<small>' + escapeHtml(candidate.source_label || candidate.source || 'Detected') + (candidate.rule ? ' · ' + escapeHtml(candidate.rule) : '') + '</small>',
+					candidate.note ? '<small>' + escapeHtml(candidate.note) + '</small>' : '',
+					'<button type="button" class="button button-small' + (candidate.selected || isActive ? ' button-primary' : '') + '" data-lpm-use-price-field="' + escapeHtml(field) + '" data-lpm-link-id="' + escapeHtml(link.id) + '"' + (!field ? ' disabled' : '') + '>' + (candidate.selected || isActive ? 'Using this' : 'Use this price') + '</button>',
+					'</article>'
+				].join('');
+			}).join(''),
+			'</div>',
+			'</section>'
+		].join('');
 	}
 
 	function renderLatestRead(link) {
@@ -737,10 +777,14 @@
 	function runLinkAction(button, action, key) {
 		var data = {};
 		data[key] = button.getAttribute(button.hasAttribute('data-lpm-test-link') ? 'data-lpm-test-link' : 'data-lpm-create-suggestion');
+		var linkId = data[key];
 		button.disabled = true;
 
 		ajax(action, data)
 			.then(function (result) {
+				if (action === 'lpm_test_competitor_link' && result.result) {
+					drawerTestResults[String(linkId)] = result.result;
+				}
 				if (result.competitor_links) {
 					drawerData.competitor_links = result.competitor_links;
 				}
@@ -756,6 +800,30 @@
 			.finally(function () {
 				button.disabled = false;
 			});
+	}
+
+	function saveDetectedPriceField(button) {
+		var linkId = button.getAttribute('data-lpm-link-id') || '';
+		var field = button.getAttribute('data-lpm-use-price-field') || '';
+		if (!linkId || !field) {
+			return;
+		}
+
+		button.disabled = true;
+		ajax('lpm_update_competitor_link_price_field', {
+			competitor_link_id: linkId,
+			price_field_override: field
+		}).then(function (result) {
+			if (result.competitor_links) {
+				drawerData.competitor_links = result.competitor_links;
+			}
+			toast(result.message || 'Price choice saved.', 'success');
+			renderDrawer();
+		}).catch(function (error) {
+			toast(error.message, 'error');
+		}).finally(function () {
+			button.disabled = false;
+		});
 	}
 
 	function renderDrawerRules() {

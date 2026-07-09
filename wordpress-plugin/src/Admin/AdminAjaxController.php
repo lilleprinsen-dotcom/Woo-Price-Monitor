@@ -57,6 +57,7 @@ final class AdminAjaxController {
 			'lpm_load_competitor_links'          => 'load_competitor_links',
 			'lpm_save_competitor_link'           => 'save_competitor_link',
 			'lpm_test_competitor_link'           => 'test_competitor_link',
+			'lpm_update_competitor_link_price_field' => 'update_competitor_link_price_field',
 			'lpm_create_suggestion'              => 'create_suggestion',
 			'lpm_load_suggestion_details'        => 'load_suggestion_details',
 			'lpm_approve_suggestion_dry_run'     => 'approve_suggestion_dry_run',
@@ -277,6 +278,52 @@ final class AdminAjaxController {
 					: __( 'Check failed. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),
 				'competitor_links' => $this->format_competitor_links( $this->repository->get_competitor_links_for_monitored_product( (int) $link['monitored_product_id'] ) ),
 				'observations'     => $this->format_observations( $this->repository->get_recent_observations_for_competitor_link( (int) $link['id'], 5 ) ),
+			)
+		);
+	}
+
+	public function update_competitor_link_price_field(): void {
+		$this->guard();
+
+		$link_id = $this->request_absint( 'competitor_link_id' );
+		$link    = $this->repository->get_competitor_link( $link_id );
+
+		if ( ! $link ) {
+			$this->send_error( __( 'Competitor link not found.', 'lilleprinsen-price-monitor' ), 404 );
+		}
+
+		$override = isset( $_REQUEST['price_field_override'] ) ? $this->sanitize_price_field_override( wp_unslash( $_REQUEST['price_field_override'] ) ) : null;
+
+		if ( ! $override ) {
+			$this->send_error( __( 'Choose a detected price field before saving.', 'lilleprinsen-price-monitor' ), 400 );
+		}
+
+		if ( ! $this->update_competitor_link_price_field_override( $link_id, $override ) ) {
+			$this->send_error( __( 'Competitor price field choice could not be saved.', 'lilleprinsen-price-monitor' ), 500 );
+		}
+
+		$monitored_product = $this->repository->get_monitored_product( (int) ( $link['monitored_product_id'] ?? 0 ) );
+		$product_id        = $monitored_product ? (int) ( $monitored_product['product_id'] ?? 0 ) : null;
+
+		$this->repository->write_log(
+			'info',
+			'competitor_link_price_field_saved_ajax',
+			__( 'Competitor monitored price choice was saved from detected price candidates.', 'lilleprinsen-price-monitor' ),
+			array(
+				'competitor_link_id' => $link_id,
+				'price_field'        => $override,
+			),
+			$product_id
+		);
+
+		$this->send_success(
+			array(
+				'message'          => sprintf(
+					/* translators: %s: selected price field label. */
+					__( 'Saved. This competitor will now use: %s.', 'lilleprinsen-price-monitor' ),
+					$this->get_price_field_label( $override )
+				),
+				'competitor_links' => $this->format_competitor_links( $this->repository->get_competitor_links_for_monitored_product( (int) $link['monitored_product_id'] ) ),
 			)
 		);
 	}
@@ -657,8 +704,70 @@ final class AdminAjaxController {
 		$field  = $this->sanitize_price_field( $result['price_field'] ?? '' );
 
 		$result['price_field_label'] = '' !== $field ? $this->get_price_field_label( $field ) : '';
+		$result['price_candidates']  = $this->price_candidates_from_check_result( $result, $field );
 
 		return $result;
+	}
+
+	/**
+	 * @param array<string,mixed> $result Formatted check result.
+	 * @return array<int,array<string,string|bool>>
+	 */
+	private function price_candidates_from_check_result( array $result, string $selected_field ): array {
+		$candidates = array();
+		$currency   = (string) ( $result['currency'] ?? '' );
+		$source     = (string) ( $result['extraction_method'] ?? '' );
+
+		$add = function ( string $field, $price, string $source_label, string $rule = '' ) use ( &$candidates, $selected_field, $currency ): void {
+			if ( null === $price || '' === $price || ! is_numeric( $price ) ) {
+				return;
+			}
+
+			$field = $this->sanitize_price_field( $field );
+			if ( isset( $candidates[ $field ] ) ) {
+				return;
+			}
+
+			$price = (float) $price;
+			$candidates[ $field ] = array(
+				'field'        => $field,
+				'field_label'  => $this->get_price_field_label( $field ),
+				'price'        => (string) $price,
+				'price_label'  => trim( wc_format_decimal( $price, 2 ) . ' ' . $currency ),
+				'source_label' => $source_label,
+				'rule'         => $rule,
+				'note'         => in_array( $source_label, array( 'JSON-LD', 'Meta tag', 'Visible text' ), true ) ? __( 'No selector needed.', 'lilleprinsen-price-monitor' ) : '',
+				'selected'     => $field === $selected_field,
+			);
+		};
+
+		$add( 'sale_price', $result['sale_price'] ?? null, __( 'Detected sale price', 'lilleprinsen-price-monitor' ) );
+		$add( 'regular_price', $result['regular_price'] ?? null, __( 'Detected regular price', 'lilleprinsen-price-monitor' ) );
+
+		if ( null !== ( $result['price'] ?? null ) ) {
+			$source_label = $this->source_label_for_extraction_method( $source );
+			$field        = in_array( $selected_field, array( 'sale_price', 'regular_price', 'price_selector' ), true ) ? $selected_field : 'price_selector';
+			$add( $field, $result['price'], $source_label, $source );
+		}
+
+		return array_values( $candidates );
+	}
+
+	private function source_label_for_extraction_method( string $method ): string {
+		if ( str_contains( $method, 'json_ld' ) ) {
+			return __( 'JSON-LD', 'lilleprinsen-price-monitor' );
+		}
+		if ( str_contains( $method, 'meta' ) ) {
+			return __( 'Meta tag', 'lilleprinsen-price-monitor' );
+		}
+		if ( str_contains( $method, 'visible' ) || str_contains( $method, 'regex' ) ) {
+			return __( 'Visible text', 'lilleprinsen-price-monitor' );
+		}
+		if ( str_contains( $method, 'selector' ) ) {
+			return __( 'Selector', 'lilleprinsen-price-monitor' );
+		}
+
+		return __( 'Detected price', 'lilleprinsen-price-monitor' );
 	}
 
 	/**
@@ -692,7 +801,6 @@ final class AdminAjaxController {
 			'sale_price'       => __( 'Sale price only', 'lilleprinsen-price-monitor' ),
 			'regular_price'    => __( 'Regular price only', 'lilleprinsen-price-monitor' ),
 			'price_selector'   => __( 'Current price selector', 'lilleprinsen-price-monitor' ),
-			'lowest_price'     => __( 'Lowest detected price', 'lilleprinsen-price-monitor' ),
 		);
 	}
 
