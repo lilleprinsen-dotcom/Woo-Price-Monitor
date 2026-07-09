@@ -25,8 +25,8 @@ Implemented foundation:
 - Shared batch lock, retry/backoff, and profile request-delay handling for bounded check batches.
 - Admin-only manual retention cleanup for old operational logs and price observations.
 - Bounded WP-CLI commands for check batches, cleanup, and operational status.
-- Notification abstraction with log and webhook channels. Webhooks can send JSON to Make, Zapier, or another provider; no direct WhatsApp calls are made.
-- Optional one-time token links for webhook dry-run approval, match-price dry-run actions, and rejection. Token links are disabled by default and can never update WooCommerce prices.
+- Notification abstraction with log, ntfy iPhone push, and webhook channels. ntfy can show quick approval buttons on iOS; webhooks can send JSON to Make, Zapier, or another provider.
+- Optional one-time token links for dry-run approval, match-price dry-run actions, and rejection. Token links can never update WooCommerce prices.
 - Product groups for related monitored products that should share pricing decisions, with group-aware suggestions, dry-run group approval, and a guarded explicit-admin group real-update foundation.
 - Optional lightweight frontend price-match box in Norwegian and coupon-discount exclusion for real actively price-matched products. Dry-run sessions do not trigger customer-facing display or coupon exclusion.
 - Guarded real WooCommerce price update foundation using WooCommerce CRUD APIs only. Real updates remain blocked by default.
@@ -44,6 +44,16 @@ Use the plugin from **WooCommerce > Price Monitor**:
 4. Open **Suggestions** and approve or reject match suggestions. Approved matches become active monitored competitor links.
 5. Review price suggestions in the same **Suggestions** inbox. Keep dry-run enabled until staging checks are complete.
 6. Use **Settings & Logs** for safety, automation, notifications, import/export, logs, and advanced/debug settings.
+
+### iPhone push approval setup
+
+The simplest mobile approval flow uses ntfy:
+
+1. Install the ntfy app on the iPhone.
+2. Subscribe to a private, hard-to-guess topic such as `lilleprinsen-prices-48291`.
+3. In **WooCommerce > Price Monitor > Settings & Logs**, enable **iPhone push approvals**, keep the server as `https://ntfy.sh`, paste the topic, save settings, and click **Send iPhone push test**.
+
+Price alerts can include three actions: **Match price**, **Match -1**, and **Reject**. These actions use hashed, expiring, one-time tokens and only record dry-run/reject decisions. Real WooCommerce price updates still require the existing logged-in admin safeguards.
 
 The plugin only searches selected products, never auto-approves matches, and keeps real WooCommerce price updates blocked by default.
 

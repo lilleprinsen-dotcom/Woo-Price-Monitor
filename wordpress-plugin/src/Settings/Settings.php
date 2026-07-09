@@ -86,6 +86,15 @@ final class Settings {
 			'webhook_send_on_blocked_suggestion' => 1,
 			'webhook_send_on_failed_check'    => 0,
 			'webhook_send_on_recovery_suggestion' => 1,
+			'ntfy_notifications_enabled'      => 0,
+			'ntfy_server_url'                 => 'https://ntfy.sh',
+			'ntfy_topic'                      => '',
+			'ntfy_access_token'               => '',
+			'ntfy_priority'                   => 'high',
+			'ntfy_send_on_new_suggestion'     => 1,
+			'ntfy_send_on_blocked_suggestion' => 1,
+			'ntfy_send_on_failed_check'       => 0,
+			'ntfy_send_on_recovery_suggestion' => 1,
 			'allow_token_dry_run_approval_links' => 0,
 			'token_link_expiry_hours'         => 24,
 			'token_retention_days'            => 30,
@@ -283,7 +292,7 @@ final class Settings {
 				),
 				(string) $defaults['price_match_write_mode']
 			),
-			'notifications_enabled'           => $this->sanitize_bool( $settings['notifications_enabled'] ?? $defaults['notifications_enabled'] ),
+			'notifications_enabled'           => ( $this->sanitize_bool( $settings['notifications_enabled'] ?? $defaults['notifications_enabled'] ) || $this->sanitize_bool( $settings['ntfy_notifications_enabled'] ?? $defaults['ntfy_notifications_enabled'] ) ) ? 1 : 0,
 			'notify_on_new_suggestion'        => $this->sanitize_bool( $settings['notify_on_new_suggestion'] ?? $defaults['notify_on_new_suggestion'] ),
 			'notify_on_blocked_suggestion'    => $this->sanitize_bool( $settings['notify_on_blocked_suggestion'] ?? $defaults['notify_on_blocked_suggestion'] ),
 			'notify_on_failed_check'          => $this->sanitize_bool( $settings['notify_on_failed_check'] ?? $defaults['notify_on_failed_check'] ),
@@ -300,6 +309,19 @@ final class Settings {
 			'webhook_send_on_blocked_suggestion' => $this->sanitize_bool( $settings['webhook_send_on_blocked_suggestion'] ?? $defaults['webhook_send_on_blocked_suggestion'] ),
 			'webhook_send_on_failed_check'    => $this->sanitize_bool( $settings['webhook_send_on_failed_check'] ?? $defaults['webhook_send_on_failed_check'] ),
 			'webhook_send_on_recovery_suggestion' => $this->sanitize_bool( $settings['webhook_send_on_recovery_suggestion'] ?? $defaults['webhook_send_on_recovery_suggestion'] ),
+			'ntfy_notifications_enabled'      => $this->sanitize_bool( $settings['ntfy_notifications_enabled'] ?? $defaults['ntfy_notifications_enabled'] ),
+			'ntfy_server_url'                 => $this->sanitize_webhook_url( $settings['ntfy_server_url'] ?? $defaults['ntfy_server_url'] ),
+			'ntfy_topic'                      => $this->sanitize_ntfy_topic( $settings['ntfy_topic'] ?? $defaults['ntfy_topic'] ),
+			'ntfy_access_token'               => $this->sanitize_secret( $settings['ntfy_access_token'] ?? $defaults['ntfy_access_token'] ),
+			'ntfy_priority'                   => $this->sanitize_choice(
+				$settings['ntfy_priority'] ?? $defaults['ntfy_priority'],
+				array( 'min', 'low', 'default', 'high', 'urgent' ),
+				(string) $defaults['ntfy_priority']
+			),
+			'ntfy_send_on_new_suggestion'     => $this->sanitize_bool( $settings['ntfy_send_on_new_suggestion'] ?? $defaults['ntfy_send_on_new_suggestion'] ),
+			'ntfy_send_on_blocked_suggestion' => $this->sanitize_bool( $settings['ntfy_send_on_blocked_suggestion'] ?? $defaults['ntfy_send_on_blocked_suggestion'] ),
+			'ntfy_send_on_failed_check'       => $this->sanitize_bool( $settings['ntfy_send_on_failed_check'] ?? $defaults['ntfy_send_on_failed_check'] ),
+			'ntfy_send_on_recovery_suggestion' => $this->sanitize_bool( $settings['ntfy_send_on_recovery_suggestion'] ?? $defaults['ntfy_send_on_recovery_suggestion'] ),
 			'allow_token_dry_run_approval_links' => $this->sanitize_bool( $settings['allow_token_dry_run_approval_links'] ?? $defaults['allow_token_dry_run_approval_links'] ),
 			'token_link_expiry_hours'         => $this->sanitize_int( $settings['token_link_expiry_hours'] ?? $defaults['token_link_expiry_hours'], 1, 168, (int) $defaults['token_link_expiry_hours'] ),
 			'token_retention_days'            => $this->sanitize_int( $settings['token_retention_days'] ?? $defaults['token_retention_days'], 1, 3650, (int) $defaults['token_retention_days'] ),
@@ -456,6 +478,16 @@ final class Settings {
 		$secret = sanitize_text_field( (string) $value );
 
 		return substr( trim( $secret ), 0, 255 );
+	}
+
+	/**
+	 * @param mixed $value Raw ntfy topic.
+	 */
+	private function sanitize_ntfy_topic( $value ): string {
+		$topic = sanitize_text_field( (string) $value );
+		$topic = preg_replace( '/[^A-Za-z0-9_.-]/', '', $topic );
+
+		return is_string( $topic ) ? substr( trim( $topic ), 0, 120 ) : '';
 	}
 
 	/**

@@ -275,14 +275,48 @@ final class SettingsTab extends AdminViewHelpers {
 				<section class="lpm-card">
 					<div class="lpm-card-header">
 						<h2><?php esc_html_e( 'Notifications', 'lilleprinsen-price-monitor' ); ?></h2>
-						<?php $this->render_status_pill( ! empty( $settings['webhook_notifications_enabled'] ) ? __( 'Webhook enabled', 'lilleprinsen-price-monitor' ) : __( 'Disabled by default', 'lilleprinsen-price-monitor' ), ! empty( $settings['webhook_notifications_enabled'] ) ? 'warning' : 'muted' ); ?>
+						<?php $this->render_status_pill( ! empty( $settings['ntfy_notifications_enabled'] ) ? __( 'iPhone push enabled', 'lilleprinsen-price-monitor' ) : __( 'Setup needed', 'lilleprinsen-price-monitor' ), ! empty( $settings['ntfy_notifications_enabled'] ) ? 'ok' : 'muted' ); ?>
 					</div>
-					<p class="lpm-field-description"><?php esc_html_e( 'Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
+					<div class="lpm-onboarding-box">
+						<h3><?php esc_html_e( 'iPhone push approvals with ntfy', 'lilleprinsen-price-monitor' ); ?></h3>
+						<p><?php esc_html_e( 'Fast setup: install the ntfy app on your iPhone, subscribe to a private topic, paste the same topic here, save, then send a test.', 'lilleprinsen-price-monitor' ); ?></p>
+						<ol class="lpm-onboarding-steps">
+							<li><?php esc_html_e( 'Install ntfy from the iOS App Store.', 'lilleprinsen-price-monitor' ); ?></li>
+							<li><?php esc_html_e( 'Create a hard-to-guess topic, for example lilleprinsen-prices-48291.', 'lilleprinsen-price-monitor' ); ?></li>
+							<li><?php esc_html_e( 'Enable iPhone push approvals below and send a test notification.', 'lilleprinsen-price-monitor' ); ?></li>
+						</ol>
+						<p class="lpm-field-description"><?php esc_html_e( 'Price alerts can show three buttons: Match price, Match -1 and Reject. They record dry-run approval/rejection only; real WooCommerce price updates still require the existing logged-in admin safeguards.', 'lilleprinsen-price-monitor' ); ?></p>
+					</div>
 					<?php
 					$this->render_checkbox_field( 'notifications_enabled', __( 'Notifications enabled', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'notify_on_new_suggestion', __( 'Notify on new suggestion', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'notify_on_blocked_suggestion', __( 'Notify on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'notify_on_failed_check', __( 'Notify on failed check', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'ntfy_notifications_enabled', __( 'Enable iPhone push approvals', 'lilleprinsen-price-monitor' ), $settings, __( 'Recommended for quick price decisions on iOS. This also keeps general notifications enabled.', 'lilleprinsen-price-monitor' ) );
+					$this->render_text_field( 'ntfy_server_url', __( 'ntfy server URL', 'lilleprinsen-price-monitor' ), $settings, 'https://ntfy.sh' );
+					$this->render_text_field( 'ntfy_topic', __( 'Private ntfy topic', 'lilleprinsen-price-monitor' ), $settings, 'lilleprinsen-prices-48291' );
+					$this->render_text_field( 'ntfy_access_token', __( 'ntfy access token', 'lilleprinsen-price-monitor' ), $settings, __( 'Optional for protected/self-hosted topics', 'lilleprinsen-price-monitor' ) );
+					$this->render_select_field(
+						'ntfy_priority',
+						__( 'iPhone alert priority', 'lilleprinsen-price-monitor' ),
+						$settings,
+						array(
+							'default' => __( 'Normal', 'lilleprinsen-price-monitor' ),
+							'high'    => __( 'High', 'lilleprinsen-price-monitor' ),
+							'urgent'  => __( 'Urgent', 'lilleprinsen-price-monitor' ),
+							'low'     => __( 'Low', 'lilleprinsen-price-monitor' ),
+							'min'     => __( 'Silent/minimum', 'lilleprinsen-price-monitor' ),
+						)
+					);
+					$this->render_checkbox_field( 'ntfy_send_on_new_suggestion', __( 'iPhone push on new price suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'ntfy_send_on_blocked_suggestion', __( 'iPhone push on blocked suggestion', 'lilleprinsen-price-monitor' ), $settings );
+					$this->render_checkbox_field( 'ntfy_send_on_recovery_suggestion', __( 'iPhone push on market recovery suggestion', 'lilleprinsen-price-monitor' ), $settings, __( 'Recovery suggestions stay market-aware; they should not suggest price-up while a valid in-stock competitor remains lower.', 'lilleprinsen-price-monitor' ) );
+					$this->render_checkbox_field( 'ntfy_send_on_failed_check', __( 'iPhone push on failed competitor check', 'lilleprinsen-price-monitor' ), $settings );
+					?>
+					<details class="lpm-settings-section">
+						<summary><?php esc_html_e( 'Advanced webhook / WhatsApp forwarding', 'lilleprinsen-price-monitor' ); ?></summary>
+						<p class="lpm-field-description"><?php esc_html_e( 'Optional. Webhooks can send JSON to Make, Zapier, or another provider that forwards messages to WhatsApp.', 'lilleprinsen-price-monitor' ); ?></p>
+						<?php
 					$this->render_text_field( 'notification_phone_number', __( 'Notification phone number', 'lilleprinsen-price-monitor' ), $settings, '+47 ...' );
 					$this->render_select_field(
 						'whatsapp_provider',
@@ -304,7 +338,10 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_checkbox_field( 'webhook_send_on_failed_check', __( 'Webhook on failed check', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'webhook_send_on_recovery_suggestion', __( 'Webhook on recovery suggestion', 'lilleprinsen-price-monitor' ), $settings );
 					?>
-					<p class="lpm-field-description"><?php esc_html_e( 'Token links are disabled by default and can only approve dry-run suggestions or reject suggestions. They can never update WooCommerce prices; real updates still require logged-in admin confirmation and all safety settings.', 'lilleprinsen-price-monitor' ); ?></p>
+					</details>
+					<details class="lpm-settings-section">
+						<summary><?php esc_html_e( 'Advanced approval link settings', 'lilleprinsen-price-monitor' ); ?></summary>
+						<p class="lpm-field-description"><?php esc_html_e( 'Token links can only approve dry-run suggestions or reject suggestions. They can never update WooCommerce prices; real updates still require logged-in admin confirmation and all safety settings.', 'lilleprinsen-price-monitor' ); ?></p>
 					<?php
 					$this->render_checkbox_field( 'allow_token_dry_run_approval_links', __( 'Allow token dry-run approval links', 'lilleprinsen-price-monitor' ), $settings, __( 'When enabled, webhook notifications can include one-time approve dry-run and reject links.', 'lilleprinsen-price-monitor' ) );
 					$this->render_number_field( 'token_link_expiry_hours', __( 'Token link expiry hours', 'lilleprinsen-price-monitor' ), $settings, 1 );
@@ -319,6 +356,7 @@ final class SettingsTab extends AdminViewHelpers {
 					$this->render_checkbox_field( 'allow_token_reject', __( 'Allow Reject token action', 'lilleprinsen-price-monitor' ), $settings );
 					$this->render_checkbox_field( 'allow_unauthenticated_real_price_update_from_token', __( 'Allow unauthenticated real update from token', 'lilleprinsen-price-monitor' ), $settings, __( 'Strong warning: default off and not used by this version. Real price updates still require logged-in admin confirmation.', 'lilleprinsen-price-monitor' ) );
 					?>
+					</details>
 				</section>
 			</div>
 
@@ -337,6 +375,12 @@ final class SettingsTab extends AdminViewHelpers {
 			<input type="hidden" name="lpm_action" value="send_test_webhook" />
 			<button type="submit" class="button"><?php esc_html_e( 'Test webhook', 'lilleprinsen-price-monitor' ); ?></button>
 			<span class="lpm-field-description"><?php esc_html_e( 'Sends one JSON test payload to the saved webhook URL. No WooCommerce price update link is included.', 'lilleprinsen-price-monitor' ); ?></span>
+		</form>
+		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
+			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>
+			<input type="hidden" name="lpm_action" value="send_test_ntfy" />
+			<button type="submit" class="button button-primary"><?php esc_html_e( 'Send iPhone push test', 'lilleprinsen-price-monitor' ); ?></button>
+			<span class="lpm-field-description"><?php esc_html_e( 'Sends one test notification to the saved ntfy topic. Save settings first.', 'lilleprinsen-price-monitor' ); ?></span>
 		</form>
 		<form method="post" class="lpm-card lpm-card-spaced lpm-inline-form">
 			<?php wp_nonce_field( 'lpm_admin_action', 'lpm_nonce' ); ?>

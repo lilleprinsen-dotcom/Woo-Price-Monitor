@@ -334,7 +334,9 @@ final class NotificationMessageBuilder {
 			}
 		}
 
-		if ( 'pending' === $status && ! empty( $settings['whatsapp_action_links_enabled'] ) ) {
+		$action_links_enabled = ! empty( $settings['whatsapp_action_links_enabled'] ) || ! empty( $settings['ntfy_notifications_enabled'] );
+
+		if ( 'pending' === $status && $action_links_enabled ) {
 			$match = $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_MATCH_PRICE, $settings );
 
 			if ( ! empty( $match['success'] ) ) {
@@ -355,7 +357,7 @@ final class NotificationMessageBuilder {
 			$links['action_warning_text'] = __( 'Token action links record dry-run approve/reject only. Real WooCommerce updates require logged-in admin confirmation.', 'lilleprinsen-price-monitor' );
 		}
 
-		$reject = ( ! empty( $settings['allow_token_dry_run_approval_links'] ) || ! empty( $settings['whatsapp_action_links_enabled'] ) )
+		$reject = ( ! empty( $settings['allow_token_dry_run_approval_links'] ) || $action_links_enabled )
 			? $this->approval_tokens->create_token( $suggestion_id, ApprovalTokenService::ACTION_REJECT, $settings )
 			: array();
 

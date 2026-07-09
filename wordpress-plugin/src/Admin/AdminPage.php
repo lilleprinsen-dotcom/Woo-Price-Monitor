@@ -13,6 +13,7 @@ use Lilleprinsen\PriceMonitor\Database\Schema;
 use Lilleprinsen\PriceMonitor\Jobs\JobScheduler;
 use Lilleprinsen\PriceMonitor\Notifications\NotificationService;
 use Lilleprinsen\PriceMonitor\Notifications\LogNotificationChannel;
+use Lilleprinsen\PriceMonitor\Notifications\NtfyNotificationChannel;
 use Lilleprinsen\PriceMonitor\Notifications\WebhookNotificationChannel;
 use Lilleprinsen\PriceMonitor\Plugin;
 use Lilleprinsen\PriceMonitor\Service\GroupSuggestionService;
@@ -92,7 +93,7 @@ final class AdminPage {
 		$this->price_recovery_service = $price_recovery_service ?? new PriceRecoveryService();
 		$this->group_suggestion_service = $group_suggestion_service ?? new GroupSuggestionService( $repository );
 		$this->suggestion_service     = $suggestion_service ?? new SuggestionService( $repository, $this->price_recovery_service, null, $this->group_suggestion_service );
-		$this->notification_service   = $notification_service ?? new NotificationService( array( new LogNotificationChannel( $repository ), new WebhookNotificationChannel( $repository ) ) );
+		$this->notification_service   = $notification_service ?? new NotificationService( array( new LogNotificationChannel( $repository ), new NtfyNotificationChannel( $repository ), new WebhookNotificationChannel( $repository ) ) );
 		$this->job_scheduler          = $job_scheduler ?? new JobScheduler( $settings, new \Lilleprinsen\PriceMonitor\Jobs\CheckCompetitorLinkJob( $repository, $settings, $this->price_check_service, $this->suggestion_service, $this->notification_service ), $repository );
 		$this->price_update_service   = $price_update_service ?? new PriceUpdateService( $repository, $this->price_recovery_service, $this->group_suggestion_service );
 		$this->product_search_service = $product_search_service ?? new ProductSearchService( $repository );
@@ -2028,6 +2029,25 @@ final class AdminPage {
 		);
 
 		$this->redirect_to_tab( 'settings', $sent ? 'test_webhook_sent' : 'test_webhook_failed', array( 'lpm_notice_type' => $sent ? 'success' : 'error' ) );
+	}
+
+	public function handle_send_test_ntfy(): void {
+		$settings = $this->settings->get_all();
+		$channel  = new NtfyNotificationChannel( $this->repository );
+		$sent     = $channel->send(
+			'ntfy_test',
+			__( 'Lilleprinsen Price Monitor iPhone push test. Future price alerts can show Match price, Match -1 and Reject buttons.', 'lilleprinsen-price-monitor' ),
+			array(
+				'force_ntfy_test' => 1,
+				'status'          => 'test',
+				'reason'          => __( 'Admin-triggered iPhone push test.', 'lilleprinsen-price-monitor' ),
+				'created_at'      => current_time( 'mysql' ),
+			),
+			null,
+			$settings
+		);
+
+		$this->redirect_to_tab( 'settings', $sent ? 'test_ntfy_sent' : 'test_ntfy_failed', array( 'lpm_notice_type' => $sent ? 'success' : 'error' ) );
 	}
 
 	public function handle_run_retention_cleanup(): void {
@@ -5389,6 +5409,8 @@ final class AdminPage {
 			'test_notification_sent'          => __( 'Test notification logged. WhatsApp is not connected yet.', 'lilleprinsen-price-monitor' ),
 			'test_webhook_sent'               => __( 'Test webhook sent.', 'lilleprinsen-price-monitor' ),
 			'test_webhook_failed'             => __( 'Test webhook failed. Check the webhook URL and logs.', 'lilleprinsen-price-monitor' ),
+			'test_ntfy_sent'                  => __( 'iPhone push test sent.', 'lilleprinsen-price-monitor' ),
+			'test_ntfy_failed'                => __( 'iPhone push test failed. Check the ntfy topic, server URL and logs.', 'lilleprinsen-price-monitor' ),
 			'retention_cleanup_completed'     => __( 'Retention cleanup completed.', 'lilleprinsen-price-monitor' ),
 			'price_match_session_not_found'   => __( 'Price match session was not found.', 'lilleprinsen-price-monitor' ),
 			'price_match_session_ended'       => __( 'Dry-run price match session ended. WooCommerce price was not changed.', 'lilleprinsen-price-monitor' ),

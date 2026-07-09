@@ -1753,6 +1753,55 @@
 	color: #b32d2e;
 }
 
+.lpm-onboarding-box {
+	background: #f6f9ff;
+	border: 1px solid #c8d9f1;
+	border-radius: 8px;
+	margin: 12px 0 18px;
+	padding: 16px;
+}
+
+.lpm-onboarding-box h3 {
+	font-size: 15px;
+	margin: 0 0 8px;
+}
+
+.lpm-onboarding-box p {
+	margin: 0 0 10px;
+}
+
+.lpm-onboarding-steps {
+	counter-reset: lpm-onboarding-step;
+	display: grid;
+	gap: 8px;
+	list-style: none;
+	margin: 12px 0;
+	padding: 0;
+}
+
+.lpm-onboarding-steps li {
+	align-items: center;
+	display: grid;
+	gap: 10px;
+	grid-template-columns: 28px minmax(0, 1fr);
+	margin: 0;
+}
+
+.lpm-onboarding-steps li::before {
+	align-items: center;
+	background: #1d4ed8;
+	border-radius: 50%;
+	color: #fff;
+	content: counter(lpm-onboarding-step);
+	counter-increment: lpm-onboarding-step;
+	display: inline-flex;
+	font-size: 13px;
+	font-weight: 700;
+	height: 28px;
+	justify-content: center;
+	width: 28px;
+}
+
 @media (max-width: 1100px) {
 	.lpm-grid-summary {
 		grid-template-columns: repeat(3, minmax(0, 1fr));
