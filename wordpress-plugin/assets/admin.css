@@ -1134,6 +1134,58 @@
 	width: 22px;
 }
 
+.lpm-price-candidates {
+	background: #f8fafc;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	margin: 12px 0;
+	padding: 12px;
+}
+
+.lpm-price-candidates > div:first-child strong {
+	display: block;
+	margin-bottom: 2px;
+}
+
+.lpm-price-candidates > div:first-child p {
+	color: #646970;
+	margin: 0 0 10px;
+}
+
+.lpm-price-candidates-warning {
+	background: #fff8e5;
+	border-color: #f0c33c;
+}
+
+.lpm-price-candidate-grid {
+	display: grid;
+	gap: 10px;
+	grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+}
+
+.lpm-price-candidate {
+	background: #fff;
+	border: 1px solid #dcdcde;
+	border-radius: 8px;
+	display: grid;
+	gap: 4px;
+	padding: 10px;
+}
+
+.lpm-price-candidate.is-selected {
+	border-color: #2271b1;
+	box-shadow: inset 3px 0 0 #2271b1;
+}
+
+.lpm-price-candidate strong {
+	font-size: 18px;
+}
+
+.lpm-price-candidate span,
+.lpm-price-candidate small {
+	color: #50575e;
+}
+
 .lpm-toast-region {
 	bottom: 24px;
 	display: grid;
